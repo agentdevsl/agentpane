@@ -34,7 +34,7 @@ import {
   unstable_v2_createSession,
   unstable_v2_resumeSession,
 } from '@anthropic-ai/claude-agent-sdk';
-import { createEventEmitter, type SkillCallRecord } from './event-emitter.js';
+import { createEventEmitter } from './event-emitter.js';
 // SC-023: Shared session utilities. index.ts still uses its own writeCredentialsFile
 // and shouldStop variants (with additional debug logging), but types and file-change
 // detection are imported from the shared module to reduce duplication.
@@ -43,6 +43,7 @@ import {
   extractFileChange as sharedExtractFileChange,
   getAssistantText as sharedGetAssistantText,
 } from './shared-session.js';
+import { buildEnrichedFields, createTrackingState, optionalSkillCalls } from './skill-tracking.js';
 
 const VALID_TOPOLOGY_STATUSES = new Set(['completed', 'failed', 'stopped']);
 
@@ -59,15 +60,21 @@ function normalizeTopologyStatus(raw: unknown): 'completed' | 'failed' | 'stoppe
  * Map SDK task_type to a visual role category (icon/color only).
  * Canonical source: src/lib/topology/map-agent-role.ts — keep in sync.
  * Duplicated here due to agent-runner build boundary (separate package).
+ *
+ * Uses suffix after last separator to avoid false matches in toolkit prefixes
+ * (e.g., "pr-review-toolkit:pr-test-analyzer" should be tester, not reviewer).
  */
 function mapAgentRole(agentType?: string): string {
   if (!agentType) return 'agent';
   const t = agentType.toLowerCase();
-  if (t.includes('plan')) return 'planner';
-  if (t.includes('review') || t.includes('analyz')) return 'reviewer';
-  if (t.includes('test') || t.includes('verif')) return 'tester';
-  if (t.includes('scan') || t.includes('security') || t.includes('hunter')) return 'scanner';
-  if (t.includes('deploy')) return 'deployer';
+  // Use suffix after last separator to avoid false matches in toolkit prefixes
+  const sep = t.lastIndexOf(':');
+  const m = sep >= 0 ? t.slice(sep + 1) : t.includes('.') ? t.slice(t.lastIndexOf('.') + 1) : t;
+  if (m.includes('plan')) return 'planner';
+  if (m.includes('test') || m.includes('verif')) return 'tester';
+  if (m.includes('scan') || m.includes('security') || m.includes('hunter')) return 'scanner';
+  if (m.includes('review') || m.includes('analyz')) return 'reviewer';
+  if (m.includes('deploy')) return 'deployer';
   return 'agent';
 }
 
@@ -165,8 +172,6 @@ function handleTopologySystemMsg(
     tracker.taskToNodeId.delete(sdkTaskId);
   }
 }
-
-// SC-023: FILE_MODIFY_TOOLS and extractFileChange are now in shared-session.ts
 
 // Phase type
 type AgentPhase = 'plan' | 'execute';
@@ -385,8 +390,6 @@ async function shouldStop(): Promise<boolean> {
   }
 }
 
-// SC-023: ExitPlanModeOptions and ExitPlanModeInput are now imported from shared-session.ts
-
 /**
  * Run the agent in planning mode.
  * The agent explores the codebase and creates a plan.
@@ -415,41 +418,12 @@ async function runPlanningPhase(): Promise<void> {
   let exitPlanModeTimestamp: number | undefined;
   const EXIT_PLAN_MODE_TIMEOUT_MS = 60_000;
 
-  // Track active tool executions for emitting toolResult events
-  const activeTools = new Map<
-    string,
-    { toolName: string; startTime: number; skillName?: string }
-  >();
-
-  // Accumulate Skill tool calls for completion data
-  const skillCalls: SkillCallRecord[] = [];
-
-  // Accumulate file changes for completion metrics
-  const fileChangeSet = new Set<string>();
-  let totalLinesAdded = 0;
-  let totalLinesRemoved = 0;
-
-  // Accumulate token usage
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
+  // Shared tracking state for skill calls, file changes, and token usage
+  const tracking = createTrackingState();
+  const { activeTools, skillCalls } = tracking;
 
   /** Build enriched fields for complete events */
-  const enrichedFields = () => ({
-    ...(config.skillId ? { skillId: config.skillId } : {}),
-    ...(config.skillName ? { skillName: config.skillName } : {}),
-    ...(totalInputTokens > 0 || totalOutputTokens > 0
-      ? { usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens } }
-      : {}),
-    ...(fileChangeSet.size > 0
-      ? {
-          fileChanges: {
-            filesModified: fileChangeSet.size,
-            linesAdded: totalLinesAdded,
-            linesRemoved: totalLinesRemoved,
-          },
-        }
-      : {}),
-  });
+  const enrichedFields = () => buildEnrichedFields(tracking, config);
 
   // Helper to emit tool result for a completed tool
   const emitToolResult = (toolId: string, isError = false, result = '') => {
@@ -506,6 +480,10 @@ async function runPlanningPhase(): Promise<void> {
         const sName = typeof skillInput?.skill === 'string' ? skillInput.skill : undefined;
         if (sName) {
           toolEntry.skillName = sName;
+        } else {
+          console.error(
+            `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${options.toolUseID})`
+          );
         }
       }
 
@@ -526,9 +504,9 @@ async function runPlanningPhase(): Promise<void> {
         );
         if (fileChange) {
           events.fileChanged(fileChange);
-          fileChangeSet.add(fileChange.path);
-          if (fileChange.additions) totalLinesAdded += fileChange.additions;
-          if (fileChange.deletions) totalLinesRemoved += fileChange.deletions;
+          tracking.fileChangeSet.add(fileChange.path);
+          if (fileChange.additions) tracking.totalLinesAdded += fileChange.additions;
+          if (fileChange.deletions) tracking.totalLinesRemoved += fileChange.deletions;
         }
       }
 
@@ -644,7 +622,7 @@ async function runPlanningPhase(): Promise<void> {
             turnCount: turn,
             sdkSessionId: sdkSessionId ?? '',
             allowedPrompts: exitPlanModeOptions?.allowedPrompts,
-            skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+            skillCalls: optionalSkillCalls(skillCalls),
           });
           return;
         }
@@ -706,14 +684,14 @@ async function runPlanningPhase(): Promise<void> {
                 turnCount: turn,
                 sdkSessionId: sdkSessionId ?? '',
                 allowedPrompts: exitPlanModeOptions?.allowedPrompts,
-                skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+                skillCalls: optionalSkillCalls(skillCalls),
               });
             } else {
               events.complete({
                 status: 'turn_limit',
                 turnCount: turn,
                 result: `Turn limit reached (${config.maxTurns}) during planning.`,
-                skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+                skillCalls: optionalSkillCalls(skillCalls),
                 ...enrichedFields(),
               });
             }
@@ -765,11 +743,14 @@ async function runPlanningPhase(): Promise<void> {
         const toolSummary = msg as {
           summary: string;
           preceding_tool_use_ids: string[];
+          is_error?: boolean;
         };
 
         console.error(
           `[agent-runner] Tool summary: ids=${toolSummary.preceding_tool_use_ids.join(',')}`
         );
+
+        const summaryIsError = toolSummary.is_error === true;
 
         // Emit tool results for each preceding tool using tracked activeTools
         for (const toolId of toolSummary.preceding_tool_use_ids) {
@@ -781,7 +762,7 @@ async function runPlanningPhase(): Promise<void> {
               toolName: startInfo.toolName,
               toolId,
               result: toolSummary.summary ?? '',
-              isError: false,
+              isError: summaryIsError,
               durationMs,
             });
 
@@ -790,7 +771,7 @@ async function runPlanningPhase(): Promise<void> {
               skillCalls.push({
                 skillName: startInfo.skillName,
                 durationMs,
-                isError: false,
+                isError: summaryIsError,
               });
             }
 
@@ -817,9 +798,9 @@ async function runPlanningPhase(): Promise<void> {
         };
         if (assistantMsg.message?.usage) {
           if (typeof assistantMsg.message.usage.input_tokens === 'number')
-            totalInputTokens += assistantMsg.message.usage.input_tokens;
+            tracking.totalInputTokens += assistantMsg.message.usage.input_tokens;
           if (typeof assistantMsg.message.usage.output_tokens === 'number')
-            totalOutputTokens += assistantMsg.message.usage.output_tokens;
+            tracking.totalOutputTokens += assistantMsg.message.usage.output_tokens;
         }
 
         // ExitPlanMode was detected — do NOT close session here.
@@ -850,9 +831,9 @@ async function runPlanningPhase(): Promise<void> {
         if (resultUsage) {
           // Result usage is cumulative — use it as the authoritative total if available
           if (typeof resultUsage.input_tokens === 'number')
-            totalInputTokens = resultUsage.input_tokens;
+            tracking.totalInputTokens = resultUsage.input_tokens;
           if (typeof resultUsage.output_tokens === 'number')
-            totalOutputTokens = resultUsage.output_tokens;
+            tracking.totalOutputTokens = resultUsage.output_tokens;
         }
 
         session.close(); // Clean close — stream is done, iterator complete
@@ -869,7 +850,7 @@ async function runPlanningPhase(): Promise<void> {
             turnCount: turn,
             sdkSessionId: sdkSessionId ?? '',
             allowedPrompts: exitPlanModeOptions?.allowedPrompts,
-            skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+            skillCalls: optionalSkillCalls(skillCalls),
           });
         } else {
           // No plan was created - treat as completion
@@ -877,7 +858,7 @@ async function runPlanningPhase(): Promise<void> {
             status: 'completed',
             turnCount: turn,
             result: accumulatedText || 'Planning completed without explicit plan',
-            skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+            skillCalls: optionalSkillCalls(skillCalls),
             ...enrichedFields(),
           });
         }
@@ -900,14 +881,14 @@ async function runPlanningPhase(): Promise<void> {
         turnCount: turn,
         sdkSessionId: sdkSessionId ?? '',
         allowedPrompts: exitPlanModeOptions?.allowedPrompts,
-        skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+        skillCalls: optionalSkillCalls(skillCalls),
       });
     } else {
       events.complete({
         status: 'completed',
         turnCount: turn,
         result: 'Planning completed',
-        skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+        skillCalls: optionalSkillCalls(skillCalls),
         ...enrichedFields(),
       });
     }
@@ -960,41 +941,12 @@ async function runExecutionPhase(): Promise<void> {
     console.error(`[agent-runner] Resuming SDK session: ${config.sdkSessionId}`);
   }
 
-  // Track active tool executions for emitting toolResult events
-  const activeTools = new Map<
-    string,
-    { toolName: string; startTime: number; skillName?: string }
-  >();
-
-  // Accumulate Skill tool calls for completion data
-  const skillCalls: SkillCallRecord[] = [];
-
-  // Accumulate file changes for completion metrics
-  const fileChangeSet = new Set<string>();
-  let totalLinesAdded = 0;
-  let totalLinesRemoved = 0;
-
-  // Accumulate token usage
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
+  // Shared tracking state for skill calls, file changes, and token usage
+  const tracking = createTrackingState();
+  const { activeTools, skillCalls } = tracking;
 
   /** Build enriched fields for complete events */
-  const enrichedFields = () => ({
-    ...(config.skillId ? { skillId: config.skillId } : {}),
-    ...(config.skillName ? { skillName: config.skillName } : {}),
-    ...(totalInputTokens > 0 || totalOutputTokens > 0
-      ? { usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens } }
-      : {}),
-    ...(fileChangeSet.size > 0
-      ? {
-          fileChanges: {
-            filesModified: fileChangeSet.size,
-            linesAdded: totalLinesAdded,
-            linesRemoved: totalLinesRemoved,
-          },
-        }
-      : {}),
-  });
+  const enrichedFields = () => buildEnrichedFields(tracking, config);
 
   // Helper to emit tool result for a completed tool
   const emitToolResult = (toolId: string, isError = false, result = '') => {
@@ -1043,6 +995,10 @@ async function runExecutionPhase(): Promise<void> {
       const sName = typeof skillInput?.skill === 'string' ? skillInput.skill : undefined;
       if (sName) {
         toolEntry.skillName = sName;
+      } else {
+        console.error(
+          `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${options.toolUseID})`
+        );
       }
     }
 
@@ -1063,9 +1019,9 @@ async function runExecutionPhase(): Promise<void> {
       );
       if (fileChange) {
         events.fileChanged(fileChange);
-        fileChangeSet.add(fileChange.path);
-        if (fileChange.additions) totalLinesAdded += fileChange.additions;
-        if (fileChange.deletions) totalLinesRemoved += fileChange.deletions;
+        tracking.fileChangeSet.add(fileChange.path);
+        if (fileChange.additions) tracking.totalLinesAdded += fileChange.additions;
+        if (fileChange.deletions) tracking.totalLinesRemoved += fileChange.deletions;
       }
     }
 
@@ -1184,7 +1140,7 @@ async function runExecutionPhase(): Promise<void> {
               status: 'turn_limit',
               turnCount: turn,
               result: `Turn limit reached (${config.maxTurns}). Task may need manual completion.`,
-              skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+              skillCalls: optionalSkillCalls(skillCalls),
               ...enrichedFields(),
             });
             session.close();
@@ -1256,11 +1212,14 @@ async function runExecutionPhase(): Promise<void> {
         const toolSummary = msg as {
           summary: string;
           preceding_tool_use_ids: string[];
+          is_error?: boolean;
         };
 
         console.error(
           `[agent-runner] Tool summary: ids=${toolSummary.preceding_tool_use_ids.join(',')}`
         );
+
+        const summaryIsError = toolSummary.is_error === true;
 
         for (const toolId of toolSummary.preceding_tool_use_ids) {
           const startInfo = activeTools.get(toolId);
@@ -1271,7 +1230,7 @@ async function runExecutionPhase(): Promise<void> {
               toolName: startInfo.toolName,
               toolId,
               result: toolSummary.summary ?? '',
-              isError: false,
+              isError: summaryIsError,
               durationMs,
             });
 
@@ -1280,7 +1239,7 @@ async function runExecutionPhase(): Promise<void> {
               skillCalls.push({
                 skillName: startInfo.skillName,
                 durationMs,
-                isError: false,
+                isError: summaryIsError,
               });
             }
           }
@@ -1298,9 +1257,9 @@ async function runExecutionPhase(): Promise<void> {
         };
         if (assistantMsg.message?.usage) {
           if (typeof assistantMsg.message.usage.input_tokens === 'number')
-            totalInputTokens += assistantMsg.message.usage.input_tokens;
+            tracking.totalInputTokens += assistantMsg.message.usage.input_tokens;
           if (typeof assistantMsg.message.usage.output_tokens === 'number')
-            totalOutputTokens += assistantMsg.message.usage.output_tokens;
+            tracking.totalOutputTokens += assistantMsg.message.usage.output_tokens;
         }
 
         const text = getAssistantText(msg);
@@ -1330,17 +1289,25 @@ async function runExecutionPhase(): Promise<void> {
         // Extract final token usage from result message
         if (result.usage) {
           if (typeof result.usage.input_tokens === 'number')
-            totalInputTokens = result.usage.input_tokens;
+            tracking.totalInputTokens = result.usage.input_tokens;
           if (typeof result.usage.output_tokens === 'number')
-            totalOutputTokens = result.usage.output_tokens;
+            tracking.totalOutputTokens = result.usage.output_tokens;
         }
 
         if (result.is_error) {
-          events.complete({
-            status: 'turn_limit',
+          const errorText = result.text ?? 'Task ended with error';
+          console.error(`[agent-runner] SDK error result: ${errorText}`);
+          // Emit dedicated error event so the error is visible in session events
+          events.error({
+            error: errorText,
+            code: 'SDK_ERROR',
             turnCount: turn,
-            result: result.text ?? 'Task ended with error',
-            skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+          });
+          events.complete({
+            status: 'error',
+            turnCount: turn,
+            result: errorText,
+            skillCalls: optionalSkillCalls(skillCalls),
             ...enrichedFields(),
           });
         } else {
@@ -1348,7 +1315,7 @@ async function runExecutionPhase(): Promise<void> {
             status: 'completed',
             turnCount: turn,
             result: result.text ?? (accumulatedText || 'Task completed'),
-            skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+            skillCalls: optionalSkillCalls(skillCalls),
             ...enrichedFields(),
           });
         }
@@ -1367,7 +1334,7 @@ async function runExecutionPhase(): Promise<void> {
       status: 'completed',
       turnCount: turn,
       result: accumulatedText || 'Task completed',
-      skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+      skillCalls: optionalSkillCalls(skillCalls),
       ...enrichedFields(),
     });
   } catch (error) {

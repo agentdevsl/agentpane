@@ -236,6 +236,24 @@ export function ApprovalDialog({
               PLAN REVIEW CONTENT
               ============================================ */
           <div className="flex-1 overflow-auto bg-canvas p-6" data-testid="plan-review-content">
+            {/* Agent review flagged banner */}
+            {task.agentReviewResult?.verdict === 'flag_for_review' && (
+              <div className="mx-auto mb-4 max-w-3xl rounded-lg border border-attention/30 bg-attention-subtle p-4">
+                <h4 className="text-sm font-medium text-attention">
+                  Agent Review Flagged for Human Review
+                </h4>
+                <p className="mt-1 text-sm text-fg-muted">{task.agentReviewResult.reasoning}</p>
+                {task.agentReviewResult.concerns && task.agentReviewResult.concerns.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {task.agentReviewResult.concerns.map((concern, i) => (
+                      <li key={i} className="text-sm text-fg-muted">
+                        • {concern}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             <div className="mx-auto max-w-3xl">
               <div className="rounded-xl border border-border bg-bg-default p-6">
                 <MarkdownContent

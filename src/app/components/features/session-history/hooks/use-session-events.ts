@@ -244,6 +244,8 @@ export function useSessionDetail(sessionId: string | null): UseSessionDetailRetu
           tokensUsed: summary?.tokensUsed ?? session.tokensUsed ?? 0,
           duration: summary?.durationMs ?? session.duration ?? null,
           costUsd: summary?.costUsd ?? session.costUsd ?? null,
+          skillId: session.skillId ?? null,
+          skillName: session.skillName ?? null,
         },
       });
     } catch (err) {

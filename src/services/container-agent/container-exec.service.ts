@@ -1026,7 +1026,7 @@ export class ContainerExecService {
    */
   async handleAgentComplete(
     taskId: string,
-    status: 'completed' | 'turn_limit' | 'cancelled',
+    status: 'completed' | 'turn_limit' | 'cancelled' | 'error',
     turnCount: number,
     metrics?: CompleteEventMetrics
   ): Promise<void> {

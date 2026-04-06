@@ -75,6 +75,15 @@ export function TaskActions({
     case 'in_progress':
       return (
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onDelete}
+            className="text-danger hover:text-danger hover:bg-danger-muted"
+          >
+            <Trash className="h-4 w-4 mr-1.5" />
+            Delete
+          </Button>
           {onMoveColumn && (
             <Button
               variant="ghost"

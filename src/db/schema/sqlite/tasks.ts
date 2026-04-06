@@ -11,6 +11,17 @@ export interface StoredPlanOptions extends ExitPlanModeOptions {
   planningSandboxId?: string;
 }
 
+/** Stored shape of agent review result (matches AgentReviewResult in container-agent/types) */
+interface AgentReviewResultRecord {
+  verdict: 'approve' | 'flag_for_review';
+  reasoning: string;
+  concerns?: string[];
+  confidence: number;
+  model: string;
+  durationMs: number;
+  reviewedAt: string;
+}
+
 import type { TaskColumn, TaskPriority } from '../shared/enums';
 import { agents } from './agents';
 
@@ -69,9 +80,17 @@ export const tasks = sqliteTable(
       .$onUpdate(() => new Date().toISOString()),
     startedAt: text('started_at'),
     completedAt: text('completed_at'),
-    /** Status of the last agent run: completed, cancelled, error, turn_limit, planning */
+    /** Approval mode override for this task: 'human' (default) or 'agent' (auto-review) */
+    approvalMode: text('approval_mode').$type<'human' | 'agent'>(),
+    /** Agent review result when approvalMode is 'agent' */
+    agentReviewResult: text('agent_review_result', {
+      mode: 'json',
+    }).$type<AgentReviewResultRecord>(),
+    /** Timestamp when agent review completed */
+    agentReviewedAt: text('agent_reviewed_at'),
+    /** Status of the last agent run: completed, cancelled, error, turn_limit, planning, agent_reviewing */
     lastAgentStatus: text('last_agent_status').$type<
-      'completed' | 'cancelled' | 'error' | 'turn_limit' | 'planning'
+      'completed' | 'cancelled' | 'error' | 'turn_limit' | 'planning' | 'agent_reviewing'
     >(),
   },
   (table) => [

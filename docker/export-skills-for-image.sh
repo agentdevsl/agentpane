@@ -99,9 +99,9 @@ for line in sys.stdin:
                 f.write(f'description: \"{escape_yaml(desc)}\"\n')
             f.write('source: image\n')
             if model:
-                f.write(f'model: {escape_yaml(model)}\n')
+                f.write(f'model: "{escape_yaml(model)}"\n')
             if color:
-                f.write(f'color: {escape_yaml(color)}\n')
+                f.write(f'color: "{escape_yaml(color)}"\n')
             if skills:
                 f.write('skills:\n')
                 for s in skills:

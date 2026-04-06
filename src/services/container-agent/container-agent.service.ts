@@ -34,6 +34,7 @@ import type { GitHubTokenService } from '../github-token.service.js';
 import type { SkillTrackingService } from '../memory/skill-tracking.service.js';
 import type { WorktreeService } from '../worktree.service.js';
 
+import { AgentReviewService } from './agent-review.service.js';
 import { AgentCoreBridgeService } from './agentcore-bridge.service.js';
 import { ContainerExecService } from './container-exec.service.js';
 import { PlanApprovalService } from './plan-approval.service.js';
@@ -124,13 +125,19 @@ export class ContainerAgentService {
       getOnAgentCompleteCallback
     );
 
+    const agentReview = new AgentReviewService(this.deps);
+
     this.planApproval = new PlanApprovalService(
       this.deps,
       this.state,
       this.worktreeInit,
       (input) => this.startAgent(input),
-      () => this.isAgentCoreProvider()
+      () => this.isAgentCoreProvider(),
+      agentReview
     );
+
+    // Wire circular reference: review service needs planApproval to call approvePlan()
+    agentReview.setPlanApproval(this.planApproval);
   }
 
   /**

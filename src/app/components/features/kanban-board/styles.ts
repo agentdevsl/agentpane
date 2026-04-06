@@ -153,6 +153,7 @@ export const lastRunStatusVariants = cva(
         error: 'bg-danger-muted text-danger',
         turn_limit: 'bg-attention-muted text-attention',
         planning: 'bg-secondary-muted text-secondary',
+        agent_reviewing: 'bg-attention-muted text-attention',
       },
     },
     defaultVariants: {

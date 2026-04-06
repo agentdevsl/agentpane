@@ -444,8 +444,9 @@ async function publishMetrics(
 }
 
 // AE-010: Deferred - functions share ~70% code but have enough phase-specific logic to make extraction risky
-// Planning: ExitPlanMode capture, planContent tracking, topology (subagents via skills), no turn limits
-// Execution: topology tracking, turn limit enforcement, different session params, different result events
+// Shared: skill tracking (skillCalls accumulation), file change tracking (modifiedFiles), topology tracking, metrics publishing
+// Planning only: ExitPlanMode capture, planContent tracking, no turn limits
+// Execution only: turn limit enforcement, different session params, different result events
 
 /**
  * Run the agent in planning mode first.
@@ -732,7 +733,10 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
         const toolSummary = msg as {
           summary: string;
           preceding_tool_use_ids: string[];
+          is_error?: boolean;
         };
+
+        const summaryIsError = toolSummary.is_error === true;
 
         for (const toolUseId of toolSummary.preceding_tool_use_ids) {
           const tracked = activeTools.get(toolUseId);
@@ -750,7 +754,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
                 toolId: toolUseId,
                 tool: tracked.toolName,
                 output: toolSummary.summary?.slice(0, 1000),
-                isError: false,
+                isError: summaryIsError,
                 phase: 'planning',
               },
             })
@@ -767,7 +771,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
             skillCalls.push({
               skillName: tracked.skillName,
               durationMs: Date.now() - tracked.startTime,
-              isError: false,
+              isError: summaryIsError,
             });
           }
 
@@ -852,7 +856,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           options.skillId,
           options.skillName
         ).catch((publishErr) => {
-          log.warn('Failed to publish metrics', { error: publishErr });
+          log.error('Failed to publish metrics', { error: publishErr });
         });
 
         // Publish plan ready event with plan options
@@ -1270,6 +1274,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
             status: 'turn_limit',
             turnCount: turn,
             result: `Turn limit reached (${maxTurns}). Task moved to waiting approval.`,
+            skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
             fileChanges:
               modifiedFiles.size > 0
                 ? { filesModified: modifiedFiles.size, linesAdded: null, linesRemoved: null }
@@ -1283,7 +1288,10 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         const toolSummary = msg as {
           summary: string;
           preceding_tool_use_ids: string[];
+          is_error?: boolean;
         };
+
+        const summaryIsError = toolSummary.is_error === true;
 
         for (const toolUseId of toolSummary.preceding_tool_use_ids) {
           const tracked = activeTools.get(toolUseId);
@@ -1301,7 +1309,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
                 toolId: toolUseId,
                 tool: tracked.toolName,
                 output: toolSummary.summary?.slice(0, 1000),
-                isError: false,
+                isError: summaryIsError,
               },
             })
           );
@@ -1311,7 +1319,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
             skillCalls.push({
               skillName: tracked.skillName,
               durationMs: Date.now() - tracked.startTime,
-              isError: false,
+              isError: summaryIsError,
             });
           }
 

@@ -762,7 +762,7 @@ describe('buildTopologyFromEvents', () => {
       const orch = graph.nodes.find((n) => n.id === 'orch-1')!;
       expect(orch.role).toBe('orchestrator');
       expect(orch.childIds).toEqual(['coder-1', 'tester-1']);
-      expect(orch.status).toBe('running'); // not completed since we didn't send completion
+      expect(orch.status).toBe('completed'); // reconciled: all children are done
 
       const coder = graph.nodes.find((n) => n.id === 'coder-1')!;
       expect(coder.status).toBe('completed');

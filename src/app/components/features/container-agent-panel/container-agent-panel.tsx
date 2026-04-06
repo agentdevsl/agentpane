@@ -59,6 +59,8 @@ const TopologyTab = memo(function TopologyTab({
         let skillId: string | null = null;
         let skillName: string | null = null;
         let taskTitle: string | null = null;
+        let taskColumn: string | null = null;
+        let lastAgentStatus: string | null = null;
         const taskId = (session as Record<string, unknown> | null)?.taskId as string | null;
 
         if (taskId) {
@@ -69,6 +71,8 @@ const TopologyTab = memo(function TopologyTab({
               skillId = (task.skillId as string) ?? null;
               skillName = (task.skillName as string) ?? null;
               taskTitle = (task.title as string) ?? null;
+              taskColumn = (task.column as string) ?? null;
+              lastAgentStatus = (task.lastAgentStatus as string) ?? null;
             }
           } catch (err) {
             console.warn('[TopologyTab] Best-effort task fetch failed:', err);
@@ -82,8 +86,10 @@ const TopologyTab = memo(function TopologyTab({
           agentId: null,
           taskId,
           taskTitle,
-          taskColumn: null,
-          lastAgentStatus: null,
+          taskColumn: taskColumn as import('@/db/schema/shared/enums.js').TaskColumn | null,
+          lastAgentStatus: lastAgentStatus as
+            | import('@/db/schema/shared/enums.js').AgentStatus
+            | null,
           skillId,
           skillName,
         });

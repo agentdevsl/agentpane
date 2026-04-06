@@ -230,6 +230,15 @@ export function buildTopologyFromEvents(
     const event = rawEvent as KnownTopologyEvent;
     if (event.type === 'topology:agent_spawned') {
       const d = event.data;
+      // Skip duplicate spawns — don't reset a node that already has
+      // progress, completion, or children
+      const existing = nodes.get(d.agentId);
+      if (
+        existing &&
+        (existing.tokens > 0 || existing.status !== 'running' || existing.childIds.length > 0)
+      ) {
+        continue;
+      }
       const roleStr = d.role ?? '';
       const agentType = d.agentType ?? null;
       const skillNs = agentType ? extractSkillNamespace(agentType) : null;
@@ -409,6 +418,59 @@ export function buildTopologyFromEvents(
       skillCalls: Array.from(rootSkillCalls),
     };
     nodes.set(agentId, rootNode);
+  }
+
+  // --- Reconcile stale "running" nodes ---
+  // After processing all events, some nodes may still show "running" because:
+  // 1. topology:agent_completed event was never emitted/stored
+  // 2. A duplicate topology:agent_spawned reset a node after it was completed
+  // 3. The container-agent:complete only updates firstNode, not topology nodes
+
+  // Strategy 1: If we saw a container-agent:complete event, the overall agent
+  // session is done — mark all remaining "running" nodes as completed.
+  const sawContainerComplete = events.some((e) => e.type === 'container-agent:complete');
+
+  // Strategy 2: Context-based — task has left in_progress or has terminal status.
+  const terminalStatuses: Record<string, TopologyNode['status']> = {
+    completed: 'completed',
+    cancelled: 'stopped',
+    error: 'failed',
+    turn_limit: 'failed',
+    planning: 'completed',
+  };
+  const resolvedTerminal = context.lastAgentStatus
+    ? terminalStatuses[context.lastAgentStatus]
+    : undefined;
+  const taskIsTerminal =
+    resolvedTerminal ||
+    (context.taskColumn && context.taskColumn !== 'in_progress' && context.taskColumn !== 'queued');
+
+  // Strategy 3: If ALL child nodes of a parent are completed/failed/stopped,
+  // the parent should not be "running" either.
+  const allChildrenDone = (node: TopologyNode): boolean => {
+    if (node.childIds.length === 0) return false;
+    return node.childIds.every((childId) => {
+      const child = nodes.get(childId);
+      return child && child.status !== 'running' && child.status !== 'queued';
+    });
+  };
+
+  if (sawContainerComplete || taskIsTerminal) {
+    const finalStatus = resolvedTerminal ?? 'completed';
+    for (const node of nodes.values()) {
+      if (node.status === 'running') {
+        node.status = finalStatus;
+        if (finalStatus === 'completed') node.progress = 100;
+      }
+    }
+  } else {
+    // Even without a global terminal signal, reconcile parents whose children all finished
+    for (const node of nodes.values()) {
+      if (node.status === 'running' && allChildrenDone(node)) {
+        node.status = 'completed';
+        node.progress = 100;
+      }
+    }
   }
 
   // --- Synthetic skill nodes ---

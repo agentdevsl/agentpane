@@ -232,6 +232,23 @@ function CodespaceKanban(): React.JSX.Element {
     }
   };
 
+  const handleCancelTask = async (taskId: string) => {
+    try {
+      const result = await apiClient.tasks.cancel(taskId);
+      if (!result.ok) {
+        showError(
+          'Failed to cancel task',
+          (result.error as { message?: string })?.message || 'Unknown error'
+        );
+        return;
+      }
+      await fetchData();
+    } catch (error) {
+      console.error('[CodespaceKanban] Failed to cancel task:', error);
+      showError('Failed to cancel task', error instanceof Error ? error.message : 'Unknown error');
+    }
+  };
+
   const handleTaskClick = (task: ClientTask) => {
     if (task.column === 'waiting_approval') {
       setApprovalTask(task);
@@ -454,12 +471,31 @@ function CodespaceKanban(): React.JSX.Element {
           onTaskClick={handleTaskClick as Parameters<typeof KanbanBoard>[0]['onTaskClick']}
           onRunNow={handleRunNow}
           onStopAgent={handleStopAgent}
+          onCancelTask={handleCancelTask}
         />
       ) : (
         <LiveTaskView
           tasks={tasks}
           codespaceId={codespaceId}
           onTaskMove={handleTaskMove as (taskId: string, column: string, position: number) => void}
+          onTaskClick={handleTaskClick as (task: { id: string; column: string }) => void}
+          onApproveTask={(taskId) => {
+            const task = tasks.find((t) => t.id === taskId);
+            if (task) setApprovalTask(task);
+          }}
+          onDeleteTask={async (taskId) => {
+            const result = await apiClient.tasks.delete(taskId);
+            if (result.ok) {
+              setTasks((prev) => prev.filter((t) => t.id !== taskId));
+            } else {
+              showError(
+                'Failed to delete task',
+                (result.error as { message?: string })?.message || 'Unknown error'
+              );
+            }
+          }}
+          onStopAgent={handleStopAgent}
+          onCancelTask={handleCancelTask}
         />
       )}
 
@@ -515,6 +551,13 @@ function CodespaceKanban(): React.JSX.Element {
           } else {
             console.error('[CodespaceKanban] Failed to delete task:', result.error);
           }
+        }}
+        onMoveColumn={async (taskId, column) => {
+          await handleTaskMove(taskId, column, 0);
+          setSelectedTask(null);
+        }}
+        onStopAgent={async (taskId) => {
+          await handleStopAgent(taskId);
         }}
         onViewSession={(sessionId) => {
           void navigate({ to: '/sessions/$sessionId', params: { sessionId } });

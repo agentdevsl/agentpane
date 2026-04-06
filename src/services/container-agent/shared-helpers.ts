@@ -19,13 +19,9 @@ import type { SkillTrackingService } from '../memory/skill-tracking.service.js';
 
 const log = createLogger('ContainerAgentHelpers');
 
-/** Enriched completion metrics from the agent-runner. */
-export interface AgentCompleteMetrics {
-  skillId?: string;
-  skillName?: string;
-  usage?: { inputTokens?: number; outputTokens?: number };
-  fileChanges?: { filesModified: number; linesAdded: number; linesRemoved: number };
-}
+import type { AgentCompleteMetrics } from './types.js';
+
+export type { AgentCompleteMetrics } from './types.js';
 
 /**
  * Update task status when an agent completes successfully or is cancelled.
@@ -35,7 +31,7 @@ export interface AgentCompleteMetrics {
 export async function updateTaskOnAgentComplete(
   db: Database,
   taskId: string,
-  status: 'completed' | 'turn_limit' | 'cancelled',
+  status: 'completed' | 'turn_limit' | 'cancelled' | 'error',
   streams?: DurableStreamsService,
   sessionId?: string,
   skillTrackingService?: SkillTrackingService | null,
@@ -79,6 +75,24 @@ export async function updateTaskOnAgentComplete(
         });
         return false;
       }
+    } else if (status === 'error') {
+      // Agent encountered an error — move to waiting_approval so user can see what happened.
+      // Keep sessionId so the error details are visible in the session/topology views.
+      const [updated] = await db
+        .update(tasks)
+        .set({
+          column: 'waiting_approval',
+          agentId: null,
+          lastAgentStatus: 'error',
+        })
+        .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
+        .returning();
+      if (!updated) {
+        log.warn('Task not updated on agent error — task may have been moved by user', {
+          data: { taskId, status },
+        });
+        return false;
+      }
     } else {
       // Preserve sessionId on cancel (consistent with completed/turn_limit paths)
       // so the UI can still display session events and topology for cancelled runs.
@@ -106,7 +120,8 @@ export async function updateTaskOnAgentComplete(
           columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
         });
         if (taskRecord?.skillId) {
-          const trackingStatus = status === 'completed' ? 'success' : 'turn_limit';
+          const trackingStatus =
+            status === 'completed' ? 'success' : status === 'error' ? 'failed' : 'turn_limit';
           const now = new Date().toISOString();
           // Compute tokensUsed from enriched usage metrics
           const tokensUsed =
@@ -153,7 +168,7 @@ export async function updateTaskOnAgentComplete(
               }
             })
             .catch((recordErr) => {
-              log.warn('Failed to record container agent skill execution', {
+              log.error('Failed to record container agent skill execution', {
                 data: {
                   taskId,
                   error: recordErr instanceof Error ? recordErr.message : String(recordErr),

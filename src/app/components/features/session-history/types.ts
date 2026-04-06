@@ -123,9 +123,9 @@ export interface SessionDetail extends SessionListItem {
   /** Tests passed count */
   testsPassed: number;
   /** Skill ID from the associated task (null if no skill) */
-  skillId?: string | null;
+  skillId: string | null;
   /** Skill display name from the associated task */
-  skillName?: string | null;
+  skillName: string | null;
 }
 
 // ===== Stream Entry Types =====

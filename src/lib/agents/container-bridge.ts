@@ -52,13 +52,10 @@ export interface PlanReadyData {
   teammateCount?: number;
 }
 
+import type { AgentCompleteMetrics } from '../../services/container-agent/types.js';
+
 /** Enriched completion data forwarded from the agent-runner's complete event. */
-export interface CompleteEventMetrics {
-  skillId?: string;
-  skillName?: string;
-  usage?: { inputTokens?: number; outputTokens?: number };
-  fileChanges?: { filesModified: number; linesAdded: number; linesRemoved: number };
-}
+export type CompleteEventMetrics = AgentCompleteMetrics;
 
 export interface ContainerBridgeOptions {
   taskId: string;
@@ -66,7 +63,7 @@ export interface ContainerBridgeOptions {
   codespaceId: string;
   streams: DurableStreamsService;
   onComplete?: (
-    status: 'completed' | 'turn_limit' | 'cancelled',
+    status: 'completed' | 'turn_limit' | 'cancelled' | 'error',
     turnCount: number,
     metrics?: CompleteEventMetrics
   ) => void;
@@ -222,7 +219,7 @@ export function createContainerBridge(options: ContainerBridgeOptions): Containe
       return;
     }
 
-    if (!['completed', 'turn_limit', 'cancelled'].includes(data.status)) {
+    if (!['completed', 'turn_limit', 'cancelled', 'error'].includes(data.status)) {
       infoLog('handleComplete', 'Invalid completion status', {
         taskId,
         status: data.status,

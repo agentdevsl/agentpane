@@ -204,7 +204,9 @@ export class AgentExecutionService {
         startedAt: true,
       },
     });
-    if (!taskForSkill?.skillId) return;
+    // Allow recording when either skillId or executionSkillId (for execution phase) is present
+    if (!taskForSkill?.skillId && !(params.phase === 'execution' && taskForSkill?.executionSkillId))
+      return;
 
     // When phase is 'execution' and an executionSkillId exists that differs
     // from the planning skillId, record under the execution skill instead.
@@ -790,7 +792,7 @@ export class AgentExecutionService {
         fileChanges: result.fileChanges,
         errorMessage: result.error,
       }).catch((err) => {
-        log.warn('Failed to record skill execution', {
+        log.error('Failed to record skill execution', {
           error: err instanceof Error ? err.message : String(err),
         });
       });
@@ -848,7 +850,7 @@ export class AgentExecutionService {
         turnCount: 0,
         errorMessage: errMsg,
       }).catch((err) => {
-        log.warn('Failed to record skill execution', {
+        log.error('Failed to record skill execution', {
           error: err instanceof Error ? err.message : String(err),
         });
       });
@@ -1259,7 +1261,7 @@ export class AgentExecutionService {
         fileChanges: result.fileChanges,
         errorMessage: result.error,
       }).catch((err) => {
-        log.warn('Failed to record skill execution', {
+        log.error('Failed to record skill execution', {
           error: err instanceof Error ? err.message : String(err),
         });
       });
@@ -1321,7 +1323,7 @@ export class AgentExecutionService {
         turnCount: 0,
         errorMessage: errMsg,
       }).catch((err) => {
-        log.warn('Failed to record skill execution', {
+        log.error('Failed to record skill execution', {
           error: err instanceof Error ? err.message : String(err),
         });
       });

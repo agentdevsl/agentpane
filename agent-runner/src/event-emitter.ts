@@ -72,6 +72,10 @@ export interface AgentMessageData {
   content: string;
 }
 
+/**
+ * Matching type exists in src/lib/agents/stream-handler.ts (canonical).
+ * Keep in sync — build boundary prevents shared import.
+ */
 export interface SkillCallRecord {
   skillName: string;
   durationMs: number;
@@ -79,7 +83,7 @@ export interface SkillCallRecord {
 }
 
 export interface AgentCompleteData {
-  status: 'completed' | 'turn_limit' | 'cancelled';
+  status: 'completed' | 'turn_limit' | 'cancelled' | 'error';
   turnCount: number;
   result?: string;
   skillCalls?: SkillCallRecord[];

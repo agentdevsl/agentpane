@@ -56,6 +56,8 @@ interface KanbanBoardProps {
   onRunNow?: (taskId: string) => void;
   /** Callback to stop a running agent */
   onStopAgent?: (taskId: string) => void;
+  /** Callback to cancel an in-progress task (stop agent + move to backlog) */
+  onCancelTask?: (taskId: string) => void;
   /** Custom header action for backlog column (e.g., AI create button) */
   backlogHeaderAction?: React.ReactNode;
   isLoading?: boolean;
@@ -70,6 +72,7 @@ export function KanbanBoard({
   onAddTask,
   onRunNow,
   onStopAgent,
+  onCancelTask: _onCancelTask,
   backlogHeaderAction,
   isLoading,
 }: KanbanBoardProps): React.JSX.Element {

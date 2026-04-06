@@ -31,6 +31,10 @@ export type CreateTaskInput = {
   skillName?: string;
   executionSkillId?: string;
   executionSkillName?: string;
+  /** Approval mode: 'human' (manual) or 'agent' (auto-review). Null inherits from codespace/global. */
+  approvalMode?: 'human' | 'agent';
+  /** When true, immediately move the task to in_progress and start the agent */
+  autoStart?: boolean;
 };
 
 export type UpdateTaskInput = {
@@ -44,6 +48,8 @@ export type UpdateTaskInput = {
   skillName?: string | null;
   executionSkillId?: string | null;
   executionSkillName?: string | null;
+  /** Approval mode: 'human' (manual) or 'agent' (auto-review). Null clears to inherit. */
+  approvalMode?: 'human' | 'agent' | null;
 };
 
 export type ListTasksOptions = {
@@ -129,6 +135,43 @@ export class TaskService {
    */
   setAgentExecutionService(service: AgentExecutionTrigger): void {
     this.agentExecutionService = service;
+  }
+
+  /**
+   * Cancel an in-progress task: atomically stop the running agent (if any)
+   * and move the task back to backlog. This is the safe way to abort a running task.
+   */
+  async cancelTask(taskId: string): Promise<Result<Task, TaskError>> {
+    const task = await this.db.query.tasks.findFirst({
+      where: eq(tasks.id, taskId),
+    });
+
+    if (!task) {
+      return err(TaskErrors.NOT_FOUND);
+    }
+
+    // Stop the agent if one is running (ignore errors — cleanup proceeds regardless)
+    if (task.agentId || task.sessionId) {
+      await this.stopAgent(taskId);
+    }
+
+    // Move to backlog
+    const [updated] = await this.db
+      .update(tasks)
+      .set({
+        column: 'backlog' as TaskColumn,
+        agentId: null,
+        lastAgentStatus: 'cancelled',
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(tasks.id, taskId))
+      .returning();
+
+    if (!updated) {
+      return err(TaskErrors.NOT_FOUND);
+    }
+
+    return ok(updated);
   }
 
   /**
@@ -285,6 +328,7 @@ export class TaskService {
       skillName = skillId ?? undefined,
       executionSkillId,
       executionSkillName = executionSkillId ?? undefined,
+      approvalMode,
     } = input;
 
     const codespace = await this.db.query.codespaces.findFirst({
@@ -320,6 +364,7 @@ export class TaskService {
           skillName,
           executionSkillId,
           executionSkillName,
+          approvalMode,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })
@@ -328,6 +373,18 @@ export class TaskService {
 
     if (!task) {
       return err(TaskErrors.NOT_FOUND);
+    }
+
+    // Auto-start: immediately move to in_progress to trigger the agent
+    if (input.autoStart) {
+      const moveResult = await this.moveColumn(task.id, 'in_progress');
+      if (moveResult.ok) {
+        return ok(moveResult.value.task);
+      }
+      // Move failed — return the task in backlog (non-fatal, agent can be started later)
+      log.warn('Auto-start failed, task remains in backlog', {
+        data: { taskId: task.id, error: moveResult.error },
+      });
     }
 
     return ok(task);
@@ -397,6 +454,11 @@ export class TaskService {
 
     if (!task) {
       return err(TaskErrors.NOT_FOUND);
+    }
+
+    // Stop any running agent before deleting to prevent orphaned processes
+    if (task.column === 'in_progress' && (task.agentId || task.sessionId)) {
+      await this.stopAgent(id);
     }
 
     await this.db.delete(tasks).where(eq(tasks.id, id));
@@ -759,51 +821,67 @@ export class TaskService {
       return err(TaskErrors.ALREADY_APPROVED);
     }
 
-    if (!task.worktreeId) {
-      return err(TaskErrors.NO_DIFF);
-    }
+    // Container agent tasks have a branch but no worktreeId.
+    // They can be approved without diff/merge since the work lives on the branch.
+    const isContainerAgent = !task.worktreeId && task.branch;
 
-    let diff: Result<GitDiff, TaskError>;
-    try {
-      diff = await this.worktreeService.getDiff(task.worktreeId);
-    } catch (error) {
-      log.error('getDiff threw unexpectedly', {
-        data: {
-          taskId: id,
-          worktreeId: task.worktreeId,
-          error: error instanceof Error ? error.message : String(error),
-        },
+    let diffStats: GitDiff['stats'] | undefined;
+
+    if (isContainerAgent) {
+      // Container agent: skip worktree-based diff/merge.
+      // The agent's changes are on the branch — approval just marks completion.
+      log.info('Approving container agent task (no worktree)', {
+        data: { taskId: id, branch: task.branch },
       });
-      return err(TaskErrors.NO_DIFF);
-    }
-    if (!diff.ok) {
-      return diff;
-    }
+    } else {
+      if (!task.worktreeId) {
+        return err(TaskErrors.NO_DIFF);
+      }
 
-    if (diff.value.stats.filesChanged === 0) {
-      return err(TaskErrors.NO_DIFF);
-    }
-
-    if (input.createMergeCommit !== false) {
-      let mergeResult: Result<void, TaskError>;
+      let diff: Result<GitDiff, TaskError>;
       try {
-        mergeResult = await this.worktreeService.merge(task.worktreeId);
+        diff = await this.worktreeService.getDiff(task.worktreeId);
       } catch (error) {
-        log.error('merge threw unexpectedly', {
+        log.error('getDiff threw unexpectedly', {
           data: {
             taskId: id,
             worktreeId: task.worktreeId,
             error: error instanceof Error ? error.message : String(error),
           },
         });
-        return err({
-          code: 'WORKTREE_MERGE_FAILED',
-          message: error instanceof Error ? error.message : 'Merge failed',
-          status: 500,
-        });
+        return err(TaskErrors.NO_DIFF);
       }
-      if (!mergeResult.ok) {
-        return mergeResult;
+      if (!diff.ok) {
+        return diff;
+      }
+
+      if (diff.value.stats.filesChanged === 0) {
+        return err(TaskErrors.NO_DIFF);
+      }
+
+      diffStats = diff.value.stats;
+
+      if (input.createMergeCommit !== false) {
+        let mergeResult: Result<void, TaskError>;
+        try {
+          mergeResult = await this.worktreeService.merge(task.worktreeId);
+        } catch (error) {
+          log.error('merge threw unexpectedly', {
+            data: {
+              taskId: id,
+              worktreeId: task.worktreeId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          });
+          return err({
+            code: 'WORKTREE_MERGE_FAILED',
+            message: error instanceof Error ? error.message : 'Merge failed',
+            status: 500,
+          });
+        }
+        if (!mergeResult.ok) {
+          return mergeResult;
+        }
       }
     }
 
@@ -815,7 +893,7 @@ export class TaskService {
         approvedBy: input.approvedBy,
         completedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        diffSummary: diff.value.stats,
+        ...(diffStats ? { diffSummary: diffStats } : {}),
       })
       .where(eq(tasks.id, id))
       .returning();

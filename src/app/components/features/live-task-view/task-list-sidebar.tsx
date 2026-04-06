@@ -21,6 +21,7 @@ import { ResizeHandle } from '@/app/components/ui/resize-handle';
 import { useLocalStorage } from '@/app/hooks/use-local-storage';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
+import { formatRelativeTime } from '@/lib/utils/format-time';
 
 // =============================================================================
 // Types
@@ -35,6 +36,8 @@ interface TaskItem {
   sessionId?: string | null;
   lastAgentStatus?: string | null;
   labels?: string[] | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 }
 
 interface TaskListSidebarProps {
@@ -205,7 +208,7 @@ function formatTaskId(id: string): string {
 // Component
 // =============================================================================
 
-type SortOption = 'status' | 'priority' | 'name';
+type SortOption = 'status' | 'priority' | 'name' | 'created' | 'updated';
 
 const prioritySortOrder: Record<string, number> = {
   high: 0,
@@ -221,7 +224,7 @@ export function TaskListSidebar({
   searchQuery,
   onSearchChange,
 }: TaskListSidebarProps): React.JSX.Element {
-  const [sortBy, setSortBy] = useState<SortOption>('status');
+  const [sortBy, setSortBy] = useState<SortOption>('updated');
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
   const [showCompleted, setShowCompleted] = useLocalStorage('live-task-view:show-completed', false);
   const [sidebarWidth, setSidebarWidth] = useLocalStorage('live-task-view:sidebar-width', 252);
@@ -282,6 +285,10 @@ export function TaskListSidebar({
           );
         case 'name':
           return a.title.localeCompare(b.title);
+        case 'created':
+          return (b.createdAt ?? '').localeCompare(a.createdAt ?? '');
+        case 'updated':
+          return (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '');
         default:
           return 0;
       }
@@ -326,6 +333,8 @@ export function TaskListSidebar({
               <option value="status">Status</option>
               <option value="priority">Priority</option>
               <option value="name">Name</option>
+              <option value="created">Created</option>
+              <option value="updated">Updated</option>
             </select>
           </div>
         </div>
@@ -433,9 +442,11 @@ function TaskCard({
   onSelect: (id: string) => void;
 }): React.JSX.Element {
   const priority = (task.priority ?? 'medium') as 'high' | 'medium' | 'low';
-  const isAgentRunning =
-    task.column === 'in_progress' && (Boolean(task.agentId) || Boolean(task.sessionId));
   const lastRunStatus = getLastRunStatusInfo(task.lastAgentStatus);
+  const isAgentRunning =
+    task.column === 'in_progress' &&
+    (Boolean(task.agentId) || Boolean(task.sessionId)) &&
+    !lastRunStatus;
   const isError = task.lastAgentStatus === 'error';
 
   // Pick card style — error overrides column style
@@ -489,7 +500,29 @@ function TaskCard({
         <div className="flex-1 text-sm font-medium leading-snug text-fg truncate">{task.title}</div>
       </div>
 
-      {/* Row 3: Agent running indicator */}
+      {/* Row 3: Timestamps */}
+      {(task.createdAt || task.updatedAt) && (
+        <div className="relative flex items-center gap-3 mt-1.5">
+          {task.createdAt && (
+            <span
+              className="inline-flex items-center gap-0.5 text-[10px] text-fg-subtle"
+              title={`Created: ${new Date(task.createdAt).toLocaleString()}`}
+            >
+              Created {formatRelativeTime(task.createdAt)}
+            </span>
+          )}
+          {task.updatedAt && task.updatedAt !== task.createdAt && (
+            <span
+              className="inline-flex items-center gap-0.5 text-[10px] text-fg-muted"
+              title={`Updated: ${new Date(task.updatedAt).toLocaleString()}`}
+            >
+              Updated {formatRelativeTime(task.updatedAt)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Row 4: Agent running indicator */}
       {isAgentRunning && (
         <div className={cn('relative', agentStatusVariants({ status: 'running' }))}>
           <div className="w-1.5 h-1.5 bg-current rounded-full animate-pulse" />
@@ -497,7 +530,7 @@ function TaskCard({
         </div>
       )}
 
-      {/* Row 3: Last run status badge */}
+      {/* Row 5: Last run status badge */}
       {lastRunStatus && !isAgentRunning && (
         <div className="relative flex items-center justify-end mt-1.5">
           <div className={lastRunStatusVariants({ status: lastRunStatus.status })}>

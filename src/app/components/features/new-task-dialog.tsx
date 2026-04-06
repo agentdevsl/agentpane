@@ -554,6 +554,10 @@ function TaskDetailsSidebar({
   onPriorityChange,
   onTagsChange,
   onSkillChange,
+  approvalMode,
+  onApprovalModeChange,
+  autoStart,
+  onAutoStartChange,
   onCreateManually,
 }: {
   codespaceId: string;
@@ -567,6 +571,10 @@ function TaskDetailsSidebar({
     skillName: string | null,
     execEvent?: SkillChangeEvent
   ) => void;
+  approvalMode: 'human' | 'agent' | null;
+  onApprovalModeChange: (mode: 'human' | 'agent' | null) => void;
+  autoStart: boolean;
+  onAutoStartChange: (value: boolean) => void;
   onCreateManually: () => void;
 }): React.JSX.Element {
   return (
@@ -651,6 +659,52 @@ function TaskDetailsSidebar({
             compact
             className="w-full"
           />
+        </div>
+
+        {/* Approval Mode */}
+        <div className="space-y-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+            Approval
+          </span>
+          <div className="flex gap-1.5">
+            {([null, 'agent'] as const).map((mode) => (
+              <button
+                key={mode ?? 'default'}
+                type="button"
+                onClick={() => onApprovalModeChange(mode)}
+                className={cn(
+                  'flex-1 px-2 py-2 rounded-lg text-xs font-medium transition-all border text-center',
+                  approvalMode === mode
+                    ? 'bg-accent-muted text-accent-fg border-accent-fg/30'
+                    : 'bg-surface text-fg-muted border-border hover:text-fg hover:bg-surface-muted'
+                )}
+              >
+                {mode === null ? 'Default' : 'Auto'}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-fg-muted">
+            {approvalMode === 'agent' ? 'Agent will auto-review plans' : 'Uses project default'}
+          </p>
+        </div>
+
+        {/* Auto Start */}
+        <div className="space-y-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+            Auto Start
+          </span>
+          <button
+            type="button"
+            onClick={() => onAutoStartChange(!autoStart)}
+            className={cn(
+              'w-full px-3 py-2 rounded-lg text-xs font-medium transition-all border text-center',
+              autoStart
+                ? 'bg-claude-muted text-claude border-claude/30'
+                : 'bg-surface text-fg-muted border-border hover:text-fg hover:bg-surface-muted'
+            )}
+          >
+            {autoStart ? 'Start agent immediately' : 'Create in backlog'}
+          </button>
         </div>
       </div>
 
@@ -1035,6 +1089,8 @@ export function NewTaskDialog({
   const [selectedSkillName, setSelectedSkillName] = useState<string | null>(null);
   const [selectedExecutionSkillId, setSelectedExecutionSkillId] = useState<string | null>(null);
   const [selectedExecutionSkillName, setSelectedExecutionSkillName] = useState<string | null>(null);
+  const [selectedApprovalMode, setSelectedApprovalMode] = useState<'human' | 'agent' | null>(null);
+  const [autoStart, setAutoStart] = useState(false);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string | string[]>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1202,6 +1258,8 @@ export function NewTaskDialog({
           skillName: selectedSkillName,
           executionSkillId: selectedExecutionSkillId,
           executionSkillName: selectedExecutionSkillName,
+          ...(selectedApprovalMode && { approvalMode: selectedApprovalMode }),
+          ...(autoStart && { autoStart: true }),
         });
 
         if (result.ok) {
@@ -1597,6 +1655,10 @@ export function NewTaskDialog({
                   setSelectedExecutionSkillId(execEvent?.executionSkillId ?? null);
                   setSelectedExecutionSkillName(execEvent?.executionSkillName ?? null);
                 }}
+                approvalMode={selectedApprovalMode}
+                onApprovalModeChange={setSelectedApprovalMode}
+                autoStart={autoStart}
+                onAutoStartChange={setAutoStart}
                 onCreateManually={handleCreateManually}
               />
             </div>

@@ -1,13 +1,12 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
+  ArrowsClockwise,
   BookOpen,
   CheckCircle,
   Circle,
-  ClockCounterClockwise,
   DotsSixVertical,
   Lightning,
-  Plus,
   Spinner,
   Square,
   User,
@@ -78,6 +77,11 @@ const LAST_RUN_STATUS_CONFIG: Record<
     label: 'Plan ready',
     className: 'bg-[var(--secondary-muted)] text-[var(--secondary-fg)]',
   },
+  agent_reviewing: {
+    icon: <ArrowsClockwise className="h-3 w-3 animate-spin" weight="bold" />,
+    label: 'Agent reviewing',
+    className: 'bg-[var(--attention-muted)] text-[var(--attention-fg)]',
+  },
 };
 
 /** Stage labels for status display */
@@ -98,9 +102,10 @@ const STAGE_LABELS: Record<string, string> = {
 type BadgeKind = 'running' | 'waiting-approval' | 'last-run' | 'none';
 
 function getCardBadgeKind(task: Task): BadgeKind {
+  // Check last-run status first — if agent has a terminal status, show that even if sessionId persists
+  if (task.lastAgentStatus && task.lastAgentStatus in LAST_RUN_STATUS_CONFIG) return 'last-run';
   if (task.column === 'in_progress' && (task.agentId || task.sessionId)) return 'running';
   if (task.column === 'waiting_approval') return 'waiting-approval';
-  if (task.lastAgentStatus && task.lastAgentStatus in LAST_RUN_STATUS_CONFIG) return 'last-run';
   return 'none';
 }
 
@@ -261,34 +266,22 @@ export function KanbanCard({
           <span className="font-mono text-xs text-[var(--fg-muted)]" data-testid="task-id">
             {formatTaskId(task.id)}
           </span>
-          {(
-            [
-              {
-                icon: Plus,
-                date: task.createdAt,
-                label: 'Created',
-                testId: 'task-created-at',
-                weight: 'bold' as const,
-              },
-              {
-                icon: ClockCounterClockwise,
-                date: task.updatedAt,
-                label: 'Updated',
-                testId: 'task-updated-at',
-                weight: 'regular' as const,
-              },
-            ] as const
-          ).map(({ icon: Icon, date, label, testId, weight }) => (
+          <span
+            className="inline-flex items-center gap-0.5 text-[11px] text-[var(--fg-subtle)]"
+            title={`Created: ${new Date(task.createdAt).toLocaleString()}`}
+            data-testid="task-created-at"
+          >
+            Created {formatRelativeTime(task.createdAt)}
+          </span>
+          {task.updatedAt !== task.createdAt && (
             <span
-              key={testId}
               className="inline-flex items-center gap-0.5 text-[11px] text-[var(--fg-muted)]"
-              title={`${label}: ${new Date(date).toLocaleString()}`}
-              data-testid={testId}
+              title={`Updated: ${new Date(task.updatedAt).toLocaleString()}`}
+              data-testid="task-updated-at"
             >
-              <Icon className="h-2.5 w-2.5" weight={weight} />
-              {formatRelativeTime(date)}
+              Updated {formatRelativeTime(task.updatedAt)}
             </span>
-          ))}
+          )}
         </div>
 
         <div className="flex items-center gap-1.5">
