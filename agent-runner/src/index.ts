@@ -580,7 +580,9 @@ async function runPlanningPhase(): Promise<void> {
     session = unstable_v2_createSession({
       model: config.model,
       env: { ...process.env }, // Teams GA: env passed through for agent swarm support
-      allowedTools,
+      executableArgs: ['--add-dir', config.cwd], // Enable .claude/agents/ discovery
+      // In bypassPermissions mode, don't restrict tools — allow all including Agent
+      ...(planPermissionMode !== 'bypassPermissions' ? { allowedTools } : {}),
       permissionMode: planPermissionMode,
       canUseTool, // Use official SDK callback for tool interception
     });
@@ -814,6 +816,26 @@ async function runPlanningPhase(): Promise<void> {
       if (msg.type === 'assistant') {
         // Assistant message means all previous tools have completed
         emitAllToolResults();
+
+        // Capture subagent_type from Agent tool_use content blocks.
+        // The SDK doesn't expose subagent_type via canUseTool or task_started,
+        // so we intercept it from the model's tool_use output before the SDK processes it.
+        const assistantContent = (
+          msg as {
+            message?: {
+              content?: Array<{ type: string; name?: string; input?: Record<string, unknown> }>;
+            };
+          }
+        ).message?.content;
+        if (Array.isArray(assistantContent)) {
+          for (const block of assistantContent) {
+            if (block.type === 'tool_use' && block.name === 'Agent' && block.input?.subagent_type) {
+              const subagentType = String(block.input.subagent_type);
+              topology.pendingSubagentTypes.push(subagentType);
+              console.error(`[agent-runner] Captured subagent_type from tool_use: ${subagentType}`);
+            }
+          }
+        }
 
         // Accumulate token usage from assistant messages
         const assistantMsg = msg as {
@@ -1082,6 +1104,7 @@ async function runExecutionPhase(): Promise<void> {
         session = unstable_v2_resumeSession(config.sdkSessionId, {
           model: config.model,
           env: { ...process.env }, // Teams GA: env passed through for agent swarm support
+          executableArgs: ['--add-dir', config.cwd], // Enable .claude/agents/ discovery
           permissionMode: 'bypassPermissions',
           canUseTool, // Track tools even in bypass mode
         });
@@ -1106,6 +1129,7 @@ async function runExecutionPhase(): Promise<void> {
       session = unstable_v2_createSession({
         model: config.model,
         env: { ...process.env }, // Teams GA: env passed through for agent swarm support
+        executableArgs: ['--add-dir', config.cwd], // Enable .claude/agents/ discovery
         permissionMode: 'bypassPermissions',
         canUseTool, // Track tools even in bypass mode
       });
@@ -1288,6 +1312,24 @@ async function runExecutionPhase(): Promise<void> {
       if (msg.type === 'assistant') {
         // Assistant message means all previous tools have completed
         emitAllToolResults();
+
+        // Capture subagent_type from Agent tool_use content blocks
+        const assistantContent = (
+          msg as {
+            message?: {
+              content?: Array<{ type: string; name?: string; input?: Record<string, unknown> }>;
+            };
+          }
+        ).message?.content;
+        if (Array.isArray(assistantContent)) {
+          for (const block of assistantContent) {
+            if (block.type === 'tool_use' && block.name === 'Agent' && block.input?.subagent_type) {
+              const subagentType = String(block.input.subagent_type);
+              topology.pendingSubagentTypes.push(subagentType);
+              console.error(`[agent-runner] Captured subagent_type from tool_use: ${subagentType}`);
+            }
+          }
+        }
 
         // Accumulate token usage from assistant messages
         const assistantMsg = msg as {
