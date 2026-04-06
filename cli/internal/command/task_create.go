@@ -35,17 +35,18 @@ func (c *TaskCreateCommand) Run(args []string) int {
 		return 1
 	}
 
-	codespaceID := c.CodespaceID()
-	if codespaceID == "" {
-		fmt.Fprintf(os.Stderr, "Error: -codespace is required (or set AP_CODESPACE)\n")
-		return 1
-	}
 	if title == "" {
 		fmt.Fprintf(os.Stderr, "Error: -title is required\n")
 		return 1
 	}
 
 	client, err := c.Client()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		return 1
+	}
+
+	codespaceID, err := c.ResolveCodespaceID(client)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		return 1

@@ -26,13 +26,13 @@ func (c *SessionListCommand) Run(args []string) int {
 		return 1
 	}
 
-	codespaceID := c.CodespaceID()
-	if codespaceID == "" {
-		fmt.Fprintf(os.Stderr, "Error: -codespace is required (or set AP_CODESPACE)\n")
+	client, err := c.Client()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		return 1
 	}
 
-	client, err := c.Client()
+	codespaceID, err := c.ResolveCodespaceID(client)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		return 1
