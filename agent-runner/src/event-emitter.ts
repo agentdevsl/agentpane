@@ -70,10 +70,17 @@ export interface AgentMessageData {
   content: string;
 }
 
+export interface SkillCallRecord {
+  skillName: string;
+  durationMs: number;
+  isError: boolean;
+}
+
 export interface AgentCompleteData {
   status: 'completed' | 'turn_limit' | 'cancelled';
   turnCount: number;
   result?: string;
+  skillCalls?: SkillCallRecord[];
 }
 
 export interface AgentErrorData {
@@ -132,6 +139,7 @@ export interface AgentPlanReadyData {
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
   launchSwarm?: boolean;
   teammateCount?: number;
+  skillCalls?: SkillCallRecord[];
 }
 
 // File descriptor for stdout (used for synchronous writes)

@@ -40,10 +40,10 @@ type GitHubContent = GitHubContentFile | GitHubContentDir;
 
 /**
  * Parse simple YAML frontmatter from markdown content.
- * Supports single-line key: value pairs only. Does not support nested objects,
- * arrays, or multi-line values.
+ * Supports single-line key: value pairs and block-style list arrays
+ * (lines starting with `  - `). Does not support nested objects or multi-line values.
  *
- * @returns The parsed frontmatter as flat key-value pairs and the remaining content
+ * @returns The parsed frontmatter as key-value pairs and the remaining content
  */
 function parseFrontmatter(content: string): { frontmatter: Record<string, unknown>; body: string } {
   const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
@@ -56,16 +56,60 @@ function parseFrontmatter(content: string): { frontmatter: Record<string, unknow
   const [, frontmatterStr, body] = match;
   const frontmatter: Record<string, unknown> = {};
 
-  // Simple YAML parsing for key: value pairs
   if (!frontmatterStr) {
     return { frontmatter: {}, body: body ?? content };
   }
 
-  for (const line of frontmatterStr.split('\n')) {
+  const lines = frontmatterStr.split('\n');
+  let currentKey: string | null = null;
+  let currentArray: string[] | null = null;
+
+  for (const line of lines) {
+    // Block-style list item: "  - value"
+    if (/^\s+-\s/.test(line) && currentKey && currentArray) {
+      const item = line.replace(/^\s+-\s*/, '').trim();
+      // Strip quotes from list items
+      if (
+        (item.startsWith('"') && item.endsWith('"')) ||
+        (item.startsWith("'") && item.endsWith("'"))
+      ) {
+        currentArray.push(item.slice(1, -1));
+      } else {
+        currentArray.push(item);
+      }
+      continue;
+    }
+
+    // Flush any pending array before processing the next key
+    if (currentKey && currentArray) {
+      frontmatter[currentKey] = currentArray;
+      currentKey = null;
+      currentArray = null;
+    }
+
     const colonIndex = line.indexOf(':');
     if (colonIndex > 0) {
       const key = line.slice(0, colonIndex).trim();
-      let value: string | boolean | number = line.slice(colonIndex + 1).trim();
+      const rawValue = line.slice(colonIndex + 1).trim();
+
+      // Empty value after colon → start collecting a list
+      if (rawValue === '') {
+        currentKey = key;
+        currentArray = [];
+        continue;
+      }
+
+      // Flow-style array: [item1, item2]
+      if (rawValue.startsWith('[') && rawValue.endsWith(']')) {
+        frontmatter[key] = rawValue
+          .slice(1, -1)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        continue;
+      }
+
+      let value: string | boolean | number = rawValue;
 
       // Handle quoted strings
       if (
@@ -77,12 +121,17 @@ function parseFrontmatter(content: string): { frontmatter: Record<string, unknow
         value = true;
       } else if (value === 'false') {
         value = false;
-      } else if (!Number.isNaN(Number(value))) {
+      } else if (value !== '' && !Number.isNaN(Number(value))) {
         value = Number(value);
       }
 
       frontmatter[key] = value;
     }
+  }
+
+  // Flush trailing array
+  if (currentKey && currentArray) {
+    frontmatter[currentKey] = currentArray;
   }
 
   return { frontmatter, body: body ?? content };

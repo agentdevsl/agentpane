@@ -75,6 +75,9 @@ export interface StreamHandlerOptions {
   signal?: AbortSignal;
   /** Maximum wall-clock runtime in ms. Read from global setting; falls back to DEFAULT_AGENT_MAX_RUNTIME_MS (4 hours). */
   maxRuntimeMs?: number;
+  /** Skill identity from the task — threaded into session events for replay context. */
+  skillId?: string | null;
+  skillName?: string | null;
   sessionService: {
     publish: (sessionId: string, event: SessionEvent) => Promise<unknown>;
     persistOnly?: (sessionId: string, event: SessionEvent) => Promise<unknown>;
@@ -99,6 +102,12 @@ export interface ExitPlanModeOptions {
   teammateCount?: number;
 }
 
+export interface SkillCallRecord {
+  skillName: string;
+  durationMs: number;
+  isError: boolean;
+}
+
 export interface AgentRunResult {
   runId: string;
   status: 'completed' | 'error' | 'turn_limit' | 'paused' | 'planning';
@@ -113,7 +122,11 @@ export interface AgentRunResult {
     durationApiMs?: number;
     numTurns?: number;
     stopReason?: string | null;
+    inputTokens?: number;
+    outputTokens?: number;
   };
+  skillCalls?: SkillCallRecord[];
+  fileChanges?: { filesModified: number; linesAdded: number | null; linesRemoved: number | null };
 }
 
 async function publishToolProgress(
@@ -364,6 +377,11 @@ async function handleTopologySystemMessage(
 }
 
 function extractResultMetrics(result: Record<string, unknown>): AgentRunResult['metrics'] {
+  const usage =
+    result.usage != null && typeof result.usage === 'object'
+      ? (result.usage as { input_tokens?: number; output_tokens?: number })
+      : undefined;
+
   return {
     totalCostUsd: typeof result.total_cost_usd === 'number' ? result.total_cost_usd : undefined,
     durationMs: typeof result.duration_ms === 'number' ? result.duration_ms : undefined,
@@ -371,6 +389,8 @@ function extractResultMetrics(result: Record<string, unknown>): AgentRunResult['
     numTurns: typeof result.num_turns === 'number' ? result.num_turns : undefined,
     stopReason:
       result.stop_reason !== undefined ? (result.stop_reason as string | null) : undefined,
+    inputTokens: typeof usage?.input_tokens === 'number' ? usage.input_tokens : undefined,
+    outputTokens: typeof usage?.output_tokens === 'number' ? usage.output_tokens : undefined,
   };
 }
 
@@ -379,7 +399,9 @@ async function publishMetrics(
   sessionId: string,
   agentId: string,
   runId: string,
-  msg: Record<string, unknown>
+  msg: Record<string, unknown>,
+  skillId?: string | null,
+  skillName?: string | null
 ): Promise<void> {
   const modelUsage =
     msg.modelUsage != null && typeof msg.modelUsage === 'object'
@@ -407,6 +429,8 @@ async function publishMetrics(
       data: {
         agentId,
         runId,
+        skillId,
+        skillName,
         totalCostUsd: typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : undefined,
         durationMs: typeof msg.duration_ms === 'number' ? msg.duration_ms : undefined,
         durationApiMs: typeof msg.duration_api_ms === 'number' ? msg.duration_api_ms : undefined,
@@ -463,18 +487,53 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
       type: 'agent:planning',
       partType: 'lifecycle',
       blockId: runId,
-      data: { agentId, runId, model },
+      data: { agentId, runId, model, skillId: options.skillId, skillName: options.skillName },
     })
   );
 
   // Track active tools by toolUseID for correlating with tool_use_summary
-  const activeTools = new Map<string, { toolName: string; startTime: number }>();
+  const activeTools = new Map<
+    string,
+    { toolName: string; startTime: number; skillName?: string }
+  >();
+
+  // Accumulate Skill tool calls for AgentRunResult
+  const skillCalls: SkillCallRecord[] = [];
+
+  // Track unique file paths modified by Write/Edit/NotebookEdit tools
+  const modifiedFiles = new Set<string>();
 
   // Create canUseTool callback to capture ExitPlanMode options and emit tool:start events.
   // The SDK's tool_use_summary in v0.2.76+ no longer includes tool_name/tool_input,
   // so we intercept via canUseTool which always receives the full input.
   const canUseTool: CanUseTool = async (toolName, input, toolOptions) => {
-    activeTools.set(toolOptions.toolUseID, { toolName, startTime: Date.now() });
+    const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
+      toolName,
+      startTime: Date.now(),
+    };
+
+    // Enrich Skill tool calls with the invoked skill name for downstream tracking
+    if (toolName === 'Skill') {
+      const skillInput = input as Record<string, unknown>;
+      const invokedSkillName = typeof skillInput.skill === 'string' ? skillInput.skill : undefined;
+      if (invokedSkillName) {
+        toolEntry.skillName = invokedSkillName;
+      } else {
+        log.warn('Skill tool invoked but skill name could not be extracted', {
+          data: { toolUseID: toolOptions.toolUseID, skillField: skillInput.skill },
+        });
+      }
+    }
+
+    activeTools.set(toolOptions.toolUseID, toolEntry);
+
+    // Track file-modifying tools for file change metrics
+    if (toolName === 'Write' || toolName === 'Edit' || toolName === 'NotebookEdit') {
+      const filePath =
+        ((input as Record<string, unknown>).file_path as string | undefined) ??
+        ((input as Record<string, unknown>).notebook_path as string | undefined);
+      if (filePath) modifiedFiles.add(filePath);
+    }
 
     await sessionService.publish(
       sessionId,
@@ -566,6 +625,11 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           result: isTimeout
             ? `Agent planning timed out after ${maxRuntimeMs / 1000}s`
             : 'Agent stopped by user during planning',
+          skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+          fileChanges:
+            modifiedFiles.size > 0
+              ? { filesModified: modifiedFiles.size, linesAdded: null, linesRemoved: null }
+              : undefined,
         };
       }
 
@@ -698,6 +762,15 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
             log.info('ExitPlanMode completed - plan is ready', { data: { agentId } });
           }
 
+          // Accumulate Skill tool calls for metrics
+          if (tracked.skillName) {
+            skillCalls.push({
+              skillName: tracked.skillName,
+              durationMs: Date.now() - tracked.startTime,
+              isError: false,
+            });
+          }
+
           activeTools.delete(toolUseId);
         }
       }
@@ -770,7 +843,15 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
         await batcher.destroy();
         session.close(); // Always close first — before any potentially-failing publishes
 
-        publishMetrics(sessionService, sessionId, agentId, runId, result).catch((publishErr) => {
+        publishMetrics(
+          sessionService,
+          sessionId,
+          agentId,
+          runId,
+          result,
+          options.skillId,
+          options.skillName
+        ).catch((publishErr) => {
           log.warn('Failed to publish metrics', { error: publishErr });
         });
 
@@ -798,6 +879,11 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           plan: planContent || accumulated,
           planOptions: exitPlanModeOptions,
           metrics: extractResultMetrics(result),
+          skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+          fileChanges:
+            modifiedFiles.size > 0
+              ? { filesModified: modifiedFiles.size, linesAdded: null, linesRemoved: null }
+              : undefined,
         };
       }
     }
@@ -830,6 +916,11 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
       turnCount: turn,
       plan: planContent || accumulated || 'No plan generated',
       planOptions: exitPlanModeOptions,
+      skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+      fileChanges:
+        modifiedFiles.size > 0
+          ? { filesModified: modifiedFiles.size, linesAdded: null, linesRemoved: null }
+          : undefined,
     };
   } catch (error) {
     clearTimeout(timeoutId);
@@ -856,6 +947,11 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
       status: 'error',
       turnCount: 0,
       error: errorMessage,
+      skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+      fileChanges:
+        modifiedFiles.size > 0
+          ? { filesModified: modifiedFiles.size, linesAdded: null, linesRemoved: null }
+          : undefined,
     };
   }
 }
@@ -864,8 +960,19 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
  * Run the agent in execution mode after plan approval.
  */
 export async function runAgentExecution(options: StreamHandlerOptions): Promise<AgentRunResult> {
-  const { agentId, sessionId, prompt, allowedTools, maxTurns, model, cwd, sessionService, signal } =
-    options;
+  const {
+    agentId,
+    sessionId,
+    prompt,
+    allowedTools,
+    maxTurns,
+    model,
+    cwd,
+    sessionService,
+    signal,
+    skillId,
+    skillName,
+  } = options;
   const maxRuntimeMs = Math.max(options.maxRuntimeMs ?? DEFAULT_AGENT_MAX_RUNTIME_MS, 60_000); // minimum 1 minute
 
   const runId = createId();
@@ -896,7 +1003,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
       type: 'agent:started',
       partType: 'lifecycle',
       blockId: runId,
-      data: { agentId, runId, maxTurns, model, phase: 'execution' },
+      data: { agentId, runId, maxTurns, model, phase: 'execution', skillId, skillName },
     })
   );
 
@@ -919,10 +1026,45 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
   );
 
   // Track active tools by toolUseID for correlating with tool_use_summary
-  const activeTools = new Map<string, { toolName: string; startTime: number }>();
+  const activeTools = new Map<
+    string,
+    { toolName: string; startTime: number; skillName?: string }
+  >();
+
+  // Accumulate Skill tool calls for AgentRunResult
+  const skillCalls: SkillCallRecord[] = [];
+
+  // Track unique file paths modified by Write/Edit/NotebookEdit tools
+  const modifiedFiles = new Set<string>();
 
   const canUseTool: CanUseTool = async (toolName, input, toolOptions) => {
-    activeTools.set(toolOptions.toolUseID, { toolName, startTime: Date.now() });
+    const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
+      toolName,
+      startTime: Date.now(),
+    };
+
+    // Enrich Skill tool calls with the invoked skill name for downstream tracking
+    if (toolName === 'Skill') {
+      const skillInput = input as Record<string, unknown>;
+      const invokedSkillName = typeof skillInput.skill === 'string' ? skillInput.skill : undefined;
+      if (invokedSkillName) {
+        toolEntry.skillName = invokedSkillName;
+      } else {
+        log.warn('Skill tool invoked but skill name could not be extracted', {
+          data: { toolUseID: toolOptions.toolUseID, skillField: skillInput.skill },
+        });
+      }
+    }
+
+    activeTools.set(toolOptions.toolUseID, toolEntry);
+
+    // Track file-modifying tools for file change metrics
+    if (toolName === 'Write' || toolName === 'Edit' || toolName === 'NotebookEdit') {
+      const filePath =
+        ((input as Record<string, unknown>).file_path as string | undefined) ??
+        ((input as Record<string, unknown>).notebook_path as string | undefined);
+      if (filePath) modifiedFiles.add(filePath);
+    }
 
     await sessionService.publish(
       sessionId,
@@ -1003,6 +1145,11 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           result: isTimeout
             ? `Agent execution timed out after ${maxRuntimeMs / 1000}s`
             : 'Agent stopped by user during execution',
+          skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+          fileChanges:
+            modifiedFiles.size > 0
+              ? { filesModified: modifiedFiles.size, linesAdded: null, linesRemoved: null }
+              : undefined,
         };
       }
 
@@ -1123,6 +1270,10 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
             status: 'turn_limit',
             turnCount: turn,
             result: `Turn limit reached (${maxTurns}). Task moved to waiting approval.`,
+            fileChanges:
+              modifiedFiles.size > 0
+                ? { filesModified: modifiedFiles.size, linesAdded: null, linesRemoved: null }
+                : undefined,
           };
         }
       }
@@ -1154,6 +1305,15 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
               },
             })
           );
+
+          // Accumulate Skill tool calls for metrics
+          if (tracked.skillName) {
+            skillCalls.push({
+              skillName: tracked.skillName,
+              durationMs: Date.now() - tracked.startTime,
+              isError: false,
+            });
+          }
 
           activeTools.delete(toolUseId);
         }
@@ -1227,9 +1387,11 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         await batcher.destroy();
         session.close(); // Always close first — before any potentially-failing publishes
 
-        publishMetrics(sessionService, sessionId, agentId, runId, result).catch((publishErr) => {
-          log.warn('Failed to publish metrics', { error: publishErr });
-        });
+        publishMetrics(sessionService, sessionId, agentId, runId, result, skillId, skillName).catch(
+          (publishErr) => {
+            log.warn('Failed to publish metrics', { error: publishErr });
+          }
+        );
 
         const usage =
           result.usage != null && typeof result.usage === 'object'
@@ -1255,7 +1417,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
             type: 'agent:completed',
             partType: 'lifecycle',
             blockId: runId,
-            data: { agentId, runId, turnCount: turn, usage },
+            data: { agentId, runId, turnCount: turn, usage, skillId, skillName },
           })
         );
 
@@ -1265,6 +1427,11 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           turnCount: turn,
           result: accumulated || 'Task completed successfully',
           metrics: extractResultMetrics(result),
+          skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+          fileChanges:
+            modifiedFiles.size > 0
+              ? { filesModified: modifiedFiles.size, linesAdded: null, linesRemoved: null }
+              : undefined,
         };
       }
     }
@@ -1281,7 +1448,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         type: 'agent:completed',
         partType: 'lifecycle',
         blockId: runId,
-        data: { agentId, runId, turnCount: turn },
+        data: { agentId, runId, turnCount: turn, skillId, skillName },
       })
     );
 
@@ -1290,6 +1457,11 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
       status: 'completed',
       turnCount: turn,
       result: accumulated || 'Task completed successfully',
+      skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+      fileChanges:
+        modifiedFiles.size > 0
+          ? { filesModified: modifiedFiles.size, linesAdded: null, linesRemoved: null }
+          : undefined,
     };
   } catch (error) {
     clearTimeout(timeoutId);
@@ -1356,6 +1528,11 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
       status: 'error',
       turnCount: turn,
       error: errorMessage,
+      skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+      fileChanges:
+        modifiedFiles.size > 0
+          ? { filesModified: modifiedFiles.size, linesAdded: null, linesRemoved: null }
+          : undefined,
     };
   }
 }

@@ -57,7 +57,7 @@ for line in sys.stdin:
                 f.write(f'description: \"{escape_yaml(desc)}\"\n')
             f.write('source: image\n')
             if exec_skill:
-                f.write(f'executionSkill: {escape_yaml(exec_skill)}\n')
+                f.write(f'executionSkill: \"{escape_yaml(exec_skill)}\"\n')
             f.write('---\n')
             f.write(content)
         count += 1
@@ -105,11 +105,11 @@ for line in sys.stdin:
             if skills:
                 f.write('skills:\n')
                 for s in skills:
-                    f.write(f'  - {escape_yaml(str(s))}\n')
+                    f.write(f'  - \"{escape_yaml(str(s))}\"\n')
             if tools:
                 f.write('tools:\n')
                 for t in tools:
-                    f.write(f'  - {escape_yaml(str(t))}\n')
+                    f.write(f'  - \"{escape_yaml(str(t))}\"\n')
             f.write('---\n')
             f.write(content)
         count += 1

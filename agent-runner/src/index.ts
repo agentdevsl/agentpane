@@ -32,7 +32,7 @@ import {
   unstable_v2_createSession,
   unstable_v2_resumeSession,
 } from '@anthropic-ai/claude-agent-sdk';
-import { createEventEmitter } from './event-emitter.js';
+import { createEventEmitter, type SkillCallRecord } from './event-emitter.js';
 // SC-023: Shared session utilities. index.ts still uses its own writeCredentialsFile
 // and shouldStop variants (with additional debug logging), but types and file-change
 // detection are imported from the shared module to reduce duplication.
@@ -422,7 +422,13 @@ async function runPlanningPhase(): Promise<void> {
   const EXIT_PLAN_MODE_TIMEOUT_MS = 60_000;
 
   // Track active tool executions for emitting toolResult events
-  const activeTools = new Map<string, { toolName: string; startTime: number }>();
+  const activeTools = new Map<
+    string,
+    { toolName: string; startTime: number; skillName?: string }
+  >();
+
+  // Accumulate Skill tool calls for completion data
+  const skillCalls: SkillCallRecord[] = [];
 
   // Helper to emit tool result for a completed tool
   const emitToolResult = (toolId: string, isError = false, result = '') => {
@@ -436,6 +442,16 @@ async function runPlanningPhase(): Promise<void> {
         isError,
         durationMs,
       });
+
+      // Accumulate Skill tool calls for metrics
+      if (tool.skillName) {
+        skillCalls.push({
+          skillName: tool.skillName,
+          durationMs,
+          isError,
+        });
+      }
+
       activeTools.delete(toolId);
     }
   };
@@ -458,7 +474,21 @@ async function runPlanningPhase(): Promise<void> {
       console.error(`[agent-runner] canUseTool: ${toolName}`);
 
       // Track tool start
-      activeTools.set(options.toolUseID, { toolName, startTime: Date.now() });
+      const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
+        toolName,
+        startTime: Date.now(),
+      };
+
+      // Enrich Skill tool calls with the skill name for downstream tracking
+      if (toolName === 'Skill') {
+        const skillInput = input as Record<string, unknown> | undefined;
+        const sName = typeof skillInput?.skill === 'string' ? skillInput.skill : undefined;
+        if (sName) {
+          toolEntry.skillName = sName;
+        }
+      }
+
+      activeTools.set(options.toolUseID, toolEntry);
 
       // Emit tool start event for all tools
       events.toolStart({
@@ -582,6 +612,7 @@ async function runPlanningPhase(): Promise<void> {
             turnCount: turn,
             sdkSessionId: sdkSessionId ?? '',
             allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+            skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
           });
           return;
         }
@@ -643,12 +674,14 @@ async function runPlanningPhase(): Promise<void> {
                 turnCount: turn,
                 sdkSessionId: sdkSessionId ?? '',
                 allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+                skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
               });
             } else {
               events.complete({
                 status: 'turn_limit',
                 turnCount: turn,
                 result: `Turn limit reached (${config.maxTurns}) during planning.`,
+                skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
               });
             }
             return;
@@ -719,6 +752,15 @@ async function runPlanningPhase(): Promise<void> {
               durationMs,
             });
 
+            // Accumulate Skill tool calls for metrics
+            if (startInfo.skillName) {
+              skillCalls.push({
+                skillName: startInfo.skillName,
+                durationMs,
+                isError: false,
+              });
+            }
+
             // ExitPlanMode tool completed — do NOT close session here.
             // The stream will naturally flow to a 'result' message, which is the safe exit point.
             // Closing mid-iteration causes "Operation aborted" unhandled rejections.
@@ -771,6 +813,7 @@ async function runPlanningPhase(): Promise<void> {
             turnCount: turn,
             sdkSessionId: sdkSessionId ?? '',
             allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+            skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
           });
         } else {
           // No plan was created - treat as completion
@@ -778,6 +821,7 @@ async function runPlanningPhase(): Promise<void> {
             status: 'completed',
             turnCount: turn,
             result: accumulatedText || 'Planning completed without explicit plan',
+            skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
           });
         }
         return;
@@ -799,12 +843,14 @@ async function runPlanningPhase(): Promise<void> {
         turnCount: turn,
         sdkSessionId: sdkSessionId ?? '',
         allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+        skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
       });
     } else {
       events.complete({
         status: 'completed',
         turnCount: turn,
         result: 'Planning completed',
+        skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
       });
     }
   } catch (error) {
@@ -855,7 +901,13 @@ async function runExecutionPhase(): Promise<void> {
   }
 
   // Track active tool executions for emitting toolResult events
-  const activeTools = new Map<string, { toolName: string; startTime: number }>();
+  const activeTools = new Map<
+    string,
+    { toolName: string; startTime: number; skillName?: string }
+  >();
+
+  // Accumulate Skill tool calls for completion data
+  const skillCalls: SkillCallRecord[] = [];
 
   // Helper to emit tool result for a completed tool
   const emitToolResult = (toolId: string, isError = false, result = '') => {
@@ -869,6 +921,16 @@ async function runExecutionPhase(): Promise<void> {
         isError,
         durationMs,
       });
+
+      // Accumulate Skill tool calls for metrics
+      if (tool.skillName) {
+        skillCalls.push({
+          skillName: tool.skillName,
+          durationMs,
+          isError,
+        });
+      }
+
       activeTools.delete(toolId);
     }
   };
@@ -883,7 +945,21 @@ async function runExecutionPhase(): Promise<void> {
   // canUseTool callback to track tool executions (even in bypass mode)
   const canUseTool: CanUseTool = async (toolName, input, options) => {
     // Track tool start
-    activeTools.set(options.toolUseID, { toolName, startTime: Date.now() });
+    const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
+      toolName,
+      startTime: Date.now(),
+    };
+
+    // Enrich Skill tool calls with the skill name for downstream tracking
+    if (toolName === 'Skill') {
+      const skillInput = input as Record<string, unknown> | undefined;
+      const sName = typeof skillInput?.skill === 'string' ? skillInput.skill : undefined;
+      if (sName) {
+        toolEntry.skillName = sName;
+      }
+    }
+
+    activeTools.set(options.toolUseID, toolEntry);
 
     // Emit tool start event
     events.toolStart({
@@ -1010,6 +1086,7 @@ async function runExecutionPhase(): Promise<void> {
               status: 'turn_limit',
               turnCount: turn,
               result: `Turn limit reached (${config.maxTurns}). Task may need manual completion.`,
+              skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
             });
             session.close();
             return;
@@ -1098,6 +1175,15 @@ async function runExecutionPhase(): Promise<void> {
               isError: false,
               durationMs,
             });
+
+            // Accumulate Skill tool calls for metrics
+            if (startInfo.skillName) {
+              skillCalls.push({
+                skillName: startInfo.skillName,
+                durationMs,
+                isError: false,
+              });
+            }
           }
         }
       }
@@ -1131,12 +1217,14 @@ async function runExecutionPhase(): Promise<void> {
             status: 'turn_limit',
             turnCount: turn,
             result: result.text ?? 'Task ended with error',
+            skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
           });
         } else {
           events.complete({
             status: 'completed',
             turnCount: turn,
             result: result.text ?? (accumulatedText || 'Task completed'),
+            skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
           });
         }
         session.close();
@@ -1154,6 +1242,7 @@ async function runExecutionPhase(): Promise<void> {
       status: 'completed',
       turnCount: turn,
       result: accumulatedText || 'Task completed',
+      skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
     });
   } catch (error) {
     // Emit results for any remaining active tools before reporting error
