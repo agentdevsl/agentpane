@@ -1,4 +1,5 @@
 import {
+  ArrowsClockwise,
   CaretDown,
   CaretUp,
   CheckCircle,
@@ -160,7 +161,7 @@ function getCardStyle(column: string): CardStyle {
 function getLastRunStatusInfo(status: string | null | undefined): {
   icon: React.ReactNode;
   label: string;
-  status: 'completed' | 'cancelled' | 'error' | 'turn_limit' | 'planning';
+  status: 'completed' | 'cancelled' | 'error' | 'turn_limit' | 'planning' | 'agent_reviewing';
 } | null {
   if (!status) return null;
   switch (status) {
@@ -193,6 +194,12 @@ function getLastRunStatusInfo(status: string | null | undefined): {
         icon: <Lightning className="w-3 h-3" weight="fill" />,
         label: 'Plan ready',
         status: 'planning',
+      };
+    case 'agent_reviewing':
+      return {
+        icon: <ArrowsClockwise className="w-3 h-3 animate-spin" weight="bold" />,
+        label: 'Agent reviewing',
+        status: 'agent_reviewing',
       };
     default:
       return null;

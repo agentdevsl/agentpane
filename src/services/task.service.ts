@@ -138,8 +138,9 @@ export class TaskService {
   }
 
   /**
-   * Cancel an in-progress task: atomically stop the running agent (if any)
-   * and move the task back to backlog. This is the safe way to abort a running task.
+   * Cancel an in-progress or waiting-approval task: stop the running agent
+   * (if any) and move the task back to backlog. Agent stop errors are ignored
+   * so cleanup always proceeds.
    */
   async cancelTask(taskId: string): Promise<Result<Task, TaskError>> {
     const task = await this.db.query.tasks.findFirst({
@@ -155,16 +156,25 @@ export class TaskService {
       await this.stopAgent(taskId);
     }
 
-    // Move to backlog
+    // Only cancel tasks that are in_progress or waiting_approval
+    if (task.column !== 'in_progress' && task.column !== 'waiting_approval') {
+      return err(TaskErrors.INVALID_TRANSITION(task.column, 'backlog'));
+    }
+
+    // Move to backlog, clear stale plan/agent state
     const [updated] = await this.db
       .update(tasks)
       .set({
         column: 'backlog' as TaskColumn,
         agentId: null,
         lastAgentStatus: 'cancelled',
+        plan: null,
+        planOptions: null,
+        agentReviewResult: null,
+        agentReviewedAt: null,
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(tasks.id, taskId))
+      .where(and(eq(tasks.id, taskId), eq(tasks.column, task.column)))
       .returning();
 
     if (!updated) {

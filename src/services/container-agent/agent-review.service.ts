@@ -3,7 +3,8 @@
  *
  * When a task's approval mode is 'agent', this service evaluates the plan
  * via a single Anthropic API call and either auto-approves it or flags it
- * for human review. On any failure, it falls back to human approval silently.
+ * for human review. On any failure, it falls back to human approval gracefully
+ * (errors are logged and published to the stream).
  */
 
 import Anthropic from '@anthropic-ai/sdk';

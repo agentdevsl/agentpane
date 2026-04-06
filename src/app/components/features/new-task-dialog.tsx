@@ -667,7 +667,7 @@ function TaskDetailsSidebar({
             Approval
           </span>
           <div className="flex gap-1.5">
-            {([null, 'agent'] as const).map((mode) => (
+            {([null, 'human', 'agent'] as const).map((mode) => (
               <button
                 key={mode ?? 'default'}
                 type="button"
@@ -679,12 +679,16 @@ function TaskDetailsSidebar({
                     : 'bg-surface text-fg-muted border-border hover:text-fg hover:bg-surface-muted'
                 )}
               >
-                {mode === null ? 'Default' : 'Auto'}
+                {mode === null ? 'Default' : mode === 'human' ? 'Human' : 'Auto'}
               </button>
             ))}
           </div>
           <p className="text-[10px] text-fg-muted">
-            {approvalMode === 'agent' ? 'Agent will auto-review plans' : 'Uses project default'}
+            {approvalMode === 'agent'
+              ? 'Agent will auto-review plans'
+              : approvalMode === 'human'
+                ? 'Plans require human approval'
+                : 'Uses project default'}
           </p>
         </div>
 
