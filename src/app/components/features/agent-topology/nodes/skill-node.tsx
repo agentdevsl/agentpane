@@ -13,7 +13,7 @@ function SkillNodeComponent({ data, selected }: NodeProps) {
 
   return (
     <div
-      style={{ width: 80, height: 50, overflow: 'visible' }}
+      style={{ width: 160, height: 50, overflow: 'visible' }}
       className="flex items-center justify-center"
     >
       <Handle

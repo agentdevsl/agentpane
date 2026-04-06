@@ -193,10 +193,12 @@ interface TopologyTracker {
   taskToNodeId: Map<string, string>;
   /** Whether the root orchestrator node has been emitted */
   rootEmitted: boolean;
+  /** Queue of subagent_type values from Agent tool calls, consumed by task_started events */
+  pendingSubagentTypes: string[];
 }
 
 function createTopologyTracker(): TopologyTracker {
-  return { taskToNodeId: new Map(), rootEmitted: false };
+  return { taskToNodeId: new Map(), rootEmitted: false, pendingSubagentTypes: [] };
 }
 
 /**
@@ -264,8 +266,15 @@ async function handleTopologySystemMessage(
   if (subtype === 'task_started') {
     const sdkTaskId = msg.task_id as string;
     const description = msg.description as string | undefined;
-    const taskType = msg.task_type as string | undefined;
+    const rawTaskType = msg.task_type as string | undefined;
     if (!sdkTaskId) return false;
+
+    // The SDK reports task_type: "local_agent" for Agent tool calls.
+    // Substitute with the real subagent_type captured from canUseTool.
+    const taskType =
+      rawTaskType === 'local_agent' && tracker.pendingSubagentTypes.length > 0
+        ? tracker.pendingSubagentTypes.shift()
+        : rawTaskType;
 
     // Emit root orchestrator node on first subagent spawn
     if (!tracker.rootEmitted) {
@@ -523,6 +532,16 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
         log.warn('Skill tool invoked but skill name could not be extracted', {
           data: { toolUseID: toolOptions.toolUseID, skillField: skillInput.skill },
         });
+      }
+    }
+
+    // Capture subagent_type from Agent tool calls for topology grouping
+    if (toolName === 'Agent') {
+      const agentInput = input as Record<string, unknown>;
+      const subagentType =
+        typeof agentInput.subagent_type === 'string' ? agentInput.subagent_type : null;
+      if (subagentType) {
+        topology.pendingSubagentTypes.push(subagentType);
       }
     }
 
@@ -1057,6 +1076,16 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         log.warn('Skill tool invoked but skill name could not be extracted', {
           data: { toolUseID: toolOptions.toolUseID, skillField: skillInput.skill },
         });
+      }
+    }
+
+    // Capture subagent_type from Agent tool calls for topology grouping
+    if (toolName === 'Agent') {
+      const agentInput = input as Record<string, unknown>;
+      const subagentType =
+        typeof agentInput.subagent_type === 'string' ? agentInput.subagent_type : null;
+      if (subagentType) {
+        topology.pendingSubagentTypes.push(subagentType);
       }
     }
 

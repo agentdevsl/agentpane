@@ -184,7 +184,7 @@ function resolveAgentMeta(
 /** Default new-field values for TopologyNode */
 function defaultNodeFields(): Pick<
   TopologyNode,
-  'type' | 'skillId' | 'skillName' | 'skillCalls' | 'agentMeta'
+  'type' | 'skillId' | 'skillName' | 'skillCalls' | 'agentMeta' | 'phase'
 > {
   return {
     type: 'agent',
@@ -192,6 +192,7 @@ function defaultNodeFields(): Pick<
     skillName: null,
     skillCalls: [],
     agentMeta: null,
+    phase: undefined,
   };
 }
 
@@ -227,6 +228,16 @@ export function buildTopologyFromEvents(
   let seenPlanReady = false;
   /** Maps planning root agentId → execution node ID for child routing */
   const executionPhaseRoots = new Map<string, string>();
+  /**
+   * Maps `${parentId}::${agentType}` → synthetic group node ID.
+   * When multiple agents share the same agentType under the same parent,
+   * a synthetic intermediate node is created so the topology shows:
+   *   parent → agentType-group → [agent1, agent2, ...]
+   */
+  const agentTypeGroupNodes = new Map<string, string>();
+  /** Track agentType counts per parent to know when to create group nodes.
+   *  Key: `${parentId}::${agentType}`, Value: array of agent IDs */
+  // agentTypeGroupNodes tracks which agent-type group parent nodes exist
 
   for (const rawEvent of events) {
     // Cast to the known discriminated union so TypeScript narrows `data`
@@ -257,6 +268,7 @@ export function buildTopologyFromEvents(
             role: existing.role || 'agent',
             ...defaultNodeFields(),
             agentType: null,
+            phase: 'executing',
             status: 'running',
             parentId: existing.id,
             childIds: [],
@@ -300,6 +312,7 @@ export function buildTopologyFromEvents(
         role: roleStr || 'agent',
         ...defaultNodeFields(),
         agentType,
+        phase: seenPlanReady ? 'executing' : 'planning',
         skillId: skillNs,
         skillName: skillNs ? agentType : null,
         agentMeta,
@@ -324,14 +337,78 @@ export function buildTopologyFromEvents(
           seenPlanReady && executionPhaseRoots.has(d.parentId)
             ? (executionPhaseRoots.get(d.parentId) ?? d.parentId)
             : d.parentId;
-        node.parentId = effectiveParentId;
-        edges.push({
-          id: `${effectiveParentId}->${d.agentId}`,
-          sourceId: effectiveParentId,
-          targetId: d.agentId,
-        });
-        const parent = nodes.get(effectiveParentId);
-        if (parent) parent.childIds.push(d.agentId);
+
+        // --- Agent-type grouping ---
+        // When multiple agents share the same dedicated agentType under the
+        // same parent, insert a synthetic group parent node so the topology
+        // renders a hierarchy: parent → group → [agent1, agent2, ...]
+        const isGroupableType = agentType && agentType !== 'general-purpose';
+        const groupKey = isGroupableType ? `${effectiveParentId}::${agentType}` : null;
+
+        if (groupKey) {
+          // Get or create the agent-type parent node
+          let groupNodeId = agentTypeGroupNodes.get(groupKey);
+          if (!groupNodeId) {
+            // First agent of this type — create the group parent node immediately
+            groupNodeId = `agent-type-${effectiveParentId}-${agentType}`;
+            const groupMeta = resolveAgentMeta(agentType, context.knownAgents);
+            const typeName = agentType as string;
+            const groupNode: TopologyNode = {
+              id: groupNodeId,
+              name: typeName,
+              role: typeName,
+              ...defaultNodeFields(),
+              agentType,
+              agentMeta: groupMeta,
+              status: 'running',
+              parentId: effectiveParentId,
+              childIds: [],
+              progress: 0,
+              tokens: 0,
+              cost: 0,
+              turns: 0,
+              messages: 0,
+              startedAt: d.timestamp ?? event.timestamp,
+              completedAt: null,
+              verified: false,
+              verificationScore: 0,
+              decisions: [],
+            };
+            nodes.set(groupNodeId, groupNode);
+            agentTypeGroupNodes.set(groupKey, groupNodeId);
+
+            // Connect parent → group
+            const parentNode = nodes.get(effectiveParentId);
+            if (parentNode) {
+              parentNode.childIds.push(groupNodeId);
+            }
+            edges.push({
+              id: `${effectiveParentId}->${groupNodeId}`,
+              sourceId: effectiveParentId,
+              targetId: groupNodeId,
+            });
+          }
+
+          // Connect agent to its type group parent
+          const groupNode = nodes.get(groupNodeId);
+          node.parentId = groupNodeId;
+          if (groupNode) groupNode.childIds.push(d.agentId);
+          edges.push({
+            id: `${groupNodeId}->${d.agentId}`,
+            sourceId: groupNodeId,
+            targetId: d.agentId,
+          });
+        } else {
+          // No groupable agentType — connect directly to parent
+          node.parentId = effectiveParentId;
+          edges.push({
+            id: `${effectiveParentId}->${d.agentId}`,
+            sourceId: effectiveParentId,
+            targetId: d.agentId,
+          });
+          const parent = nodes.get(effectiveParentId);
+          if (parent) parent.childIds.push(d.agentId);
+        }
       }
     } else if (event.type === 'container-agent:started' && nodes.size === 0) {
       const d = event.data;
@@ -346,6 +423,7 @@ export function buildTopologyFromEvents(
         role: 'agent',
         ...defaultNodeFields(),
         agentType: null,
+        phase: 'planning',
         status: 'running',
         parentId: null,
         childIds: [],
@@ -411,6 +489,7 @@ export function buildTopologyFromEvents(
       if (firstNode) {
         firstNode.status = 'verifying';
         firstNode.progress = 80;
+        firstNode.phase = 'reviewing';
       }
     } else if (event.type === 'tool:start') {
       const d = event.data;
@@ -455,12 +534,21 @@ export function buildTopologyFromEvents(
       fallbackStatus = 'queued';
     }
 
+    const fallbackPhase: TopologyNode['phase'] = isCompleted
+      ? 'executing'
+      : isPlanReady
+        ? 'reviewing'
+        : isRunning
+          ? 'planning'
+          : undefined;
+
     const rootNode: TopologyNode = {
       id: agentId,
       name: context.taskTitle ?? 'Agent',
       role: 'agent',
       ...defaultNodeFields(),
       agentType: null,
+      phase: fallbackPhase,
       status: fallbackStatus,
       parentId: null,
       childIds: [],
@@ -532,6 +620,55 @@ export function buildTopologyFromEvents(
         node.progress = 100;
       }
     }
+  }
+
+  // --- Group concurrent siblings ---
+  // Detect batches of siblings that share a parent and were spawned close together.
+  // Uses event order (spawn sequence) rather than timestamps since timestamps may be null.
+  const spawnOrder: string[] = []; // agentIds in spawn order
+  for (const rawEvent of events) {
+    const ev = rawEvent as KnownTopologyEvent;
+    if (ev.type === 'topology:agent_spawned' && ev.data.parentId) {
+      spawnOrder.push(ev.data.agentId);
+    }
+  }
+
+  // Group consecutive siblings that share the same parent.
+  // Skip nodes that are already children of agent-type group parents —
+  // those are already grouped hierarchically and shouldn't also be in
+  // compound horizontal groups (conflicting layout mechanisms).
+  const agentTypeGroupNodeIds = new Set(agentTypeGroupNodes.values());
+  let groupIndex = 0;
+  let i = 0;
+  while (i < spawnOrder.length) {
+    const spawnId = spawnOrder[i]!;
+    const nodeA = nodes.get(spawnId);
+    if (!nodeA?.parentId || agentTypeGroupNodeIds.has(nodeA.parentId)) {
+      i++;
+      continue;
+    }
+
+    // Collect consecutive siblings with the same parent
+    const batch: string[] = [spawnId];
+    let j = i + 1;
+    while (j < spawnOrder.length) {
+      const nextId = spawnOrder[j]!;
+      const nodeB = nodes.get(nextId);
+      if (!nodeB || nodeB.parentId !== nodeA.parentId) break;
+      batch.push(nextId);
+      j++;
+    }
+
+    // Only group batches of 2+ siblings
+    if (batch.length >= 2) {
+      const groupId = `group-${groupIndex++}`;
+      for (const agentId of batch) {
+        const node = nodes.get(agentId);
+        if (node) node.group = groupId;
+      }
+    }
+
+    i = j;
   }
 
   // --- Synthetic skill nodes ---

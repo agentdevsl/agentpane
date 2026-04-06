@@ -42,6 +42,8 @@ export interface TopologyNode {
   role: string;
   /** Node type -- 'agent' for real/fallback agents, 'skill' for synthetic skill dependency nodes */
   type: 'agent' | 'skill';
+  /** Group ID for visually clustering concurrent sibling agents (e.g., "group-0", "group-1") */
+  group?: string;
   /** Real SDK agent type (subagent_type / task_type) -- e.g. "general-purpose", "Explore", "Plan" */
   agentType: string | null;
   /** Skill namespace extracted from agentType (e.g. "pr-review-toolkit" from "pr-review-toolkit:code-reviewer") */
@@ -65,6 +67,7 @@ export interface TopologyNode {
   verified: boolean;
   verificationScore: number; // 0-1 (real data) or 0-100 (mock/demo data)
   decisions: TopologyDecision[];
+  phase?: 'planning' | 'reviewing' | 'executing';
 }
 
 export interface TopologyEdge {

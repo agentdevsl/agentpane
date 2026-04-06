@@ -93,6 +93,8 @@ function deriveAgentName(agentType?: string, description?: string): string {
 interface TopologyTracker {
   taskToNodeId: Map<string, string>;
   rootEmitted: boolean;
+  /** Queue of subagent_type values from Agent tool calls, consumed by task_started events */
+  pendingSubagentTypes: string[];
 }
 
 /** Handle SDK system messages for subagent lifecycle */
@@ -108,8 +110,15 @@ function handleTopologySystemMsg(
   if (subtype === 'task_started') {
     const sdkTaskId = msg.task_id as string;
     const description = msg.description as string | undefined;
-    const taskType = msg.task_type as string | undefined;
+    const rawTaskType = msg.task_type as string | undefined;
     if (!sdkTaskId) return;
+
+    // The SDK reports task_type: "local_agent" for Agent tool calls.
+    // Substitute with the real subagent_type captured from the canUseTool callback.
+    const taskType =
+      rawTaskType === 'local_agent' && tracker.pendingSubagentTypes.length > 0
+        ? tracker.pendingSubagentTypes.shift()
+        : rawTaskType;
 
     // Emit root orchestrator on first subagent
     if (!tracker.rootEmitted) {
@@ -487,6 +496,16 @@ async function runPlanningPhase(): Promise<void> {
         }
       }
 
+      // Capture subagent_type from Agent tool calls for topology grouping
+      if (toolName === 'Agent') {
+        const agentInput = input as Record<string, unknown> | undefined;
+        const subagentType =
+          typeof agentInput?.subagent_type === 'string' ? agentInput.subagent_type : null;
+        if (subagentType) {
+          topology.pendingSubagentTypes.push(subagentType);
+        }
+      }
+
       activeTools.set(options.toolUseID, toolEntry);
 
       // Emit tool start event for all tools
@@ -587,7 +606,11 @@ async function runPlanningPhase(): Promise<void> {
 
   // Topology tracker for subagent lifecycle events during planning
   // Skills can spawn subagents via the Agent tool when AGENT_HAS_SKILL=true
-  const topology: TopologyTracker = { taskToNodeId: new Map(), rootEmitted: false };
+  const topology: TopologyTracker = {
+    taskToNodeId: new Map(),
+    rootEmitted: false,
+    pendingSubagentTypes: [],
+  };
   const rootAgentId = `agent-${config.taskId}`;
 
   try {
@@ -925,7 +948,11 @@ async function runExecutionPhase(): Promise<void> {
   });
 
   // Topology tracker for subagent lifecycle events
-  const topology: TopologyTracker = { taskToNodeId: new Map(), rootEmitted: true };
+  const topology: TopologyTracker = {
+    taskToNodeId: new Map(),
+    rootEmitted: true,
+    pendingSubagentTypes: [],
+  };
   const rootAgentId = `agent-${config.taskId}`;
 
   // Always emit root agent node in topology
@@ -999,6 +1026,17 @@ async function runExecutionPhase(): Promise<void> {
         console.error(
           `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${options.toolUseID})`
         );
+      }
+    }
+
+    // Capture subagent_type from Agent tool calls for topology grouping.
+    // The SDK reports task_type: "local_agent" — we substitute with the real name.
+    if (toolName === 'Agent') {
+      const agentInput = input as Record<string, unknown> | undefined;
+      const subagentType =
+        typeof agentInput?.subagent_type === 'string' ? agentInput.subagent_type : null;
+      if (subagentType) {
+        topology.pendingSubagentTypes.push(subagentType);
       }
     }
 

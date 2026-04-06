@@ -17,6 +17,7 @@ export type AgentNodeData = Pick<
   | 'skillId'
   | 'skillName'
   | 'skillCalls'
+  | 'phase'
 > & {
   agentMeta: TopologyAgentMeta | null;
   nodeIndex: number;
@@ -50,8 +51,19 @@ function formatTokens(n: number): string {
 }
 
 function AgentNodeComponent({ data, selected }: NodeProps) {
-  const { name, role, status, progress, decisions, tokens, cost, turns, agentType, agentMeta } =
-    data as AgentNodeData;
+  const {
+    name,
+    role,
+    status,
+    progress,
+    decisions,
+    tokens,
+    cost,
+    turns,
+    agentType,
+    agentMeta,
+    phase,
+  } = data as AgentNodeData;
   const roleConfig = getRoleConfig(role);
   const roleColor = agentMeta?.color
     ? (COLOR_NAME_MAP[agentMeta.color] ?? roleConfig.color)
@@ -200,7 +212,11 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
           fill="var(--fg-muted)"
           style={{ pointerEvents: 'none' }}
         >
-          {agentType ? `${agentType} · ` : ''}
+          {phase
+            ? `${phase} · `
+            : agentType && agentType !== 'local_agent'
+              ? `${agentType} · `
+              : ''}
           {status} &middot; {progress}%
         </text>
 
@@ -272,7 +288,8 @@ function areAgentNodePropsEqual(prev: NodeProps, next: NodeProps): boolean {
     prevData.skillId === nextData.skillId &&
     prevData.skillName === nextData.skillName &&
     prevData.skillCalls === nextData.skillCalls &&
-    prevData.agentMeta === nextData.agentMeta
+    prevData.agentMeta === nextData.agentMeta &&
+    prevData.phase === nextData.phase
   );
 }
 

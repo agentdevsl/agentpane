@@ -95,7 +95,8 @@ function TopologyInner(): React.JSX.Element {
           d.skillId === graphNode.skillId &&
           d.skillName === graphNode.skillName &&
           d.skillCalls === graphNode.skillCalls &&
-          d.agentMeta === graphNode.agentMeta
+          d.agentMeta === graphNode.agentMeta &&
+          d.phase === graphNode.phase
         ) {
           return rfNode;
         }
@@ -117,6 +118,7 @@ function TopologyInner(): React.JSX.Element {
             skillName: graphNode.skillName,
             skillCalls: graphNode.skillCalls,
             agentMeta: graphNode.agentMeta,
+            phase: graphNode.phase,
           },
         };
       });
