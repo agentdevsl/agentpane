@@ -322,7 +322,7 @@ export function buildTopologyFromEvents(
         // Route execution-phase children to the execution root node
         const effectiveParentId =
           seenPlanReady && executionPhaseRoots.has(d.parentId)
-            ? executionPhaseRoots.get(d.parentId)!
+            ? (executionPhaseRoots.get(d.parentId) ?? d.parentId)
             : d.parentId;
         node.parentId = effectiveParentId;
         edges.push({
