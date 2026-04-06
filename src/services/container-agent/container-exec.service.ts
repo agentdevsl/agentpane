@@ -515,11 +515,15 @@ export class ContainerExecService {
     }
 
     // Stage: Injecting Skills - materialize org/template skills into sandbox
+    const skillNames = [task.skillName, task.executionSkillName].filter(Boolean);
     await streams.publish(sessionId, 'container-agent:status', {
       taskId,
       sessionId,
       stage: 'injecting_skills',
-      message: 'Injecting skills...',
+      message:
+        skillNames.length > 0
+          ? `Injecting skills: ${skillNames.join(', ')}...`
+          : 'Injecting skills...',
     });
 
     const templateService = new TemplateService(db);
