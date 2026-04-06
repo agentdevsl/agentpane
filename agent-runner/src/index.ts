@@ -47,6 +47,72 @@ import { buildEnrichedFields, createTrackingState, optionalSkillCalls } from './
 
 const VALID_TOPOLOGY_STATUSES = new Set(['completed', 'failed', 'stopped']);
 
+/**
+ * Load agent definitions from .claude/agents/*.md files.
+ * Parses YAML frontmatter to create SDK AgentDefinition records.
+ * Returns a Record<string, AgentDefinition> keyed by agent name.
+ */
+async function loadAgentDefinitions(
+  cwd: string
+): Promise<
+  Record<string, { description: string; tools?: string[]; prompt: string; model?: string }>
+> {
+  const agentsDir = join(cwd, '.claude', 'agents');
+  const agents: Record<
+    string,
+    { description: string; tools?: string[]; prompt: string; model?: string }
+  > = {};
+
+  try {
+    const { readdir } = await import('node:fs/promises');
+    const files = await readdir(agentsDir);
+    for (const file of files) {
+      if (!file.endsWith('.md')) continue;
+      try {
+        const content = await readFile(join(agentsDir, file), 'utf-8');
+        // Parse YAML frontmatter between --- delimiters
+        const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)/);
+        if (!match) continue;
+
+        const frontmatter = match[1];
+        const body = match[2]?.trim() ?? '';
+
+        // Simple YAML parsing for key fields
+        const name = frontmatter.match(/^name:\s*(.+)$/m)?.[1]?.trim();
+        const description = frontmatter.match(/^description:\s*(.+)$/m)?.[1]?.trim();
+        const model = frontmatter.match(/^model:\s*(.+)$/m)?.[1]?.trim();
+
+        // Parse tools array
+        const toolsMatch = frontmatter.match(/^tools:\n((?:\s+-\s+.+\n?)*)/m);
+        const tools = toolsMatch
+          ? toolsMatch[1]
+              .split('\n')
+              .map((l) => l.replace(/^\s+-\s+/, '').trim())
+              .filter(Boolean)
+          : undefined;
+
+        if (!name || !description) continue;
+
+        agents[name] = {
+          description,
+          tools,
+          prompt: body || description,
+          ...(model && model !== 'inherit' ? { model } : {}),
+        };
+      } catch {
+        // Skip individual file parse errors
+      }
+    }
+    console.error(
+      `[agent-runner] Loaded ${Object.keys(agents).length} agent definitions from ${agentsDir}`
+    );
+  } catch {
+    console.error(`[agent-runner] No .claude/agents/ directory found at ${agentsDir}`);
+  }
+
+  return agents;
+}
+
 /** Normalize SDK status to a value the client Zod schema accepts */
 function normalizeTopologyStatus(raw: unknown): 'completed' | 'failed' | 'stopped' {
   if (typeof raw === 'string' && VALID_TOPOLOGY_STATUSES.has(raw)) {
@@ -577,12 +643,16 @@ async function runPlanningPhase(): Promise<void> {
         allowedTools.push(tool);
       }
     }
+    // Load custom agent definitions from .claude/agents/ for SDK subagent support
+    const agentDefs = await loadAgentDefinitions(config.cwd);
+
     session = unstable_v2_createSession({
       model: config.model,
       env: { ...process.env }, // Teams GA: env passed through for agent swarm support
       executableArgs: ['--add-dir', config.cwd], // Enable .claude/agents/ discovery
       // In bypassPermissions mode, don't restrict tools — allow all including Agent
       ...(planPermissionMode !== 'bypassPermissions' ? { allowedTools } : {}),
+      ...(Object.keys(agentDefs).length > 0 ? { agents: agentDefs } : {}),
       permissionMode: planPermissionMode,
       canUseTool, // Use official SDK callback for tool interception
     });
@@ -1125,11 +1195,15 @@ async function runExecutionPhase(): Promise<void> {
     }
 
     if (!session) {
+      // Load custom agent definitions for subagent support
+      const agentDefs = await loadAgentDefinitions(config.cwd);
+
       // Create new session (either no sdkSessionId provided, or resume failed)
       session = unstable_v2_createSession({
         model: config.model,
         env: { ...process.env }, // Teams GA: env passed through for agent swarm support
         executableArgs: ['--add-dir', config.cwd], // Enable .claude/agents/ discovery
+        ...(Object.keys(agentDefs).length > 0 ? { agents: agentDefs } : {}),
         permissionMode: 'bypassPermissions',
         canUseTool, // Track tools even in bypass mode
       });
