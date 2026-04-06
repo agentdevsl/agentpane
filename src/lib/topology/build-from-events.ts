@@ -342,7 +342,8 @@ export function buildTopologyFromEvents(
         // When multiple agents share the same dedicated agentType under the
         // same parent, insert a synthetic group parent node so the topology
         // renders a hierarchy: parent → group → [agent1, agent2, ...]
-        const isGroupableType = agentType && agentType !== 'general-purpose';
+        const isGroupableType =
+          agentType && agentType !== 'general-purpose' && agentType !== 'local_agent';
         const groupKey = isGroupableType ? `${effectiveParentId}::${agentType}` : null;
 
         if (groupKey) {
