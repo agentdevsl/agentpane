@@ -316,9 +316,11 @@ export function KanbanCard({
                     <Circle weight="fill" className="h-1.5 w-1.5 animate-pulse" />
                   )}
                   <span>
-                    {agentStatus?.currentStage
-                      ? (STAGE_LABELS[agentStatus.currentStage] ?? agentStatus.currentStage)
-                      : 'Running'}
+                    {agentStatus?.statusMessage
+                      ? agentStatus.statusMessage
+                      : agentStatus?.currentStage
+                        ? (STAGE_LABELS[agentStatus.currentStage] ?? agentStatus.currentStage)
+                        : 'Running'}
                   </span>
                 </div>
               );
@@ -384,7 +386,13 @@ export function KanbanCard({
           data-testid="agent-running-status"
         >
           <Spinner className="h-3 w-3 animate-spin" />
-          <span className="flex-1 truncate">Processing...</span>
+          <span className="flex-1 truncate">
+            {agentStatus?.statusMessage
+              ? agentStatus.statusMessage
+              : agentStatus?.currentStage
+                ? (STAGE_LABELS[agentStatus.currentStage] ?? 'Processing...')
+                : 'Processing...'}
+          </span>
           {onStop && (
             <button
               type="button"

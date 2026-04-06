@@ -158,6 +158,18 @@ agentpane task create -codespace <codespace-id> -title "Deploy infrastructure" -
 agentpane task create -codespace <codespace-id> -title "Refactor auth module" -priority medium
 ```
 
+With auto-start (creates and immediately starts the agent):
+
+```bash
+agentpane task create -codespace <codespace-id> -title "Build VPC module" -skill tf-module-e2e -auto-start
+```
+
+With agent approval (plans are auto-reviewed instead of waiting for human):
+
+```bash
+agentpane task create -codespace <codespace-id> -title "Build S3 module" -skill tf-module-e2e -auto-start -approval-mode agent
+```
+
 #### Show task details
 
 ```bash

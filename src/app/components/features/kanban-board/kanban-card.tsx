@@ -100,7 +100,7 @@ function getLastRunStatusInfo(status: Task['lastAgentStatus']): {
   }
 }
 
-/** Map stage to display label */
+/** Map stage to display label (fallback when statusMessage is not available) */
 const stageLabels: Record<string, string> = {
   initializing: 'Initializing...',
   validating: 'Validating...',
@@ -110,6 +110,14 @@ const stageLabels: Record<string, string> = {
   executing: 'Starting...',
   running: 'Running',
 };
+
+/** Derive display text from agent status — prefer statusMessage for phase-aware labels */
+function getAgentStageLabel(agentStatus?: AgentStatusInfo): string {
+  if (!agentStatus?.currentStage) return 'Agent running...';
+  // Use statusMessage when available — it contains phase info like "Planning..." or "Executing..."
+  if (agentStatus.statusMessage) return agentStatus.statusMessage;
+  return stageLabels[agentStatus.currentStage] ?? 'Starting...';
+}
 
 export const KanbanCard = React.memo(function KanbanCard({
   task,
@@ -328,11 +336,7 @@ export const KanbanCard = React.memo(function KanbanCard({
       {isAgentRunning && (
         <div className={agentStatusVariants({ status: 'running' })}>
           <div className="w-1.5 h-1.5 bg-current rounded-full animate-pulse" />
-          <span className="flex-1 truncate">
-            {agentStatus?.currentStage
-              ? (stageLabels[agentStatus.currentStage] ?? 'Starting...')
-              : 'Agent running...'}
-          </span>
+          <span className="flex-1 truncate">{getAgentStageLabel(agentStatus)}</span>
           <ExecutionBadge
             sandboxProvider={agentStatus?.sandboxProvider}
             sandboxContainerId={agentStatus?.sandboxContainerId}

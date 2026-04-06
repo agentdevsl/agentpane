@@ -17,7 +17,8 @@ type TaskCreateCommand struct {
 
 // Run executes the task create command.
 func (c *TaskCreateCommand) Run(args []string) int {
-	var title, description, priority, labels, skillID, skillName, executionSkillID, executionSkillName string
+	var title, description, priority, labels, skillID, skillName, executionSkillID, executionSkillName, approvalMode string
+	var autoStart bool
 
 	flags := c.FlagSet("task create")
 	flags.StringVar(&title, "title", "", "Task title (required)")
@@ -28,6 +29,8 @@ func (c *TaskCreateCommand) Run(args []string) int {
 	flags.StringVar(&skillName, "skill-name", "", "Skill display name")
 	flags.StringVar(&executionSkillID, "execution-skill", "", "Execution skill ID for skill chaining")
 	flags.StringVar(&executionSkillName, "execution-skill-name", "", "Execution skill display name")
+	flags.BoolVar(&autoStart, "auto-start", false, "Automatically start the task (move to in_progress)")
+	flags.StringVar(&approvalMode, "approval-mode", "", "Approval mode: human or agent")
 	if err := flags.Parse(args); err != nil {
 		return 1
 	}
@@ -84,6 +87,12 @@ func (c *TaskCreateCommand) Run(args []string) int {
 	} else if executionSkillName != "" {
 		opts.ExecutionSkillName = &executionSkillName
 	}
+	if autoStart {
+		opts.AutoStart = &autoStart
+	}
+	if approvalMode != "" {
+		opts.ApprovalMode = &approvalMode
+	}
 
 	ctx := context.Background()
 	task, err := client.Tasks.Create(ctx, opts)
@@ -110,6 +119,9 @@ func (c *TaskCreateCommand) Run(args []string) int {
 	if task.ExecutionSkillID != nil {
 		kvs = append(kvs, output.KeyValue{Key: "Execution Skill", Value: *task.ExecutionSkillID})
 	}
+	if task.ApprovalMode != nil {
+		kvs = append(kvs, output.KeyValue{Key: "Approval", Value: *task.ApprovalMode})
+	}
 	output.PrintKeyValue(kvs)
 	return 0
 }
@@ -134,6 +146,8 @@ Optional Flags:
   -skill-name=<name>  Skill display name
   -execution-skill=<id>       Execution skill ID for skill chaining
   -execution-skill-name=<name> Execution skill display name
+  -auto-start                 Automatically start the task (move to in_progress)
+  -approval-mode=<mode>       Approval mode: human (default) or agent
 
 Global Options:
 
