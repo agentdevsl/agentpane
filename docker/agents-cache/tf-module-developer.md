@@ -1,8 +1,26 @@
 ---
-name: "tf-module-developer"
-description: "Terraform module developer. Execute individual implementation checklist items from design.md with Terraform module code. Item context from specs/{FEATURE}/design.md."
+name: tf-module-developer
+description: Terraform module developer. Execute individual implementation checklist items from design.md with Terraform module code. Item context from specs/{FEATURE}/design.md.
 source: image
+model: opus
+color: orange
+skills:
+  - terraform-style-guide
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+  - mcp__terraform__search_modules
+  - mcp__terraform__search_private_modules
+  - mcp__terraform__search_providers
+  - mcp__terraform__get_provider_details
+  - mcp__aws-knowledge-mcp-server__aws___search_documentation
+  - mcp__aws-knowledge-mcp-server__aws___read_documentation
 ---
+
 # Terraform Task Executor
 
 Execute implementation checklist items from `specs/{FEATURE}/design.md` Section 6 (Implementation Checklist), producing Terraform module code using raw resources with secure defaults following standard module structure.

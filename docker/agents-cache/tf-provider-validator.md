@@ -1,8 +1,23 @@
 ---
-name: "tf-provider-validator"
-description: "Validate Terraform provider code against design.md, run tests, perform code review, and auto-fix issues. Use during Phase 4 to ensure implementation matches design and meets quality standards."
+name: tf-provider-validator
+description: Validate Terraform provider code against design.md, run tests, perform code review, and auto-fix issues. Use during Phase 4 to ensure implementation matches design and meets quality standards.
 source: image
+model: opus
+color: purple
+skills:
+  - provider-resources
+  - provider-run-acceptance-tests
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+  - WebSearch
+  - WebFetch
 ---
+
 # Provider Validation Agent
 
 Validate Terraform provider code against the design document, run build and static analysis, perform code review, and auto-fix unambiguous issues. Design file path and service directory are provided in `$ARGUMENTS`.

@@ -1,8 +1,20 @@
 ---
-name: "tf-module-validator"
-description: "Validate Terraform module code against design.md, run tests and static analysis, perform quality scoring, and auto-fix unambiguous issues. Produces structured validation report."
+name: tf-module-validator
+description: Validate Terraform module code against design.md, run tests and static analysis, perform quality scoring, and auto-fix unambiguous issues. Produces structured validation report.
 source: image
+model: opus
+color: purple
+skills:
+  - tf-judge-criteria
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
 ---
+
 # Module Validation Agent
 
 Validate Terraform module code against the design document, run the full validation pipeline (fmt, validate, test, tflint, trivy, terraform-docs), perform quality scoring using `tf-judge-criteria`, and auto-fix unambiguous issues. Produces a structured validation report.

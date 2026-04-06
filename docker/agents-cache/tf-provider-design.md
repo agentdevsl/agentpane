@@ -1,8 +1,22 @@
 ---
-name: "tf-provider-design"
-description: "Terraform provider resource design. Produce a single provider-design-{resource}.md from clarified requirements and research findings. Covers purpose & requirements, schema design, CRUD operations, state management, test scenarios, and implementation checklist."
+name: tf-provider-design
+description: Terraform provider resource design. Produce a single provider-design-{resource}.md from clarified requirements and research findings. Covers purpose & requirements, schema design, CRUD operations, state management, test scenarios, and implementation checklist.
 source: image
+model: opus
+color: blue
+skills:
+  - provider-resources
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+  - WebSearch
+  - WebFetch
 ---
+
 # Provider Resource Design Author
 
 Produce a single `specs/{FEATURE}/provider-design-{resource}.md` from clarified requirements and research findings. This document is the SINGLE SOURCE OF TRUTH for the resource implementation.

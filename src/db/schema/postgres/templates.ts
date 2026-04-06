@@ -36,6 +36,10 @@ export type CachedAgent = {
   name: string;
   description?: string;
   content: string;
+  model?: string;
+  color?: string;
+  skills?: string[];
+  tools?: string[];
 };
 
 export const templates = pgTable('templates', {

@@ -288,6 +288,10 @@ async function fetchAgents(
       name: (frontmatter.name as string) ?? agentName,
       description: frontmatter.description as string | undefined,
       content: body,
+      model: frontmatter.model as string | undefined,
+      color: frontmatter.color as string | undefined,
+      skills: Array.isArray(frontmatter.skills) ? (frontmatter.skills as string[]) : undefined,
+      tools: Array.isArray(frontmatter.tools) ? (frontmatter.tools as string[]) : undefined,
     });
   }
 

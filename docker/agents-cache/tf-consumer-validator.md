@@ -1,8 +1,25 @@
 ---
-name: "tf-consumer-validator"
-description: "Validate consumer code against consumer-design.md, analyse the sandbox deployment run, score quality, and write the deployment report."
+name: tf-consumer-validator
+description: Validate consumer code against consumer-design.md, analyse the sandbox deployment run, score quality, and write the deployment report.
 source: image
+model: opus
+color: purple
+skills:
+  - tf-judge-criteria
+  - tf-runtask
+  - tf-report-template
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+  - mcp__terraform__get_workspace_details
+  - mcp__terraform__list_runs
+  - mcp__terraform__get_run_details
 ---
+
 # Consumer Validation Agent
 
 `$ARGUMENTS` provides: FEATURE path, run ID (from sandbox deployment), and workspace name.
