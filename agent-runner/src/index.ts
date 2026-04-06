@@ -649,7 +649,7 @@ async function runPlanningPhase(): Promise<void> {
     session = unstable_v2_createSession({
       model: config.model,
       env: { ...process.env }, // Teams GA: env passed through for agent swarm support
-      executableArgs: ['--add-dir', config.cwd], // Enable .claude/agents/ discovery
+      // Note: --add-dir causes EPIPE/exit-code-9; agent defs passed via 'agents' option
       // In bypassPermissions mode, don't restrict tools — allow all including Agent
       ...(planPermissionMode !== 'bypassPermissions' ? { allowedTools } : {}),
       ...(Object.keys(agentDefs).length > 0 ? { agents: agentDefs } : {}),
@@ -1174,7 +1174,7 @@ async function runExecutionPhase(): Promise<void> {
         session = unstable_v2_resumeSession(config.sdkSessionId, {
           model: config.model,
           env: { ...process.env }, // Teams GA: env passed through for agent swarm support
-          executableArgs: ['--add-dir', config.cwd], // Enable .claude/agents/ discovery
+          // Note: --add-dir causes EPIPE/exit-code-9; agent defs passed via 'agents' option
           permissionMode: 'bypassPermissions',
           canUseTool, // Track tools even in bypass mode
         });
@@ -1202,7 +1202,7 @@ async function runExecutionPhase(): Promise<void> {
       session = unstable_v2_createSession({
         model: config.model,
         env: { ...process.env }, // Teams GA: env passed through for agent swarm support
-        executableArgs: ['--add-dir', config.cwd], // Enable .claude/agents/ discovery
+        // Note: --add-dir causes EPIPE/exit-code-9; agent defs passed via 'agents' option
         ...(Object.keys(agentDefs).length > 0 ? { agents: agentDefs } : {}),
         permissionMode: 'bypassPermissions',
         canUseTool, // Track tools even in bypass mode
