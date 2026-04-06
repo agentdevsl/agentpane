@@ -5,7 +5,9 @@ import {
   BookOpen,
   CheckCircle,
   Lightning,
+  Robot,
   Square,
+  User,
   Warning,
   WarningCircle,
   X,
@@ -257,13 +259,32 @@ export const KanbanCard = React.memo(function KanbanCard({
         <p className="mt-1.5 text-xs text-fg-muted line-clamp-2">{task.description}</p>
       )}
 
-      {/* Skill badge */}
-      {task.skillName && (
-        <div className="mt-2 flex">
-          <span className="inline-flex items-center gap-1 rounded-full bg-accent-subtle px-2 py-0.5 text-[10px] font-medium text-accent">
-            <BookOpen className="h-3 w-3" weight="bold" />
-            {task.skillName}
-          </span>
+      {/* Skill + approval mode badges */}
+      {(task.skillName || task.approvalMode) && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {task.skillName && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-accent-subtle px-2 py-0.5 text-[10px] font-medium text-accent">
+              <BookOpen className="h-3 w-3" weight="bold" />
+              {task.skillName}
+            </span>
+          )}
+          {task.approvalMode && (
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
+                task.approvalMode === 'human'
+                  ? 'bg-done-subtle text-done'
+                  : 'bg-attention-subtle text-attention'
+              )}
+            >
+              {task.approvalMode === 'human' ? (
+                <User className="h-3 w-3" weight="bold" />
+              ) : (
+                <Robot className="h-3 w-3" weight="bold" />
+              )}
+              {task.approvalMode === 'human' ? 'Human' : 'Auto'}
+            </span>
+          )}
         </div>
       )}
 

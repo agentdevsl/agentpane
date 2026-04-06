@@ -53,6 +53,7 @@ interface LiveTaskViewTask {
   sessionId?: string | null;
   lastAgentStatus?: string | null;
   labels?: string[] | null;
+  approvalMode?: 'human' | 'agent' | null;
   branch?: string | null;
   skillId?: string | null;
   skillName?: string | null;

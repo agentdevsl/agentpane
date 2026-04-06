@@ -7,6 +7,7 @@ import {
   Circle,
   DotsSixVertical,
   Lightning,
+  Robot,
   Spinner,
   Square,
   User,
@@ -250,13 +251,33 @@ export function KanbanCard({
         </div>
       </div>
 
-      {/* Skill badge */}
-      {task.skillName && (
-        <div className="mt-2 flex" data-testid="task-skill-badge">
-          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-subtle)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent-fg)]">
-            <BookOpen className="h-3 w-3" weight="bold" />
-            {task.skillName}
-          </span>
+      {/* Skill + approval mode badges */}
+      {(task.skillName || task.approvalMode) && (
+        <div className="mt-2 flex flex-wrap gap-1.5" data-testid="task-skill-badge">
+          {task.skillName && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-subtle)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent-fg)]">
+              <BookOpen className="h-3 w-3" weight="bold" />
+              {task.skillName}
+            </span>
+          )}
+          {task.approvalMode && (
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
+                task.approvalMode === 'human'
+                  ? 'bg-[var(--done-subtle)] text-[var(--done-fg)]'
+                  : 'bg-[var(--attention-subtle)] text-[var(--attention-fg)]'
+              )}
+              data-testid="task-approval-mode"
+            >
+              {task.approvalMode === 'human' ? (
+                <User className="h-3 w-3" weight="bold" />
+              ) : (
+                <Robot className="h-3 w-3" weight="bold" />
+              )}
+              {task.approvalMode === 'human' ? 'Human' : 'Auto'}
+            </span>
+          )}
         </div>
       )}
 

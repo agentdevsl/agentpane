@@ -6,7 +6,10 @@ import {
   FileCode,
   GitBranch,
   Hash,
+  Robot,
+  ShieldCheck,
   Terminal,
+  User,
 } from '@phosphor-icons/react';
 import { SkillPickerInline } from '@/app/components/features/skill-picker.js';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
@@ -200,6 +203,48 @@ export function TaskMetadata({
               onChange={onSkillChange}
             />
           )}
+        </div>
+      </div>
+
+      {/* Approval Mode Section */}
+      <div className="rounded-md border border-border bg-surface-subtle p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-fg-muted" />
+            <div>
+              <p className="text-sm font-medium text-fg">Approval Mode</p>
+              <p className="text-xs text-fg-muted">
+                {task.approvalMode === 'agent'
+                  ? 'Agent will auto-review plans'
+                  : task.approvalMode === 'human'
+                    ? 'Plans require human approval'
+                    : 'Using project default'}
+              </p>
+            </div>
+          </div>
+          <span
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium',
+              task.approvalMode === 'agent'
+                ? 'bg-attention-subtle text-attention'
+                : task.approvalMode === 'human'
+                  ? 'bg-done-subtle text-done'
+                  : 'bg-surface-muted text-fg-muted'
+            )}
+          >
+            {task.approvalMode === 'agent' ? (
+              <Robot className="h-3.5 w-3.5" weight="bold" />
+            ) : task.approvalMode === 'human' ? (
+              <User className="h-3.5 w-3.5" weight="bold" />
+            ) : (
+              <ShieldCheck className="h-3.5 w-3.5" />
+            )}
+            {task.approvalMode === 'agent'
+              ? 'Auto Review'
+              : task.approvalMode === 'human'
+                ? 'Human Review'
+                : 'Default'}
+          </span>
         </div>
       </div>
     </div>

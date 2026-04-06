@@ -8,6 +8,8 @@ import {
   FunnelSimple,
   Lightning,
   MagnifyingGlass,
+  Robot,
+  User,
   Warning,
   WarningCircle,
   XCircle,
@@ -37,6 +39,7 @@ interface TaskItem {
   sessionId?: string | null;
   lastAgentStatus?: string | null;
   labels?: string[] | null;
+  approvalMode?: 'human' | 'agent' | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 }
@@ -507,7 +510,28 @@ function TaskCard({
         <div className="flex-1 text-sm font-medium leading-snug text-fg truncate">{task.title}</div>
       </div>
 
-      {/* Row 3: Timestamps */}
+      {/* Row 3: Approval mode badge */}
+      {task.approvalMode && (
+        <div className="relative mt-1.5">
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-medium',
+              task.approvalMode === 'human'
+                ? 'bg-[var(--done-subtle)] text-[var(--done-fg)]'
+                : 'bg-[var(--attention-subtle)] text-[var(--attention-fg)]'
+            )}
+          >
+            {task.approvalMode === 'human' ? (
+              <User className="h-2.5 w-2.5" weight="bold" />
+            ) : (
+              <Robot className="h-2.5 w-2.5" weight="bold" />
+            )}
+            {task.approvalMode === 'human' ? 'Human' : 'Auto'}
+          </span>
+        </div>
+      )}
+
+      {/* Row 4: Timestamps */}
       {(task.createdAt || task.updatedAt) && (
         <div className="relative flex items-center gap-3 mt-1.5">
           {task.createdAt && (
@@ -529,7 +553,7 @@ function TaskCard({
         </div>
       )}
 
-      {/* Row 4: Agent running indicator */}
+      {/* Row 5: Agent running indicator */}
       {isAgentRunning && (
         <div className={cn('relative', agentStatusVariants({ status: 'running' }))}>
           <div className="w-1.5 h-1.5 bg-current rounded-full animate-pulse" />
@@ -537,7 +561,7 @@ function TaskCard({
         </div>
       )}
 
-      {/* Row 5: Last run status badge */}
+      {/* Row 6: Last run status badge */}
       {lastRunStatus && !isAgentRunning && (
         <div className="relative flex items-center justify-end mt-1.5">
           <div className={lastRunStatusVariants({ status: lastRunStatus.status })}>
