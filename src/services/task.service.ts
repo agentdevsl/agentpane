@@ -151,9 +151,14 @@ export class TaskService {
       return err(TaskErrors.NOT_FOUND);
     }
 
-    // Stop the agent if one is running (ignore errors — cleanup proceeds regardless)
+    // Stop the agent if one is running — log failures but proceed with cleanup
     if (task.agentId || task.sessionId) {
-      await this.stopAgent(taskId);
+      const stopResult = await this.stopAgent(taskId);
+      if (!stopResult.ok) {
+        log.warn('Agent stop failed during cancel, proceeding with cleanup', {
+          data: { taskId, error: stopResult.error },
+        });
+      }
     }
 
     // Only cancel tasks that are in_progress or waiting_approval

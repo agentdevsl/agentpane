@@ -84,6 +84,7 @@ export async function updateTaskOnAgentComplete(
           column: 'waiting_approval',
           agentId: null,
           lastAgentStatus: 'error',
+          completedAt: new Date().toISOString(),
         })
         .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
         .returning();

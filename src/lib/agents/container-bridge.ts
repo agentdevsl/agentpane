@@ -203,7 +203,7 @@ export function createContainerBridge(options: ContainerBridgeOptions): Containe
    */
   function handleComplete(event: ContainerAgentEvent): void {
     const data = event.data as {
-      status: 'completed' | 'turn_limit' | 'cancelled';
+      status: 'completed' | 'turn_limit' | 'cancelled' | 'error';
       turnCount: number;
       skillId?: string;
       skillName?: string;
