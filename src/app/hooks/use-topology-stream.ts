@@ -249,7 +249,7 @@ export function useTopologyStream(
         const nodeId = deriveContainerAgentNodeId({ taskId: data.taskId, sessionId });
         const node: TopologyNode = {
           id: nodeId,
-          name: data.model ?? 'Agent',
+          name: 'Orchestrator',
           role: 'agent',
           type: 'agent',
           agentType: null,

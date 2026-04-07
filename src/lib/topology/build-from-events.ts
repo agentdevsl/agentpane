@@ -614,11 +614,18 @@ export function buildTopologyFromEvents(
       }
     }
   } else {
-    // Even without a global terminal signal, reconcile parents whose children all finished
-    for (const node of nodes.values()) {
-      if (node.status === 'running' && allChildrenDone(node)) {
-        node.status = 'completed';
-        node.progress = 100;
+    // Even without a global terminal signal, reconcile parents whose children all finished.
+    // Iterate until convergence since group nodes may need to be reconciled before their
+    // parents can be (e.g. orch → group → agent, group must complete before orch can).
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const node of nodes.values()) {
+        if (node.status === 'running' && allChildrenDone(node)) {
+          node.status = 'completed';
+          node.progress = 100;
+          changed = true;
+        }
       }
     }
   }

@@ -528,7 +528,7 @@ describe('buildTopologyFromEvents', () => {
       expect(graph.nodes).toHaveLength(1);
       const root = defined(graph.nodes[0]);
       expect(root.id).toBe('agent-task-1');
-      expect(root.name).toBe('claude-sonnet-4');
+      expect(root.name).toBe('Fix login bug');
       expect(root.role).toBe('agent');
       expect(root.status).toBe('running');
       expect(root.startedAt).toBe(BASE_TS + 10);
@@ -540,10 +540,10 @@ describe('buildTopologyFromEvents', () => {
       expect(defined(graph.nodes[0]).name).toBe('Fix login bug');
     });
 
-    it('uses "Agent" when both model and taskTitle are missing', () => {
+    it('uses "Orchestrator" when both model and taskTitle are missing', () => {
       const events = [makeEvent('container-agent:started', {})];
       const graph = buildTopologyFromEvents(events, makeContext({ taskTitle: null }));
-      expect(defined(graph.nodes[0]).name).toBe('Agent');
+      expect(defined(graph.nodes[0]).name).toBe('Orchestrator');
     });
 
     it('is ignored if topology nodes already exist', () => {
@@ -756,12 +756,15 @@ describe('buildTopologyFromEvents', () => {
       ];
       const graph = buildTopologyFromEvents(events, makeContext());
 
-      expect(graph.nodes).toHaveLength(3);
-      expect(graph.edges).toHaveLength(2);
+      // orch + test-writer group + coder + tester = 4 nodes
+      // edges: orch→coder, orch→group, group→tester = 3 edges
+      expect(graph.nodes).toHaveLength(4);
+      expect(graph.edges).toHaveLength(3);
 
       const orch = graph.nodes.find((n) => n.id === 'orch-1')!;
       expect(orch.role).toBe('orchestrator');
-      expect(orch.childIds).toEqual(['coder-1', 'tester-1']);
+      const groupNode = graph.nodes.find((n) => n.id.startsWith('agent-type-'))!;
+      expect(orch.childIds).toEqual(['coder-1', groupNode.id]);
       expect(orch.status).toBe('completed'); // reconciled: all children are done
 
       const coder = graph.nodes.find((n) => n.id === 'coder-1')!;
@@ -1175,7 +1178,7 @@ describe('buildTopologyFromEvents', () => {
       expect(graph.nodes.find((n) => n.id.startsWith('agent-type-'))).toBeUndefined();
     });
 
-    it('does not group a single agent of a type', () => {
+    it('creates group node even for a single agent of a type', () => {
       const events = [
         makeEvent('topology:agent_spawned', {
           agentId: 'orch',
@@ -1191,10 +1194,12 @@ describe('buildTopologyFromEvents', () => {
       ];
       const graph = buildTopologyFromEvents(events, makeContext());
 
-      // No group node since there's only 1 of that type
-      expect(graph.nodes).toHaveLength(2);
-      expect(graph.nodes.find((n) => n.id.startsWith('agent-type-'))).toBeUndefined();
-      expect(graph.nodes.find((n) => n.id === 'r1')!.parentId).toBe('orch');
+      // Group node created eagerly: orch + group + r1 = 3
+      expect(graph.nodes).toHaveLength(3);
+      const groupNode = graph.nodes.find((n) => n.id.startsWith('agent-type-'));
+      expect(groupNode).toBeDefined();
+      expect(groupNode!.childIds).toEqual(['r1']);
+      expect(graph.nodes.find((n) => n.id === 'r1')!.parentId).toBe(groupNode!.id);
     });
 
     it('handles 3+ agents of the same type under one parent', () => {
