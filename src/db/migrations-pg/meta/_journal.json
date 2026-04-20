@@ -50,6 +50,41 @@
       "when": 1776211200000,
       "tag": "0006_add_token_rotation_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1776297600000,
+      "tag": "0007_add_task_execution_skill_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1776384000000,
+      "tag": "0008_add_skill_execution_duration_api_ms",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1776470400000,
+      "tag": "0009_add_agent_approval_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1776556800000,
+      "tag": "0010_add_cli_session_extended_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1776643200000,
+      "tag": "0011_add_memory_insight_effectiveness_score",
+      "breakpoints": true
     }
   ]
 }

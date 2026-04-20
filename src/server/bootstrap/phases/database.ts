@@ -43,7 +43,31 @@ async function initializePostgres(config: ServerConfig): Promise<DatabaseResult>
     process.exit(1);
   }
 
-  const pgClient = postgres(connectionString);
+  // F02-05: pass validated pool / client config to postgres-js.
+  const pg = config.postgres;
+  const pgClient = postgres(connectionString, {
+    max: pg.max,
+    idle_timeout: pg.idleTimeoutSeconds,
+    max_lifetime: pg.maxLifetimeSeconds,
+    connect_timeout: pg.connectTimeoutSeconds,
+    connection: { application_name: pg.applicationName },
+    ssl:
+      pg.ssl === 'disable'
+        ? false
+        : pg.ssl === 'require' || pg.ssl === 'prefer'
+          ? pg.ssl
+          : undefined,
+  });
+  log.info('PostgreSQL client initialized', {
+    data: {
+      max: pg.max,
+      idleTimeoutSeconds: pg.idleTimeoutSeconds,
+      maxLifetimeSeconds: pg.maxLifetimeSeconds,
+      connectTimeoutSeconds: pg.connectTimeoutSeconds,
+      applicationName: pg.applicationName,
+      ssl: pg.ssl ?? 'driver-default',
+    },
+  });
   const db = drizzlePg(pgClient, { schema: pgSchema }) as unknown as Database;
 
   await migratePg(db as unknown as ReturnType<typeof drizzlePg>, {

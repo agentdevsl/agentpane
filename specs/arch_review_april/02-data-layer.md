@@ -140,3 +140,10 @@ AgentPane runs a dual-backend Drizzle ORM stack: SQLite (default, via `bun:sqlit
 - Are there any plans for a multi-writer deployment? WAL helps readers but single-writer lock-contention will be the scaling wall, making the PG path strategically important.
 - Who owns writing drift tests for new tables — should this be enforced in PR template / CODEOWNERS?
 - What is the policy for casting Drizzle row types? If team prefers hand-rolled row interfaces, the schema-drift tests should also assert the hand-rolled type matches `$inferSelect`.
+
+## Resolution log (theme-02-data, April 2026)
+
+- **F02-01**: Backfilled three per-change PG migrations (0007-0009) to match SQLite 0014/0015/0016. Added `scripts/check-migration-parity.ts` and `tests/integration/migration-parity.test.ts` to enforce going forward. The 590-line `0004_schema_catchup.sql` was left in place (frozen) — new work must use dedicated per-change migrations. Splitting the mega-migration further is deferred.
+- **F02-02**: `tests/integration/schema-drift-all-tables.test.ts` auto-generates 49 drift tests from `src/db/schema/sqlite/index.ts`, with dedicated high-churn cases. Surfaced a real `codespace_tags.assigned_at` gap (documented, safe today).
+- **F02-05**: `POSTGRES_MAX`, `POSTGRES_IDLE_TIMEOUT`, `POSTGRES_MAX_LIFETIME`, `POSTGRES_CONNECT_TIMEOUT`, `POSTGRES_APPLICATION_NAME`, `POSTGRES_SSL` are now parsed through a zod schema into `ServerConfig.postgres` and passed to `postgres()`. Invalid values raise a typed `PostgresConfigError` at boot.
+- **F02-13**: `tests/integration/pg-migration-safety.test.ts` runs the full PG migration chain against a real Postgres (gated by `POSTGRES_INTEGRATION=true` + `POSTGRES_URL`) and asserts every Drizzle column exists. Surfaced and fixed seven missing columns (cli_sessions extended columns + memory_insights.effectiveness_score) via PG migrations 0010 and 0011.

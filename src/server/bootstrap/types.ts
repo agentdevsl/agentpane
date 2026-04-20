@@ -50,6 +50,24 @@ export interface ServerConfig {
   skipAuth: boolean;
   sandboxInitTimeoutMs: number;
   caddyStreamsUrl: string;
+  /** PostgreSQL connection pool / client configuration (F02-05). */
+  postgres: PostgresClientConfig;
+}
+
+/** PostgreSQL connection pool / client configuration. */
+export interface PostgresClientConfig {
+  /** Maximum number of connections in the pool. */
+  max: number;
+  /** Seconds a connection may remain idle before being closed. 0 disables idle close. */
+  idleTimeoutSeconds: number;
+  /** Maximum lifetime of a connection in seconds. 0 disables. */
+  maxLifetimeSeconds: number;
+  /** Seconds to wait for a new connection before giving up. */
+  connectTimeoutSeconds: number;
+  /** Value set on `application_name` for pg_stat_activity. */
+  applicationName: string;
+  /** SSL configuration: 'disable' | 'require' | 'prefer'. Undefined means driver default. */
+  ssl?: 'disable' | 'require' | 'prefer';
 }
 
 /** Database initialization result. */
