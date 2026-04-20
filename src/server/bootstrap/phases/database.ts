@@ -35,6 +35,11 @@ export class MissingDatabaseUrlError extends Error {
 /**
  * Try-initialize the database, returning a BootstrapPhaseResult on failure.
  * Replaces the old `process.exit` call with a fatal phase result (F01-05).
+ *
+ * Any DB initialization failure is fatal — the server has no meaningful
+ * mode of operation without a working database, regardless of whether
+ * the configured driver is SQLite or PostgreSQL. The orchestrator
+ * responds to `fatal: true` by exiting (see `applyPhaseResult`).
  */
 export async function tryInitializeDatabase(
   config: ServerConfig
@@ -44,8 +49,7 @@ export async function tryInitializeDatabase(
     return { result: { ok: true }, database };
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    const fatal = error instanceof MissingDatabaseUrlError || config.dbMode === 'postgres';
-    return { result: { ok: false, fatal, error }, database: null };
+    return { result: { ok: false, fatal: true, error }, database: null };
   }
 }
 
