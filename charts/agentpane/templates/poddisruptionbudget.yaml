@@ -1,4 +1,16 @@
-{{- if .Values.podDisruptionBudget.enabled }}
+{{/*
+  A PDB with `maxUnavailable: 0` at `replicaCount: 1` makes every pod
+  unkillable during voluntary disruptions (node drains, autoscaler scale-down,
+  cluster upgrades) — the rollout appears to succeed but the node-drain at
+  the other end blocks forever. Gate PDB rendering so it only applies when
+  the Deployment runs with >= 2 replicas. Autoscaling may scale beyond 1, but
+  the minReplicas value governs the static floor used for this check.
+*/}}
+{{- $effectiveReplicas := .Values.replicaCount | int -}}
+{{- if .Values.autoscaling.enabled -}}
+  {{- $effectiveReplicas = .Values.autoscaling.minReplicas | int -}}
+{{- end -}}
+{{- if and .Values.podDisruptionBudget.enabled (gt $effectiveReplicas 1) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

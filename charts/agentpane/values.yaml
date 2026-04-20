@@ -220,10 +220,17 @@ persistence:
 # -----------------------------------------------------------------------------
 # Without a PDB, voluntary disruption (node drain, autoscaler) can evict all
 # replicas at once. Default of maxUnavailable=0 keeps at least one pod available
-# during voluntary operations. Operators running at replicaCount=1 should set
-# maxUnavailable=1 (the only workable option with a single replica).
+# during voluntary operations at replicaCount >= 2.
+#
+# IMPORTANT: A PDB of `maxUnavailable: 0` with `replicaCount: 1` (or autoscaling
+# minReplicas: 1) makes the pod unkillable — node drains and cluster upgrades
+# will block indefinitely. The template therefore SKIPS PDB rendering whenever
+# the effective replica count is 1, even if `enabled: true` here. To get a PDB
+# rendered you must either scale to >= 2 replicas, or set autoscaling.minReplicas
+# >= 2.
 podDisruptionBudget:
-  # -- Create a PodDisruptionBudget for the Deployment
+  # -- Create a PodDisruptionBudget for the Deployment. Ignored when the
+  # effective replica count is 1 (see note above).
   enabled: true
   # -- Maximum number of pods that may be unavailable during voluntary disruptions
   maxUnavailable: 0

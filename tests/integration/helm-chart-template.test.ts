@@ -40,7 +40,7 @@ function renderChart(values: string[] = []): Array<Record<string, unknown>> {
 const describeIfHelm = hasHelm() ? describe : describe.skip;
 
 describeIfHelm('Helm chart template shape', () => {
-  it('F11-06: default render produces no PVC, no migration Job hook references to PVC, and a PDB', () => {
+  it('F11-06: default render (replicaCount=1) produces no PVC and SKIPS the PDB to avoid blocking node drains', () => {
     const docs = renderChart();
     const pvcs = docs.filter(
       (d) =>
@@ -49,6 +49,19 @@ describeIfHelm('Helm chart template shape', () => {
     );
     expect(pvcs).toHaveLength(0);
 
+    // A PDB of `maxUnavailable: 0` with a single replica makes the pod
+    // unkillable during voluntary disruption — the template gates rendering on
+    // an effective replica count >= 2, so the default (1) should produce none.
+    const pdbs = docs.filter(
+      (d) =>
+        d.kind === 'PodDisruptionBudget' &&
+        (d.metadata as { name?: string })?.name === 'test-release-agentpane'
+    );
+    expect(pdbs).toHaveLength(0);
+  });
+
+  it('F11-06: replicaCount >= 2 renders the PDB with the configured maxUnavailable', () => {
+    const docs = renderChart(['--set', 'replicaCount=2']);
     const pdbs = docs.filter(
       (d) =>
         d.kind === 'PodDisruptionBudget' &&
@@ -57,6 +70,23 @@ describeIfHelm('Helm chart template shape', () => {
     expect(pdbs).toHaveLength(1);
     const spec = pdbs[0]?.spec as { maxUnavailable?: number };
     expect(spec?.maxUnavailable).toBe(0);
+  });
+
+  it('F11-06: autoscaling.minReplicas >= 2 renders the PDB even at replicaCount=1', () => {
+    const docs = renderChart([
+      '--set',
+      'replicaCount=1',
+      '--set',
+      'autoscaling.enabled=true',
+      '--set',
+      'autoscaling.minReplicas=2',
+    ]);
+    const pdbs = docs.filter(
+      (d) =>
+        d.kind === 'PodDisruptionBudget' &&
+        (d.metadata as { name?: string })?.name === 'test-release-agentpane'
+    );
+    expect(pdbs).toHaveLength(1);
   });
 
   it('F11-06: persistence.enabled=true produces a PVC and mounts it', () => {
