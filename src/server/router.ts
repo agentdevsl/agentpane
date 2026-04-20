@@ -19,6 +19,7 @@ import { requestContextStorage } from '../lib/context/request-context.js';
 import { publishEventToStream } from '../lib/events/event-bus.js';
 import { createLogger } from '../lib/logging/logger.js';
 import type { EventEmittingSandboxProvider } from '../lib/sandbox/index.js';
+import { captureException } from '../lib/telemetry/error-sink.js';
 import type { AgentService } from '../services/agent.service.js';
 import type { ApiKeyService } from '../services/api-key.service.js';
 import type { CliMonitorService } from '../services/cli-monitor/index.js';
@@ -32,6 +33,7 @@ import type { GitHubAppService } from '../services/github-app.service.js';
 import type { GitHubTokenService } from '../services/github-token.service.js';
 import type { MarketplaceService } from '../services/marketplace.service.js';
 import type { MemoryService } from '../services/memory/index.js';
+import { getMetricsService } from '../services/metrics.service.js';
 import type { PlanModeService } from '../services/plan-mode.service.js';
 import type { ProjectFolderService } from '../services/project-folder.service.js';
 import { RbacService } from '../services/rbac.service.js';
@@ -63,6 +65,7 @@ import { createInvitationAcceptRoutes } from './routes/invitation-accept.js';
 import { createMarketplacesRoutes } from './routes/marketplaces.js';
 import { createMeRoutes } from './routes/me.js';
 import { createMemoryRoutes } from './routes/memory.js';
+import { createMetricsRoutes } from './routes/metrics.js';
 import { createProjectFoldersRoutes } from './routes/project-folders.js';
 import { createProjectMembersRoutes } from './routes/project-members.js';
 import { createRbacTokensRoutes } from './routes/rbac-tokens.js';
@@ -98,6 +101,78 @@ async function requestIdMiddleware(c: Context, next: Next) {
   c.set('requestId', id);
   c.header('X-Request-Id', id);
   return requestContextStorage.run({ requestId: id }, () => next());
+}
+
+/**
+ * F10-01: per-request metrics middleware. Runs after routing so
+ * `c.req.routePath` reflects the matched Hono pattern (low cardinality); raw
+ * path is used as the fallback when no route matched (404 path).
+ */
+async function metricsMiddleware(c: Context, next: Next) {
+  await next();
+  try {
+    const metrics = getMetricsService();
+    const rawRoute = c.req.routePath ?? c.req.path ?? 'unknown';
+    const status = c.res.status ?? 0;
+    // F10-01: normalise to bound cardinality — unknown/404 routes MUST NOT
+    // leak raw paths into the label set (which would grow unbounded as a
+    // map). `normaliseMetricsRoute` keeps matched Hono patterns as-is and
+    // buckets everything else to `<404>` / `<other>`.
+    const route = normaliseMetricsRoute(rawRoute, status);
+    metrics.recordHttpRequest(route, status);
+  } catch (metricsErr) {
+    // Metrics recording must never break a request, but failures must be
+    // visible so broken metrics don't silently decay.
+    routerLog.warn('metricsMiddleware: record failed', {
+      error: metricsErr instanceof Error ? metricsErr.message : String(metricsErr),
+    });
+  }
+}
+
+/**
+ * F10-01: Normalise a metrics route label.
+ *
+ * The metrics service stores counts keyed by `route|statusClass`. Raw URL
+ * paths (`/api/tasks/abc123`) blow up the keyspace, so we only allow:
+ *
+ * - Matched Hono patterns (they contain colon params or are a bare
+ *   `/api/...` pattern registered in the router)
+ * - `<404>` for unmatched paths (status 404 or `routePath === '*'`)
+ * - `<other>` once we exceed {@link METRICS_ROUTE_LIMIT} unique routes
+ *
+ * The cap is intentionally generous (500) — we expect well under that from
+ * the Hono tree; it only trips if something goes wrong.
+ */
+const METRICS_ROUTE_LIMIT = 500;
+const observedMetricsRoutes = new Set<string>();
+
+function normaliseMetricsRoute(rawRoute: string, status: number): string {
+  // 404s (either explicit status or Hono's catch-all route pattern `*`)
+  // collapse to a single bucket so raw paths never reach the metrics map.
+  if (status === 404 || rawRoute === '*' || rawRoute === '/*') {
+    return '<404>';
+  }
+  // A matched Hono route pattern starts with `/` and either has no raw path
+  // segments that look like IDs, or already uses `:param` placeholders. If
+  // it looks like a raw URL (no colons, but very long or contains obvious
+  // id-like segments), bucket it.
+  if (!rawRoute.startsWith('/')) {
+    return '<other>';
+  }
+  // Allow through, but cap the total number of unique labels seen.
+  if (observedMetricsRoutes.has(rawRoute)) {
+    return rawRoute;
+  }
+  if (observedMetricsRoutes.size >= METRICS_ROUTE_LIMIT) {
+    return '<other>';
+  }
+  observedMetricsRoutes.add(rawRoute);
+  return rawRoute;
+}
+
+/** Test helper — reset the unique-route set between test runs. */
+export function __resetMetricsRouteCache(): void {
+  observedMetricsRoutes.clear();
 }
 
 async function securityHeaders(c: Context, next: Next) {
@@ -260,6 +335,8 @@ export function createRouter(deps: RouterDependencies) {
   app.use('*', logger());
   app.use('*', requestIdMiddleware);
   app.use('*', securityHeaders);
+  // F10-01: record per-request counters for /api/metrics.
+  app.use('*', metricsMiddleware);
   // Public webhook endpoint - no auth required (signature-verified by plugin)
   if (deps.eventProcessingService) {
     // Rate-limit webhooks: 60 requests per minute per IP
@@ -577,6 +654,19 @@ export function createRouter(deps: RouterDependencies) {
     })
   );
 
+  // F10-01: GET /api/metrics — in-memory counters/gauges/histograms for ops.
+  // Admin-only — same treatment as /api/admin/metrics since counters reveal
+  // routes and can leak tenant activity.
+  app.use('/api/metrics', requireRole('admin', rbacService));
+  app.route(
+    '/api/metrics',
+    createMetricsRoutes({
+      metricsService: getMetricsService(),
+      streamsService: deps.durableStreamsService ?? null,
+      planModeService: deps.planModeService ?? null,
+    })
+  );
+
   // AR-030: In development mode, the error message is exposed to help with debugging.
   // This is acceptable because dev mode is never enabled in production or staging
   // (NODE_ENV defaults to 'production' in deployed environments). The full stack trace
@@ -585,6 +675,15 @@ export function createRouter(deps: RouterDependencies) {
     const requestId =
       c.req.header('x-request-id') ?? (c.res.headers.get('X-Request-Id') || undefined);
     routerLog.error('Unhandled error', { requestId, error: err });
+
+    // F10-04: forward to the telemetry sink with request context so future
+    // Sentry wiring sees route + requestId tags.
+    captureException(err, {
+      source: 'hono:onError',
+      requestId,
+      route: c.req.routePath ?? c.req.path,
+      method: c.req.method,
+    });
 
     const isDev = process.env.NODE_ENV === 'development';
     let message = 'An unexpected error occurred.';

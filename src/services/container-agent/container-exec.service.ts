@@ -16,6 +16,7 @@ import type { CompleteEventMetrics, ContainerBridge } from '../../lib/agents/con
 import { createContainerBridge } from '../../lib/agents/container-bridge.js';
 import { DEFAULT_AGENT_MODEL, getFullModelId } from '../../lib/constants/models.js';
 import { CONTAINER_WORKSPACE_PATH } from '../../lib/constants/sandbox.js';
+import { getRequestId } from '../../lib/context/request-context.js';
 import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
@@ -138,6 +139,11 @@ export class ContainerExecService {
       oauthRefreshToken,
     } = params;
 
+    // F10-03: propagate the spawning HTTP request id as the agent-runner's
+    // correlation id so structured log lines and emitted events can be joined
+    // back to the originating request without timestamp triangulation.
+    const correlationId = getRequestId();
+
     const env: Record<string, string> = {
       CLAUDE_OAUTH_TOKEN: '[REDACTED]',
       AGENT_TASK_ID: taskId,
@@ -157,6 +163,7 @@ export class ContainerExecService {
       // its far-future sentinel rather than a fabricated 24h expiry.
       ...(oauthExpiresAtMs ? { CLAUDE_OAUTH_EXPIRES_AT: String(oauthExpiresAtMs) } : {}),
       ...(oauthRefreshToken ? { CLAUDE_OAUTH_REFRESH_TOKEN: oauthRefreshToken } : {}),
+      ...(correlationId ? { CORRELATION_ID: correlationId } : {}),
     };
     log.debug('Env vars prepared', {
       data: {
