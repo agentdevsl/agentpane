@@ -187,6 +187,12 @@ export interface RouterDependencies {
   getSandboxProvider?: () => EventEmittingSandboxProvider | null;
   getK8sProvider?: () => SandboxProviderHealth | null;
   getNomadProvider?: () => SandboxProviderHealth | null;
+  /**
+   * F01-03: Readiness gate for `/api/health`. Returns true once the
+   * sandbox provider init phase has completed. When false, health
+   * responds 503 with `status: 'initializing'`. Optional in tests.
+   */
+  isSandboxReady?: () => boolean;
   cliMonitorService?: CliMonitorService | null;
   terraformRegistryService?: TerraformRegistryService;
   terraformComposeService?: TerraformComposeService;
@@ -396,6 +402,7 @@ export function createRouter(deps: RouterDependencies) {
       githubService: deps.githubService,
       getSandboxProvider: deps.getSandboxProvider,
       getK8sProvider: deps.getK8sProvider,
+      isSandboxReady: deps.isSandboxReady,
     })
   );
 

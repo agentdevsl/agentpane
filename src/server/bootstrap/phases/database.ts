@@ -17,9 +17,37 @@ import { runMigrations } from '../../../lib/bootstrap/migrations/runner.js';
 import { seedDefaultTeamForExistingTokens } from '../../../lib/bootstrap/phases/schema.js';
 import { createLogger } from '../../../lib/logging/logger.js';
 import type { Database } from '../../../types/database.js';
-import type { DatabaseResult, ServerConfig } from '../types.js';
+import type { BootstrapPhaseResult, DatabaseResult, ServerConfig } from '../types.js';
 
 const log = createLogger('DatabaseBootstrap');
+
+/**
+ * Missing-DATABASE_URL signaled via a sentinel so the orchestrator can decide
+ * to exit (fatal). Keeps `initializeDatabase` callers compatible.
+ */
+export class MissingDatabaseUrlError extends Error {
+  constructor() {
+    super('DATABASE_URL is required when DB_MODE=postgres');
+    this.name = 'MissingDatabaseUrlError';
+  }
+}
+
+/**
+ * Try-initialize the database, returning a BootstrapPhaseResult on failure.
+ * Replaces the old `process.exit` call with a fatal phase result (F01-05).
+ */
+export async function tryInitializeDatabase(
+  config: ServerConfig
+): Promise<{ result: BootstrapPhaseResult; database: DatabaseResult | null }> {
+  try {
+    const database = await initializeDatabase(config);
+    return { result: { ok: true }, database };
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    const fatal = error instanceof MissingDatabaseUrlError || config.dbMode === 'postgres';
+    return { result: { ok: false, fatal, error }, database: null };
+  }
+}
 
 /**
  * Initialize the database based on the configured mode.
@@ -40,7 +68,7 @@ async function initializePostgres(config: ServerConfig): Promise<DatabaseResult>
   const connectionString = config.databaseUrl;
   if (!connectionString) {
     log.error('DATABASE_URL is required when DB_MODE=postgres');
-    process.exit(1);
+    throw new MissingDatabaseUrlError();
   }
 
   // F02-05: pass validated pool / client config to postgres-js.

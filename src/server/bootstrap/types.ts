@@ -128,7 +128,25 @@ export interface SandboxState {
   retryTimer: ReturnType<typeof setTimeout> | null;
   retryCount: number;
   initializing: boolean;
+  /**
+   * Set to `true` once the sandbox reconciliation phase has completed
+   * (F01-01). Used by the `/api/health` readiness gate (F01-03) to avoid
+   * returning 200 until live containers have been cross-referenced with
+   * the `sandbox_instances` DB table.
+   */
+  reconciled: boolean;
 }
+
+/**
+ * Result of a bootstrap phase (F01-05).
+ *
+ * Each phase returns this explicitly so the orchestrator can apply a uniform
+ * policy: `fatal: true` terminates the process via `process.exit(1)`;
+ * `fatal: false` logs the error and continues. This replaces the previous
+ * inconsistent handling where some phases called `process.exit` directly,
+ * some logged and continued, and some swallowed errors silently.
+ */
+export type BootstrapPhaseResult = { ok: true } | { ok: false; fatal: boolean; error: Error };
 
 /** Bootstrap context passed through phases. */
 export interface BootstrapContext {
