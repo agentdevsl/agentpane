@@ -228,15 +228,24 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
     const hasAfter = afterEventId !== undefined;
     const hasBefore = beforeOffset !== undefined;
     const hasRange = fromOffset !== undefined || toOffset !== undefined;
-    const exclusiveCount = [hasAfter, hasBefore, hasRange && !hasBefore].filter(Boolean).length;
-    if (exclusiveCount > 1 || (hasAfter && hasOffset)) {
+
+    // Pagination modes are mutually exclusive. At most ONE of:
+    //   1. default pagination (offset+limit)
+    //   2. afterEventId (history resume)
+    //   3. beforeOffset (load earlier)
+    //   4. fromOffset + toOffset (gap-fill range)
+    // If the client specifies more than one, return 400 rather than silently
+    // picking a branch (which previously hid e.g. `beforeOffset + range`).
+    const modeCount =
+      (hasOffset ? 1 : 0) + (hasAfter ? 1 : 0) + (hasBefore ? 1 : 0) + (hasRange ? 1 : 0);
+    if (modeCount > 1) {
       return json(
         {
           ok: false,
           error: {
             code: 'INVALID_PARAMS',
             message:
-              'Use either offset, afterEventId, beforeOffset, or (fromOffset + toOffset) — not multiple',
+              'Use exactly one of: offset, afterEventId, beforeOffset, or (fromOffset + toOffset) — not multiple',
           },
         },
         400
