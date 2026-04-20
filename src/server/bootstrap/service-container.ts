@@ -55,11 +55,46 @@ declare const Bun: {
 
 const log = createLogger('ServiceContainer');
 
-/** Create the Bun-based CommandRunner for shell operations. */
+/**
+ * Create the Bun-based CommandRunner for shell operations.
+ *
+ * F06-02 surfaces two entry points:
+ *   - `exec(command, cwd)` — legacy `sh -c` path for callers that need
+ *     pipes or shell features (git-service reads from pipes, init scripts
+ *     are user-authored shell). Callers on this path MUST pre-validate any
+ *     user-supplied values they interpolate; see `validateShellCommand`.
+ *   - `execArgs(argv, cwd)` — safe positional-argv path. `Bun.spawn(argv)`
+ *     passes arguments literally so shell metacharacters cannot be
+ *     interpreted. New callers with untrusted input should prefer this.
+ */
 function createBunCommandRunner(): CommandRunner {
   return {
     exec: async (command: string, cwd: string) => {
       const proc = Bun.spawn(['sh', '-c', command], {
+        cwd,
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+      const stderr = await new Response(proc.stderr).text();
+
+      if (exitCode !== 0) {
+        throw new Error(`Command failed with exit code ${exitCode}: ${stderr || stdout}`);
+      }
+
+      return { stdout, stderr };
+    },
+    execArgs: async (argv: string[], cwd: string) => {
+      // Positional-argv form (F06-02). No shell is invoked: `Bun.spawn(argv)`
+      // passes arguments literally, so metacharacters in user-controlled
+      // values cannot be interpreted by sh.
+      if (argv.length === 0) {
+        throw new Error('argv must contain at least one element');
+      }
+
+      const proc = Bun.spawn(argv, {
         cwd,
         stdout: 'pipe',
         stderr: 'pipe',

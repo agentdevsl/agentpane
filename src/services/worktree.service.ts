@@ -117,15 +117,37 @@ export type CommandResult = {
   stderr: string;
 };
 
+/**
+ * Runs commands either as shell-parsed strings (`exec`) or as a literal
+ * argv array with no shell involvement (`execArgs`). New callers should
+ * prefer {@link CommandRunner.execArgs} to avoid shell-interpolation risk
+ * entirely — `exec` remains for legacy callers that compose git commands
+ * as strings (F06-02).
+ */
 export type CommandRunner = {
   exec: (command: string, cwd: string) => Promise<CommandResult>;
+  /**
+   * Spawn `argv[0]` with the remaining argv as literal arguments. No shell
+   * is invoked; metacharacters in argv entries are passed through to the
+   * child process as-is and cannot be interpreted.
+   *
+   * Optional because some tests construct a minimal CommandRunner stub.
+   * In production, both `createBunCommandRunner` and
+   * `createSandboxCommandRunner` always provide it — callers should
+   * guard with `if (runner.execArgs)` and fall back to the legacy
+   * `exec` path with locally-escaped values.
+   */
+  execArgs?: (argv: string[], cwd: string) => Promise<CommandResult>;
 };
 
 /**
  * Validates that a shell command string does not contain injection metacharacters.
  * Throws if dangerous characters are detected.
+ *
+ * Exported so callers that must compose a shell string can opt in to the
+ * same guard the sandbox runner applies (F06-02).
  */
-function validateShellCommand(command: string): void {
+export function validateShellCommand(command: string): void {
   const DANGEROUS_PATTERN = /[;|`]|\$\(|&&|\|\||[\n\r]/;
   if (DANGEROUS_PATTERN.test(command)) {
     throw ServiceErrors.SHELL_INJECTION_DETECTED(command);
@@ -149,6 +171,26 @@ export function createSandboxCommandRunner(sandbox: {
 
       const escapedCwd = cwd.replace(/'/g, "'\\''");
       const result = await sandbox.exec('sh', ['-c', `cd '${escapedCwd}' && ${command}`]);
+      if (result.exitCode !== 0) {
+        throw ServiceErrors.COMMAND_FAILED(result.exitCode, result.stderr || result.stdout);
+      }
+      return { stdout: result.stdout, stderr: result.stderr };
+    },
+    execArgs: async (argv: string[], cwd: string): Promise<CommandResult> => {
+      // Positional-argv form (F06-02). We still tunnel through `sh -c` to
+      // honor the cwd, but the user-supplied values are passed as
+      // positional arguments ($1, $2, ...) so no interpolation occurs.
+      if (argv.length === 0) {
+        throw ServiceErrors.COMMAND_FAILED(1, 'argv must contain at least one element');
+      }
+      const escapedCwd = cwd.replace(/'/g, "'\\''");
+      // Build `cd 'cwd' && exec "$@"` template and pass argv as positional.
+      const result = await sandbox.exec('sh', [
+        '-c',
+        `cd '${escapedCwd}' && exec "$@"`,
+        '--',
+        ...argv,
+      ]);
       if (result.exitCode !== 0) {
         throw ServiceErrors.COMMAND_FAILED(result.exitCode, result.stderr || result.stdout);
       }
