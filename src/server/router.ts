@@ -112,15 +112,67 @@ async function metricsMiddleware(c: Context, next: Next) {
   await next();
   try {
     const metrics = getMetricsService();
-    const route = c.req.routePath ?? c.req.path ?? 'unknown';
+    const rawRoute = c.req.routePath ?? c.req.path ?? 'unknown';
     const status = c.res.status ?? 0;
+    // F10-01: normalise to bound cardinality — unknown/404 routes MUST NOT
+    // leak raw paths into the label set (which would grow unbounded as a
+    // map). `normaliseMetricsRoute` keeps matched Hono patterns as-is and
+    // buckets everything else to `<404>` / `<other>`.
+    const route = normaliseMetricsRoute(rawRoute, status);
     metrics.recordHttpRequest(route, status);
   } catch (metricsErr) {
-    // Metrics recording must never break a request.
-    routerLog.debug('metricsMiddleware: record failed', {
+    // Metrics recording must never break a request, but failures must be
+    // visible so broken metrics don't silently decay.
+    routerLog.warn('metricsMiddleware: record failed', {
       error: metricsErr instanceof Error ? metricsErr.message : String(metricsErr),
     });
   }
+}
+
+/**
+ * F10-01: Normalise a metrics route label.
+ *
+ * The metrics service stores counts keyed by `route|statusClass`. Raw URL
+ * paths (`/api/tasks/abc123`) blow up the keyspace, so we only allow:
+ *
+ * - Matched Hono patterns (they contain colon params or are a bare
+ *   `/api/...` pattern registered in the router)
+ * - `<404>` for unmatched paths (status 404 or `routePath === '*'`)
+ * - `<other>` once we exceed {@link METRICS_ROUTE_LIMIT} unique routes
+ *
+ * The cap is intentionally generous (500) — we expect well under that from
+ * the Hono tree; it only trips if something goes wrong.
+ */
+const METRICS_ROUTE_LIMIT = 500;
+const observedMetricsRoutes = new Set<string>();
+
+function normaliseMetricsRoute(rawRoute: string, status: number): string {
+  // 404s (either explicit status or Hono's catch-all route pattern `*`)
+  // collapse to a single bucket so raw paths never reach the metrics map.
+  if (status === 404 || rawRoute === '*' || rawRoute === '/*') {
+    return '<404>';
+  }
+  // A matched Hono route pattern starts with `/` and either has no raw path
+  // segments that look like IDs, or already uses `:param` placeholders. If
+  // it looks like a raw URL (no colons, but very long or contains obvious
+  // id-like segments), bucket it.
+  if (!rawRoute.startsWith('/')) {
+    return '<other>';
+  }
+  // Allow through, but cap the total number of unique labels seen.
+  if (observedMetricsRoutes.has(rawRoute)) {
+    return rawRoute;
+  }
+  if (observedMetricsRoutes.size >= METRICS_ROUTE_LIMIT) {
+    return '<other>';
+  }
+  observedMetricsRoutes.add(rawRoute);
+  return rawRoute;
+}
+
+/** Test helper — reset the unique-route set between test runs. */
+export function __resetMetricsRouteCache(): void {
+  observedMetricsRoutes.clear();
 }
 
 async function securityHeaders(c: Context, next: Next) {
