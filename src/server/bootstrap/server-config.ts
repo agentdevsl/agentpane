@@ -8,9 +8,28 @@
 import { z } from 'zod';
 import { isDevAuthAllowed } from '../../lib/api/dev-auth.js';
 import { createLogger } from '../../lib/logging/logger.js';
-import type { ServerConfig } from './types.js';
+import type { PostgresClientConfig, ServerConfig } from './types.js';
 
 const log = createLogger('ServerConfig');
+
+/**
+ * Zod schema for PostgreSQL pool / client configuration (F02-05).
+ * Values are validated at boot — invalid configuration aborts startup.
+ */
+const PostgresConfigSchema = z.object({
+  /** Maximum pool connections. Must be >= 1. */
+  max: z.coerce.number().int().min(1).max(1000).default(10),
+  /** Seconds a connection may remain idle. 0 disables closing idle handles. */
+  idleTimeoutSeconds: z.coerce.number().int().min(0).max(86_400).default(30),
+  /** Maximum connection lifetime in seconds. 0 disables. */
+  maxLifetimeSeconds: z.coerce.number().int().min(0).max(86_400).default(1800),
+  /** Seconds to wait for a new connection. Must be >= 1. */
+  connectTimeoutSeconds: z.coerce.number().int().min(1).max(600).default(10),
+  /** pg_stat_activity application_name value. */
+  applicationName: z.string().min(1).max(64).default('agentpane'),
+  /** SSL mode. Undefined leaves driver default. */
+  ssl: z.enum(['disable', 'require', 'prefer']).optional(),
+});
 
 /**
  * Zod schema for server configuration.
@@ -27,13 +46,62 @@ const ServerConfigSchema = z.object({
   skipAuth: z.coerce.boolean().default(false),
   sandboxInitTimeoutMs: z.coerce.number().int().min(1000).default(120_000),
   caddyStreamsUrl: z.string().optional(),
+  postgres: PostgresConfigSchema,
 });
+
+/**
+ * Parse Postgres env vars into a typed config.
+ * Throws via `parseServerConfig` if values are invalid.
+ */
+export function parsePostgresConfig(env: NodeJS.ProcessEnv = process.env): PostgresClientConfig {
+  const raw = {
+    max: env.POSTGRES_MAX,
+    idleTimeoutSeconds: env.POSTGRES_IDLE_TIMEOUT,
+    maxLifetimeSeconds: env.POSTGRES_MAX_LIFETIME,
+    connectTimeoutSeconds: env.POSTGRES_CONNECT_TIMEOUT,
+    applicationName: env.POSTGRES_APPLICATION_NAME,
+    ssl: env.POSTGRES_SSL,
+  };
+  const result = PostgresConfigSchema.safeParse(raw);
+  if (!result.success) {
+    const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
+    throw new PostgresConfigError(`Invalid PostgreSQL configuration: ${issues.join('; ')}`);
+  }
+  return {
+    max: result.data.max,
+    idleTimeoutSeconds: result.data.idleTimeoutSeconds,
+    maxLifetimeSeconds: result.data.maxLifetimeSeconds,
+    connectTimeoutSeconds: result.data.connectTimeoutSeconds,
+    applicationName: result.data.applicationName,
+    ssl: result.data.ssl,
+  };
+}
+
+/** Typed error thrown when Postgres configuration is invalid at boot. */
+export class PostgresConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PostgresConfigError';
+  }
+}
 
 /**
  * Parse and validate server configuration from environment variables.
  * Logs warnings for notable settings and exits on fatal misconfigurations.
  */
 export function parseServerConfig(): ServerConfig {
+  // Parse Postgres pool config separately so we can surface a typed error.
+  let postgresConfig: PostgresClientConfig;
+  try {
+    postgresConfig = parsePostgresConfig(process.env);
+  } catch (err) {
+    if (err instanceof PostgresConfigError) {
+      log.error(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
+
   const raw = {
     dbMode: process.env.DB_MODE,
     databaseUrl: process.env.DATABASE_URL,
@@ -45,6 +113,7 @@ export function parseServerConfig(): ServerConfig {
     skipAuth: process.env.SKIP_AUTH,
     sandboxInitTimeoutMs: process.env.SANDBOX_INIT_TIMEOUT_MS,
     caddyStreamsUrl: process.env.CADDY_STREAMS_URL,
+    postgres: postgresConfig,
   };
 
   const result = ServerConfigSchema.safeParse(raw);
