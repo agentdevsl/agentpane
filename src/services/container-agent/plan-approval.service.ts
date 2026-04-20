@@ -47,8 +47,6 @@ export class PlanApprovalService {
       turnCount: number;
       sdkSessionId: string;
       allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-      launchSwarm?: boolean;
-      teammateCount?: number;
     }
   ): Promise<void> {
     // Idempotency guard: if a plan is already pending, a duplicate plan_ready
@@ -94,8 +92,6 @@ export class PlanApprovalService {
       turnCount: planData.turnCount,
       sdkSessionId: planData.sdkSessionId,
       allowedPrompts: planData.allowedPrompts,
-      launchSwarm: planData.launchSwarm,
-      teammateCount: planData.teammateCount,
       sandboxId: planningSandboxId,
       createdAt: new Date(),
     });

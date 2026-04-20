@@ -517,4 +517,142 @@ describe('AgentExecutionService (IT-200)', () => {
       expect(() => service.registerPostToolUseHook('agent-1', postHook)).not.toThrow();
     });
   });
+
+  // theme-03 F6: host-mode plan rejection.
+  describe('rejectPlanForTask (IT-F6)', () => {
+    it('IT-F6-a: returns PLAN_NOT_FOUND when task has no pending plan', async () => {
+      const codespace = await createTestProject();
+      const task = await createTestTask(codespace.id, { column: 'in_progress' });
+
+      const result = await service.rejectPlanForTask(task.id, 'wrong task');
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe('PLAN_NOT_FOUND');
+      expect(result.error.status).toBe(404);
+    });
+
+    it('IT-F6-b: moves task to backlog, clears plan state, and stores rejectionReason', async () => {
+      const codespace = await createTestProject();
+      const worktree = await createTestWorktree(codespace.id);
+      const task = await createTestTask(codespace.id, {
+        column: 'in_progress',
+        worktreeId: worktree.id,
+        branch: worktree.branch,
+      });
+
+      // Put the task into the planning state the way handlePlanReady would.
+      await db
+        .update(tasks)
+        .set({
+          column: 'waiting_approval' as const,
+          plan: 'Plan step 1\nStep 2',
+          planOptions: { sdkSessionId: 'sdk-42' },
+          lastAgentStatus: 'planning',
+        })
+        .where(eq(tasks.id, task.id));
+
+      const result = await service.rejectPlanForTask(task.id, 'stale plan');
+      expect(result.ok).toBe(true);
+
+      const after = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+      expect(after?.column).toBe('backlog');
+      expect(after?.plan).toBeNull();
+      expect(after?.planOptions).toBeNull();
+      expect(after?.lastAgentStatus).toBeNull();
+      expect(after?.rejectionReason).toBe('stale plan');
+      expect(after?.worktreeId).toBeNull();
+      expect(after?.branch).toBeNull();
+    });
+
+    it('IT-F6-c: calls worktreeService.remove when worktreeId was set', async () => {
+      const codespace = await createTestProject();
+      const worktree = await createTestWorktree(codespace.id);
+      const task = await createTestTask(codespace.id, {
+        column: 'in_progress',
+        worktreeId: worktree.id,
+        branch: worktree.branch,
+      });
+
+      await db
+        .update(tasks)
+        .set({
+          column: 'waiting_approval' as const,
+          plan: 'Plan',
+          planOptions: {},
+          lastAgentStatus: 'planning',
+        })
+        .where(eq(tasks.id, task.id));
+
+      const result = await service.rejectPlanForTask(task.id, 'no good');
+      expect(result.ok).toBe(true);
+
+      // remove() is fire-and-forget so give the microtask queue a tick to run.
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mockWorktreeService.remove).toHaveBeenCalledWith(worktree.id, true);
+    });
+
+    it('IT-F6-d: CAS-protected — refuses to reject a task whose status moved on', async () => {
+      const codespace = await createTestProject();
+      const task = await createTestTask(codespace.id, {
+        column: 'in_progress',
+      });
+
+      // Task has plan text but lastAgentStatus is NOT 'planning' (already approved).
+      await db
+        .update(tasks)
+        .set({
+          plan: 'Plan',
+          planOptions: {},
+          lastAgentStatus: 'running',
+        })
+        .where(eq(tasks.id, task.id));
+
+      const result = await service.rejectPlanForTask(task.id, 'late reject');
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe('PLAN_NOT_FOUND');
+    });
+
+    it('IT-F6-e: resets the agent row to idle when one was running in memory', async () => {
+      const codespace = await createTestProject();
+      const agent = await createTestAgent(codespace.id, {
+        status: 'planning',
+      });
+      const task = await createTestTask(codespace.id, {
+        column: 'in_progress',
+        agentId: agent.id,
+      });
+
+      await db
+        .update(tasks)
+        .set({
+          column: 'waiting_approval' as const,
+          plan: 'Plan',
+          planOptions: {},
+          lastAgentStatus: 'planning',
+        })
+        .where(eq(tasks.id, task.id));
+
+      // Register a running agent controller so the stop branch executes.
+      const controller = new AbortController();
+      (service as unknown as { runningAgents: Map<string, AbortController> }).runningAgents.set(
+        agent.id,
+        controller
+      );
+      (service as unknown as { agentStartTimes: Map<string, number> }).agentStartTimes.set(
+        agent.id,
+        Date.now()
+      );
+
+      const result = await service.rejectPlanForTask(task.id, 'tear it down');
+      expect(result.ok).toBe(true);
+
+      // Agent should be idle and controller aborted.
+      const after = await db.query.agents.findFirst({ where: eq(agents.id, agent.id) });
+      expect(after?.status).toBe('idle');
+      expect(after?.currentTaskId).toBeNull();
+      expect(controller.signal.aborted).toBe(true);
+    });
+  });
 });

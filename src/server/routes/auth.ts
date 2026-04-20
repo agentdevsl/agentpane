@@ -307,6 +307,85 @@ export function createAuthRoutes({ db }: AuthDeps) {
     }
   });
 
+  // F05-07: Caddy `forward_auth` hook for `/v1/stream/*` endpoints.
+  //
+  // Caddy sends the original request URI in the `X-Original-URI` header (or
+  // `X-Forwarded-Uri` depending on the version). We validate:
+  //   1. The session cookie maps to an active user session.
+  //   2. The URI path matches a known stream shape (`/v1/stream/{sessions,plans,sandboxes,terraform}/{id}`).
+  //
+  // A 200 response greenlights the stream connection; any other status blocks it.
+  //
+  // Note: path-level authorization (does THIS user have access to THIS plan/sandbox?)
+  // is a follow-up that requires resolving the team membership for each ID. For the
+  // minimum viable version, the cookie check alone closes the default-deny gap against
+  // unauthenticated network clients.
+  app.all('/verify-stream', async (c) => {
+    const originalUri =
+      c.req.header('X-Original-URI') ??
+      c.req.header('X-Forwarded-Uri') ??
+      c.req.header('X-Original-URL') ??
+      '';
+    if (!originalUri.startsWith('/v1/stream')) {
+      return json({ ok: false, error: { code: 'INVALID_URI', message: 'Not a stream URI' } }, 400);
+    }
+
+    // Basic shape check — must be /v1/stream, /v1/stream/cli-monitor, or /v1/stream/{kind}/{id}
+    const streamMatch = originalUri.match(
+      /^\/v1\/stream(?:\/(cli-monitor|sessions|plans|sandboxes|terraform)(?:\/([A-Za-z0-9][A-Za-z0-9_-]*))?)?$/
+    );
+    if (!streamMatch) {
+      return json(
+        { ok: false, error: { code: 'INVALID_URI', message: 'Malformed stream URI' } },
+        400
+      );
+    }
+
+    // Cookie-based auth. We intentionally reuse the existing session cookie
+    // rather than a separate stream token — Caddy forwards cookies verbatim.
+    const cookies = c.req.header('Cookie') ?? '';
+    const sessionMatch = cookies.match(new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`));
+    if (!sessionMatch?.[1]) {
+      return json(
+        { ok: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
+        401
+      );
+    }
+
+    try {
+      const session = await db.query.userSessions.findFirst({
+        where: eq(userSessions.token, hashToken(sessionMatch[1])),
+      });
+      if (!session) {
+        return json(
+          { ok: false, error: { code: 'UNAUTHORIZED', message: 'Session not found' } },
+          401
+        );
+      }
+      if (new Date(session.expiresAt) < new Date()) {
+        return json(
+          { ok: false, error: { code: 'SESSION_EXPIRED', message: 'Session expired' } },
+          401
+        );
+      }
+      // 200 response signals Caddy to allow the stream connection.
+      return json({
+        ok: true,
+        data: {
+          userId: session.userId,
+          streamKind: streamMatch[1] ?? null,
+          streamId: streamMatch[2] ?? null,
+        },
+      });
+    } catch (error) {
+      log.error('verify-stream failed', { error });
+      return json(
+        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Verification failed' } },
+        500
+      );
+    }
+  });
+
   // SC-H1: Start periodic expired session cleanup (runs every hour)
   const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
   const cleanupTimer = setInterval(async () => {

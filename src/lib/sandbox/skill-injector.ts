@@ -11,6 +11,7 @@
  * Runs during container startup, after credentials injection.
  */
 
+import { stringify as yamlStringify } from 'yaml';
 import type { MergedAgent, MergedSkill } from '../config/template-merge.js';
 import { createLogger } from '../logging/logger.js';
 import type { Sandbox } from './providers/sandbox-provider.js';
@@ -19,6 +20,9 @@ const log = createLogger('SkillInjector');
 
 /** Only allow directory-safe characters in IDs/names */
 const SAFE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+
+/** Safe regex for individual tag values — alphanumerics plus `_`, `-` */
+const SAFE_TAG = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 
 // ---------------------------------------------------------------------------
 // Shared types & helpers
@@ -37,14 +41,21 @@ export interface AgentInjectionResult {
 }
 
 /**
- * Escape a string for use as a YAML double-quoted value.
+ * Serialise a record of frontmatter keys to YAML using the `yaml` package.
+ *
+ * The `yaml` package safely quotes/escapes strings — hostile values (newlines,
+ * leading/trailing whitespace, shell metacharacters, embedded frontmatter
+ * delimiters, control chars) are emitted as a single valid YAML scalar so
+ * they cannot break out of the frontmatter block.
  */
-function escapeYamlValue(value: string): string {
-  return value
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r');
+function renderFrontmatter(fields: Record<string, unknown>): string {
+  // `lineWidth: 0` disables auto-wrapping so our tests see predictable output.
+  // `defaultStringType: QUOTE_DOUBLE` forces ambiguous strings to be quoted.
+  return yamlStringify(fields, {
+    lineWidth: 0,
+    defaultStringType: 'QUOTE_DOUBLE',
+    defaultKeyType: 'PLAIN',
+  }).trimEnd();
 }
 
 /**
@@ -121,23 +132,46 @@ async function writeBase64File(
 
 /**
  * Build SKILL.md content with frontmatter metadata and skill body.
+ *
+ * All values are serialised through a real YAML emitter so hostile input
+ * cannot break out of the frontmatter block (F06-03). Tags are additionally
+ * filtered through {@link SAFE_TAG}; any tag that fails validation is retained
+ * as a literal, quoted string so the YAML still round-trips but does not
+ * allow attacker-controlled keys to be interpreted by downstream tooling.
  */
 function buildSkillMarkdown(skill: MergedSkill): string {
-  const lines = ['---'];
-  lines.push(`name: "${escapeYamlValue(skill.name)}"`);
+  const fields: Record<string, unknown> = {};
+  fields.name = skill.name;
   if (skill.description) {
-    lines.push(`description: "${escapeYamlValue(skill.description)}"`);
+    fields.description = skill.description;
   }
   if (skill.tags && skill.tags.length > 0) {
-    lines.push(`tags: ${skill.tags.join(', ')}`);
+    // Filter tags through SAFE_TAG. Invalid tags are preserved as strings
+    // (the YAML emitter will quote them) but are logged for visibility so
+    // authors notice and can fix them.
+    const validTags: string[] = [];
+    const invalidTags: string[] = [];
+    for (const tag of skill.tags) {
+      if (typeof tag === 'string' && SAFE_TAG.test(tag)) {
+        validTags.push(tag);
+      } else if (typeof tag === 'string') {
+        invalidTags.push(tag);
+      }
+    }
+    if (invalidTags.length > 0) {
+      log.warn('Dropping unsafe skill tags', {
+        data: { skillId: skill.id, invalidTags },
+      });
+    }
+    if (validTags.length > 0) {
+      fields.tags = validTags;
+    }
   }
-  lines.push(`source: ${skill.sourceType}`);
+  fields.source = skill.sourceType;
   if (skill.executionSkill) {
-    lines.push(`executionSkill: ${escapeYamlValue(skill.executionSkill)}`);
+    fields.executionSkill = skill.executionSkill;
   }
-  lines.push('---');
-  lines.push(skill.content);
-  return lines.join('\n');
+  return `---\n${renderFrontmatter(fields)}\n---\n${skill.content}`;
 }
 
 /**
@@ -211,17 +245,18 @@ export async function injectSkills(
 
 /**
  * Build agent .md content with frontmatter metadata and agent body.
+ *
+ * All values are serialised through a real YAML emitter so hostile input
+ * cannot break out of the frontmatter block (F06-03).
  */
 function buildAgentMarkdown(agent: MergedAgent): string {
-  const lines = ['---'];
-  lines.push(`name: "${escapeYamlValue(agent.name)}"`);
+  const fields: Record<string, unknown> = {};
+  fields.name = agent.name;
   if (agent.description) {
-    lines.push(`description: "${escapeYamlValue(agent.description)}"`);
+    fields.description = agent.description;
   }
-  lines.push(`source: ${agent.sourceType}`);
-  lines.push('---');
-  lines.push(agent.content);
-  return lines.join('\n');
+  fields.source = agent.sourceType;
+  return `---\n${renderFrontmatter(fields)}\n---\n${agent.content}`;
 }
 
 /**

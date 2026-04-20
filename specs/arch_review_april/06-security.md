@@ -138,3 +138,26 @@ Direction: for secret-shaped env vars (`*_TOKEN`, `*_KEY`, `ANTHROPIC_*`), write
 ---
 
 **Summary:** 3 P0, 8 P1, 4 P2, 1 P3 across 16 findings.
+
+---
+
+## Remediation status (as of theme-06-security PR)
+
+| ID | P | Status |
+|---|---|---|
+| F06-01 | P0 | Deferred — tracked as a standalone PR (Dependabot triage for 42 advisories requires cascading test fixes). |
+| F06-02 | P0 | **Resolved** — `CommandRunner` now exposes `execArgs(argv, cwd)`; `cloneRepository` migrated; `validateShellCommand` exported for the legacy path. Tests cover hostile URLs and argv passthrough. |
+| F06-03 | P0 | **Resolved** — skill-injector now serialises frontmatter via the `yaml` package; tags filtered through `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`; regression tests for hostile tags / descriptions. |
+| F06-04 | P1 | **Resolved** — `sanitizeIssueBody` wraps `closes|fixes|resolves #N` keywords and `@mentions` in inline code fences; `sanitizeLabels` drops labels with commas / control chars / >50 chars; applied in `createIssue`, `updateIssue`, `addComment`. |
+| F06-05 | P1 | **Resolved** — new `isDevAuthAllowed()` helper is the single source of truth for dev-mode bypass; consumed by auth-middleware, rbac-middleware, and server-config; production hard-locks regardless of `SKIP_AUTH`. |
+| F06-06 | P1 | **Resolved** — `createToolWhitelistHook` now DENIES on empty array; `['*']` is the explicit open-gate sentinel; `ALLOW_ALL_TOOLS` updated from `[]` to `['*']`. |
+| F06-07 | P1 | Deferred — shares implementation with F07-04 (Redis rate-limit); tracked in API-surface theme PR. |
+| F06-08 | P1 | Deferred — tracked in sandbox theme PR (overlaps with P1-06 tenant isolation work). |
+| F06-09 | P1 | **Resolved** — added `rotated_at` to `api_tokens`, `expires_at` + `rotated_at` to `api_keys` and `github_tokens` (SQLite 0017 + Postgres 0006); new `GET /api/tokens/rotation-due` endpoint; `rbac-middleware` already enforces `expires_at` against authed requests. |
+| F06-10 | P1 | Deferred — needs a week of CSP Report-Only data to tune; tracked as a follow-up. |
+| F06-11 | P1 | **Resolved** — introduced shared `HighlightedCode` component running DOMPurify on Shiki output; `markdown-content.tsx` and `terraform-right-panel.tsx` both route through it. Regression test for `<img src=x onerror=alert(1)>`. |
+| F06-12 | P2 | Out of scope for this theme PR. |
+| F06-13 | P2 | Out of scope for this theme PR. |
+| F06-14 | P2 | Out of scope for this theme PR. |
+| F06-15 | P2 | Out of scope for this theme PR. |
+| F06-16 | P3 | Out of scope for this theme PR. |

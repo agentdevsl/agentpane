@@ -18,12 +18,15 @@ describe('SandboxConfigService — lifecycle integration tests', () => {
   });
 
   it('IT-358: Create Docker config with all fields — persisted correctly via getById', async () => {
+    // theme-04 P0-01: baseImage must be digest-pinned
+    const digestPinned =
+      'docker.io/library/ubuntu@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
     const result = await service.create({
       name: 'Docker Full',
       description: 'Full Docker config with all fields',
       type: 'docker',
       isDefault: false,
-      baseImage: 'ubuntu:24.04',
+      baseImage: digestPinned,
       memoryMb: 8192,
       cpuCores: 4.0,
       maxProcesses: 512,
@@ -40,7 +43,7 @@ describe('SandboxConfigService — lifecycle integration tests', () => {
     expect(config.description).toBe('Full Docker config with all fields');
     expect(config.type).toBe('docker');
     expect(config.isDefault).toBe(false);
-    expect(config.baseImage).toBe('ubuntu:24.04');
+    expect(config.baseImage).toBe(digestPinned);
     expect(config.memoryMb).toBe(8192);
     expect(config.cpuCores).toBe(4.0);
     expect(config.maxProcesses).toBe(512);
@@ -54,7 +57,7 @@ describe('SandboxConfigService — lifecycle integration tests', () => {
 
     expect(getResult.value.name).toBe('Docker Full');
     expect(getResult.value.type).toBe('docker');
-    expect(getResult.value.baseImage).toBe('ubuntu:24.04');
+    expect(getResult.value.baseImage).toBe(digestPinned);
     expect(getResult.value.memoryMb).toBe(8192);
     expect(getResult.value.cpuCores).toBe(4.0);
     expect(getResult.value.maxProcesses).toBe(512);
@@ -173,11 +176,14 @@ describe('SandboxConfigService — lifecycle integration tests', () => {
   });
 
   it('IT-362: Update config fields — updated values persisted, unchanged fields preserved', async () => {
+    // theme-04 P0-01: baseImage must be digest-pinned
+    const digestPinned =
+      'docker.io/library/node@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
     const createResult = await service.create({
       name: 'Update Target',
       description: 'Original description',
       type: 'docker',
-      baseImage: 'node:22-slim',
+      baseImage: digestPinned,
       memoryMb: 4096,
       cpuCores: 2.0,
       maxProcesses: 256,
@@ -207,7 +213,7 @@ describe('SandboxConfigService — lifecycle integration tests', () => {
     // Unchanged fields preserved
     expect(updated.name).toBe('Update Target');
     expect(updated.type).toBe('docker');
-    expect(updated.baseImage).toBe('node:22-slim');
+    expect(updated.baseImage).toBe(digestPinned);
     expect(updated.maxProcesses).toBe(256);
     expect(updated.timeoutMinutes).toBe(60);
 

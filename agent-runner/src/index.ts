@@ -35,6 +35,7 @@ import {
   unstable_v2_resumeSession,
 } from '@anthropic-ai/claude-agent-sdk';
 import { createEventEmitter } from './event-emitter.js';
+import { createAgentRunnerLogger } from './logger.js';
 // SC-023: Shared session utilities. index.ts still uses its own writeCredentialsFile
 // and shouldStop variants (with additional debug logging), but types and file-change
 // detection are imported from the shared module to reduce duplication.
@@ -44,6 +45,11 @@ import {
   getAssistantText as sharedGetAssistantText,
 } from './shared-session.js';
 import { buildEnrichedFields, createTrackingState, optionalSkillCalls } from './skill-tracking.js';
+
+// F10-05: structured runner logger. Emits JSON on STDERR with correlation id
+// from the CORRELATION_ID env var (set by the host in container-exec.service).
+// The host bridge parses these lines and replays them via its own logger.
+const log = createAgentRunnerLogger();
 
 const VALID_TOPOLOGY_STATUSES = new Set(['completed', 'failed', 'stopped']);
 
@@ -107,11 +113,11 @@ async function loadAgentDefinitions(
         // Skip individual file parse errors
       }
     }
-    console.error(
+    log.error(
       `[agent-runner] Loaded ${Object.keys(agents).length} agent definitions from ${agentsDir}`
     );
   } catch {
-    console.error(`[agent-runner] No .claude/agents/ directory found at ${agentsDir}`);
+    log.error(`[agent-runner] No .claude/agents/ directory found at ${agentsDir}`);
   }
 
   return agents;
@@ -122,7 +128,7 @@ function normalizeTopologyStatus(raw: unknown): 'completed' | 'failed' | 'stoppe
   if (typeof raw === 'string' && VALID_TOPOLOGY_STATUSES.has(raw)) {
     return raw as 'completed' | 'failed' | 'stopped';
   }
-  console.error(`[agent-runner] Unknown topology status: ${String(raw)}, defaulting to 'failed'`);
+  log.error(`[agent-runner] Unknown topology status: ${String(raw)}, defaulting to 'failed'`);
   return 'failed';
 }
 
@@ -255,9 +261,39 @@ function handleTopologySystemMsg(
 // Phase type
 type AgentPhase = 'plan' | 'execute';
 
+/**
+ * Parse CLAUDE_OAUTH_EXPIRES_AT env var.
+ *
+ * theme-03 F11: Accept a real token expiry from the host. When absent, fall
+ * back to a far-future sentinel so the SDK does not treat the token as expired
+ * but we avoid pretending to know a specific lifetime. The previous "+24h"
+ * default was a fiction — a token revoked externally still appeared valid to
+ * the SDK and surfaced as opaque 401s mid-stream.
+ */
+function parseOAuthExpiresAt(raw: string | undefined): number {
+  if (!raw) {
+    // Far-future sentinel (~year 5138). Signals "unknown expiry" to the SDK
+    // without masking real expirations when the host does supply them.
+    return 100_000_000_000_000;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    log.error(
+      `[agent-runner] CLAUDE_OAUTH_EXPIRES_AT is not a positive number ('${raw}'), using far-future default`
+    );
+    return 100_000_000_000_000;
+  }
+  return parsed;
+}
+
 // Configuration from environment (declared early for error handlers)
 const config = {
   oauthToken: process.env.CLAUDE_OAUTH_TOKEN,
+  // theme-03 F11: optional real OAuth metadata from the host. When absent the
+  // credentials file still gets written, but with a sentinel expiry rather
+  // than a fake Date.now()+24h value.
+  oauthExpiresAt: parseOAuthExpiresAt(process.env.CLAUDE_OAUTH_EXPIRES_AT),
+  oauthRefreshToken: process.env.CLAUDE_OAUTH_REFRESH_TOKEN ?? null,
   taskId: process.env.AGENT_TASK_ID,
   sessionId: process.env.AGENT_SESSION_ID,
   prompt: process.env.AGENT_PROMPT,
@@ -274,8 +310,8 @@ const config = {
 // Global error handlers - catch EPIPE and other unhandled errors
 // These must be registered early, before any async operations
 process.on('uncaughtException', (error: Error & { code?: string }) => {
-  console.error('[agent-runner] Uncaught exception:', error.message);
-  console.error('[agent-runner] Stack:', error.stack);
+  log.error('[agent-runner] Uncaught exception:', { error: error.message });
+  log.error('[agent-runner] Stack:', { stack: error.stack });
 
   // Try to emit error event if we have config
   if (config.taskId && config.sessionId) {
@@ -288,7 +324,7 @@ process.on('uncaughtException', (error: Error & { code?: string }) => {
       });
     } catch {
       // Best effort - event emitter might also fail
-      console.error('[agent-runner] Failed to emit error event');
+      log.error('[agent-runner] Failed to emit error event');
     }
   }
 
@@ -299,7 +335,7 @@ process.on('uncaughtException', (error: Error & { code?: string }) => {
 
 process.on('unhandledRejection', (reason: unknown) => {
   const message = reason instanceof Error ? reason.message : String(reason);
-  console.error('[agent-runner] Unhandled rejection:', message);
+  log.error('[agent-runner] Unhandled rejection:', { message: message });
 
   // Try to emit error event if we have config
   if (config.taskId && config.sessionId) {
@@ -312,7 +348,7 @@ process.on('unhandledRejection', (reason: unknown) => {
       });
     } catch {
       // Best effort - event emitter might also fail
-      console.error('[agent-runner] Failed to emit error event');
+      log.error('[agent-runner] Failed to emit error event');
     }
   }
 
@@ -372,9 +408,21 @@ function validateConfig(): void {
 }
 
 /**
- * Write OAuth credentials to ~/.claude/.credentials.json
+ * Write OAuth credentials to $HOME/.claude/.credentials.json
  * The Claude Agent SDK reads this file for authentication.
  * OAuth tokens passed via ANTHROPIC_API_KEY env var are blocked by the API.
+ *
+ * theme-03 F11:
+ * - `homedir()` (which reads `process.env.HOME`) is used so that the host
+ *   can place each concurrent agent-runner invocation under a distinct HOME
+ *   (e.g. /tmp/agents/<taskId>) and avoid interleaved writes to a shared
+ *   `/home/node/.claude/.credentials.json`.
+ * - `expiresAt` is read from the host via `CLAUDE_OAUTH_EXPIRES_AT` when
+ *   available; otherwise a far-future sentinel is used. The previous
+ *   `Date.now() + 24h` fiction caused revoked tokens to appear valid to the
+ *   SDK for a day.
+ * - `refreshToken` is threaded through from `CLAUDE_OAUTH_REFRESH_TOKEN`
+ *   when the host has one; otherwise null (SDK rejects empty string).
  */
 async function writeCredentialsFile(): Promise<void> {
   const home = homedir();
@@ -382,21 +430,23 @@ async function writeCredentialsFile(): Promise<void> {
   const credentialsFile = join(claudeDir, '.credentials.json');
 
   // Debug: Log paths and token status (never log token contents for security)
-  console.error(`[agent-runner] Home directory: ${home}`);
-  console.error(`[agent-runner] Credentials path: ${credentialsFile}`);
-  console.error(`[agent-runner] Token received: ${config.oauthToken ? 'YES' : 'NONE'}`);
+  log.error(`[agent-runner] Home directory: ${home}`);
+  log.error(`[agent-runner] Credentials path: ${credentialsFile}`);
+  log.error(`[agent-runner] Token received: ${config.oauthToken ? 'YES' : 'NONE'}`);
+  log.error(
+    `[agent-runner] Token expiresAt: ${process.env.CLAUDE_OAUTH_EXPIRES_AT ? 'from host' : 'sentinel (far-future)'}`
+  );
+  log.error(`[agent-runner] Refresh token: ${config.oauthRefreshToken ? 'provided' : 'none'}`);
 
   if (!config.oauthToken) {
     throw new Error('No OAuth token provided via CLAUDE_OAUTH_TOKEN environment variable');
   }
 
-  // Use null instead of empty string for refreshToken - SDK may reject empty string
-  // expiresAt as milliseconds (matching SDK's expected format from `claude login`)
   const credentials = {
     claudeAiOauth: {
       accessToken: config.oauthToken,
-      refreshToken: null,
-      expiresAt: Date.now() + 86400000, // 24h from now in milliseconds
+      refreshToken: config.oauthRefreshToken,
+      expiresAt: config.oauthExpiresAt,
       scopes: ['user:inference', 'user:profile', 'user:sessions:claude_code'],
       subscriptionType: 'max',
     },
@@ -408,7 +458,7 @@ async function writeCredentialsFile(): Promise<void> {
   // Write credentials file
   await writeFile(credentialsFile, JSON.stringify(credentials), { mode: 0o600 });
 
-  console.error(`[agent-runner] Wrote credentials to ${credentialsFile}`);
+  log.error(`[agent-runner] Wrote credentials to ${credentialsFile}`);
 
   // Verify the file is readable and valid JSON
   try {
@@ -417,7 +467,7 @@ async function writeCredentialsFile(): Promise<void> {
     if (!parsed.claudeAiOauth?.accessToken) {
       throw new Error('Credentials file written but accessToken missing');
     }
-    console.error('[agent-runner] Credentials file verified successfully');
+    log.error('[agent-runner] Credentials file verified successfully');
   } catch (verifyError) {
     const errMsg = verifyError instanceof Error ? verifyError.message : String(verifyError);
     throw new Error(`Credentials file verification failed: ${errMsg}`);
@@ -463,7 +513,7 @@ async function shouldStop(): Promise<boolean> {
   } catch (err: unknown) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code !== 'ENOENT') {
-      console.error(`[agent-runner] Error checking stop file: ${code}`);
+      log.error(`[agent-runner] Error checking stop file: ${code}`);
     }
     return false;
   }
@@ -485,7 +535,7 @@ async function runPlanningPhase(): Promise<void> {
     ...(config.skillName ? { skillName: config.skillName } : {}),
   });
 
-  console.error('[agent-runner] Starting PLANNING phase...');
+  log.error('[agent-runner] Starting PLANNING phase...');
 
   // Track ExitPlanMode options - captured by canUseTool callback
   let exitPlanModeOptions: ExitPlanModeOptions | undefined;
@@ -540,12 +590,12 @@ async function runPlanningPhase(): Promise<void> {
   // Create Claude Agent SDK session in PLAN mode
   let session: SDKSession | undefined;
   try {
-    console.error('[agent-runner] Creating SDK session in plan mode...');
+    log.error('[agent-runner] Creating SDK session in plan mode...');
 
     // Create canUseTool callback to capture ExitPlanMode options
     // This is the official SDK mechanism for intercepting tool calls
     const canUseTool: CanUseTool = async (toolName, input, options) => {
-      console.error(`[agent-runner] canUseTool: ${toolName}`);
+      log.error(`[agent-runner] canUseTool: ${toolName}`);
 
       // Track tool start
       const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
@@ -560,7 +610,7 @@ async function runPlanningPhase(): Promise<void> {
         if (sName) {
           toolEntry.skillName = sName;
         } else {
-          console.error(
+          log.error(
             `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${options.toolUseID})`
           );
         }
@@ -607,7 +657,7 @@ async function runPlanningPhase(): Promise<void> {
         exitPlanModeTimestamp = Date.now();
         exitPlanModePlan = typeof planInput?.plan === 'string' ? planInput.plan : undefined;
 
-        console.error(
+        log.error(
           `[agent-runner] ExitPlanMode captured via canUseTool — plan from input: ${exitPlanModePlan ? `${exitPlanModePlan.length} chars` : 'none'}`
         );
       }
@@ -633,7 +683,7 @@ async function runPlanningPhase(): Promise<void> {
           ? parsed.filter((t): t is string => typeof t === 'string')
           : [];
       } catch (parseErr) {
-        console.error(
+        log.error(
           `[agent-runner] Failed to parse AGENT_ALLOWED_TOOLS: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
         );
       }
@@ -660,10 +710,10 @@ async function runPlanningPhase(): Promise<void> {
       permissionMode: planPermissionMode,
       canUseTool, // Use official SDK callback for tool interception
     });
-    console.error('[agent-runner] SDK session created successfully');
+    log.error('[agent-runner] SDK session created successfully');
   } catch (sessionError) {
     const errMsg = sessionError instanceof Error ? sessionError.message : String(sessionError);
-    console.error('[agent-runner] Failed to create SDK session:', errMsg);
+    log.error('[agent-runner] Failed to create SDK session:', { errMsg: errMsg });
     events.error({
       error: `SDK session creation failed: ${errMsg}`,
       code: 'SDK_SESSION_FAILED',
@@ -693,16 +743,16 @@ async function runPlanningPhase(): Promise<void> {
     // Send the initial prompt
     await session.send(config.prompt as string);
 
-    console.error('[agent-runner] Processing SDK stream (planning)...');
+    log.error('[agent-runner] Processing SDK stream (planning)...');
     let messageCount = 0;
 
     for await (const msg of session.stream()) {
       messageCount++;
-      console.error(`[agent-runner] Message ${messageCount}: type=${msg.type}`);
+      log.error(`[agent-runner] Message ${messageCount}: type=${msg.type}`);
 
       // Check for cancellation
       if (await shouldStop()) {
-        console.error('[agent-runner] Stop file detected, cancelling...');
+        log.error('[agent-runner] Stop file detected, cancelling...');
         events.cancelled(turn);
         session.close();
         return;
@@ -712,7 +762,7 @@ async function runPlanningPhase(): Promise<void> {
       if (exitPlanModeDetected && exitPlanModeTimestamp) {
         const elapsed = Date.now() - exitPlanModeTimestamp;
         if (elapsed > EXIT_PLAN_MODE_TIMEOUT_MS) {
-          console.error(`[agent-runner] ExitPlanMode timeout (${elapsed}ms) — forcing plan_ready`);
+          log.error(`[agent-runner] ExitPlanMode timeout (${elapsed}ms) — forcing plan_ready`);
           emitAllToolResults();
           session.close();
           const planContent = exitPlanModePlan || accumulatedText;
@@ -733,7 +783,7 @@ async function runPlanningPhase(): Promise<void> {
         const sysSubtype = sysMsg.subtype as string | undefined;
         if (sysSubtype === 'init') {
           sdkSessionId = session.sessionId;
-          console.error(`[agent-runner] SDK session ID: ${sdkSessionId}`);
+          log.error(`[agent-runner] SDK session ID: ${sdkSessionId}`);
         }
 
         // Handle subagent lifecycle events (task_started, task_progress, task_notification)
@@ -757,7 +807,7 @@ async function runPlanningPhase(): Promise<void> {
         // Track turns on message_start
         if (event.type === 'message_start') {
           turn++;
-          console.error(`[agent-runner] Turn ${turn}/${config.maxTurns}`);
+          log.error(`[agent-runner] Turn ${turn}/${config.maxTurns}`);
           events.turn({
             turn,
             maxTurns: config.maxTurns,
@@ -766,7 +816,7 @@ async function runPlanningPhase(): Promise<void> {
 
           // Check turn limit
           if (turn >= config.maxTurns) {
-            console.error('[agent-runner] Turn limit reached during planning');
+            log.error('[agent-runner] Turn limit reached during planning');
             emitAllToolResults();
             session.close();
 
@@ -775,7 +825,7 @@ async function runPlanningPhase(): Promise<void> {
             // approval and leave tasks stuck without a proper plan.
             if (accumulatedText || exitPlanModeDetected) {
               const planContent = exitPlanModePlan || accumulatedText;
-              console.error(
+              log.error(
                 `[agent-runner] Emitting plan_ready on turn limit (length: ${planContent.length})`
               );
               events.planReady({
@@ -819,7 +869,7 @@ async function runPlanningPhase(): Promise<void> {
           tool_name: string;
           elapsed_time_seconds: number;
         };
-        console.error(
+        log.error(
           `[agent-runner] Tool progress: ${toolMsg.tool_name} (${toolMsg.elapsed_time_seconds}s)`
         );
         events.toolStart({
@@ -834,7 +884,7 @@ async function runPlanningPhase(): Promise<void> {
         const rateLimitMsg = msg as {
           rate_limit_info: { status: string; resetsAt?: number };
         };
-        console.error(`[agent-runner] Rate limit: ${rateLimitMsg.rate_limit_info.status}`);
+        log.error(`[agent-runner] Rate limit: ${rateLimitMsg.rate_limit_info.status}`);
       }
 
       // Handle tool_use_summary events (actual tool completion with results from SDK)
@@ -845,7 +895,7 @@ async function runPlanningPhase(): Promise<void> {
           is_error?: boolean;
         };
 
-        console.error(
+        log.error(
           `[agent-runner] Tool summary: ids=${toolSummary.preceding_tool_use_ids.join(',')}`
         );
 
@@ -878,9 +928,7 @@ async function runPlanningPhase(): Promise<void> {
             // The stream will naturally flow to a 'result' message, which is the safe exit point.
             // Closing mid-iteration causes "Operation aborted" unhandled rejections.
             if (startInfo.toolName === 'ExitPlanMode') {
-              console.error(
-                '[agent-runner] ExitPlanMode tool completed — waiting for result message'
-              );
+              log.error('[agent-runner] ExitPlanMode tool completed — waiting for result message');
             }
           }
         }
@@ -910,7 +958,7 @@ async function runPlanningPhase(): Promise<void> {
         // ExitPlanMode was detected — do NOT close session here.
         // Continue consuming messages until the stream naturally yields 'result'.
         if (exitPlanModeDetected) {
-          console.error('[agent-runner] ExitPlanMode detected — continuing to result message');
+          log.error('[agent-runner] ExitPlanMode detected — continuing to result message');
         }
 
         const text = getAssistantText(msg);
@@ -946,7 +994,7 @@ async function runPlanningPhase(): Promise<void> {
         if (exitPlanModeDetected || exitPlanModeOptions !== undefined || accumulatedText) {
           // Prefer plan from canUseTool input (ExitPlanModeInput.plan), fall back to accumulated text
           const planContent = exitPlanModePlan || accumulatedText;
-          console.error(
+          log.error(
             `[agent-runner] Emitting plan_ready (source: ${exitPlanModePlan ? 'ExitPlanModeInput.plan' : 'accumulated text'}, length: ${planContent.length})`
           );
           events.planReady({
@@ -970,9 +1018,7 @@ async function runPlanningPhase(): Promise<void> {
       }
     }
 
-    console.error(
-      `[agent-runner] Planning stream ended. Messages: ${messageCount}, turns: ${turn}`
-    );
+    log.error(`[agent-runner] Planning stream ended. Messages: ${messageCount}, turns: ${turn}`);
 
     // Emit results for any remaining active tools
     emitAllToolResults();
@@ -999,7 +1045,7 @@ async function runPlanningPhase(): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const errorCode = (error as { code?: string }).code;
-    console.error('[agent-runner] Planning error:', message);
+    log.error('[agent-runner] Planning error:', { message: message });
 
     events.error({
       error: message,
@@ -1044,9 +1090,9 @@ async function runExecutionPhase(): Promise<void> {
     parentId: null,
   });
 
-  console.error('[agent-runner] Starting EXECUTION phase...');
+  log.error('[agent-runner] Starting EXECUTION phase...');
   if (config.sdkSessionId) {
-    console.error(`[agent-runner] Resuming SDK session: ${config.sdkSessionId}`);
+    log.error(`[agent-runner] Resuming SDK session: ${config.sdkSessionId}`);
   }
 
   // Shared tracking state for skill calls, file changes, and token usage
@@ -1104,7 +1150,7 @@ async function runExecutionPhase(): Promise<void> {
       if (sName) {
         toolEntry.skillName = sName;
       } else {
-        console.error(
+        log.error(
           `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${options.toolUseID})`
         );
       }
@@ -1152,7 +1198,7 @@ async function runExecutionPhase(): Promise<void> {
   let session: SDKSession | undefined;
   let sessionResumed = false;
   try {
-    console.error('[agent-runner] Creating SDK session with bypass permissions...');
+    log.error('[agent-runner] Creating SDK session with bypass permissions...');
 
     // Note: executableArgs with --add-dir causes EPIPE errors in SDK 0.2.x
     // The SDK/CLI handles directory access via cwd and environment.
@@ -1174,10 +1220,10 @@ async function runExecutionPhase(): Promise<void> {
           canUseTool, // Track tools even in bypass mode
         });
         sessionResumed = true;
-        console.error('[agent-runner] SDK session resumed successfully');
+        log.error('[agent-runner] SDK session resumed successfully');
       } catch (resumeError) {
         const resumeMsg = resumeError instanceof Error ? resumeError.message : String(resumeError);
-        console.warn(
+        log.warn(
           `[agent-runner] SDK session resume failed (${config.sdkSessionId}), falling back to fresh session: ${resumeMsg}`
         );
         // Notify the user via structured event so the host process can relay to UI
@@ -1199,10 +1245,10 @@ async function runExecutionPhase(): Promise<void> {
         canUseTool, // Track tools even in bypass mode
       });
     }
-    console.error('[agent-runner] SDK session ready');
+    log.error('[agent-runner] SDK session ready');
   } catch (sessionError) {
     const errMsg = sessionError instanceof Error ? sessionError.message : String(sessionError);
-    console.error('[agent-runner] Failed to create SDK session:', errMsg);
+    log.error('[agent-runner] Failed to create SDK session:', { errMsg: errMsg });
     events.error({
       error: `SDK session creation failed: ${errMsg}`,
       code: 'SDK_SESSION_FAILED',
@@ -1227,16 +1273,16 @@ async function runExecutionPhase(): Promise<void> {
 
     await session.send(executionPrompt);
 
-    console.error('[agent-runner] Processing SDK stream (execution)...');
+    log.error('[agent-runner] Processing SDK stream (execution)...');
     let messageCount = 0;
 
     for await (const msg of session.stream()) {
       messageCount++;
-      console.error(`[agent-runner] Message ${messageCount}: type=${msg.type}`);
+      log.error(`[agent-runner] Message ${messageCount}: type=${msg.type}`);
 
       // Check for cancellation
       if (await shouldStop()) {
-        console.error('[agent-runner] Stop file detected, cancelling...');
+        log.error('[agent-runner] Stop file detected, cancelling...');
         events.cancelled(turn);
         session.close();
         return;
@@ -1253,7 +1299,7 @@ async function runExecutionPhase(): Promise<void> {
         // Track turns on message_start
         if (event.type === 'message_start') {
           turn++;
-          console.error(`[agent-runner] Turn ${turn}/${config.maxTurns}`);
+          log.error(`[agent-runner] Turn ${turn}/${config.maxTurns}`);
           events.turn({
             turn,
             maxTurns: config.maxTurns,
@@ -1262,7 +1308,7 @@ async function runExecutionPhase(): Promise<void> {
 
           // Check turn limit
           if (turn >= config.maxTurns) {
-            console.error('[agent-runner] Turn limit reached');
+            log.error('[agent-runner] Turn limit reached');
             events.complete({
               status: 'turn_limit',
               turnCount: turn,
@@ -1296,7 +1342,7 @@ async function runExecutionPhase(): Promise<void> {
           tool_name: string;
           elapsed_time_seconds: number;
         };
-        console.error(
+        log.error(
           `[agent-runner] Tool progress: ${toolMsg.tool_name} (${toolMsg.elapsed_time_seconds}s)`
         );
         // Only emit toolStart if not already tracked via canUseTool
@@ -1318,7 +1364,7 @@ async function runExecutionPhase(): Promise<void> {
         const rateLimitMsg = msg as {
           rate_limit_info: { status: string; resetsAt?: number };
         };
-        console.error(`[agent-runner] Rate limit: ${rateLimitMsg.rate_limit_info.status}`);
+        log.error(`[agent-runner] Rate limit: ${rateLimitMsg.rate_limit_info.status}`);
       }
 
       // Handle system messages for subagent topology (task_started, task_progress, task_notification)
@@ -1342,7 +1388,7 @@ async function runExecutionPhase(): Promise<void> {
           is_error?: boolean;
         };
 
-        console.error(
+        log.error(
           `[agent-runner] Tool summary: ids=${toolSummary.preceding_tool_use_ids.join(',')}`
         );
 
@@ -1395,7 +1441,7 @@ async function runExecutionPhase(): Promise<void> {
 
         const text = getAssistantText(msg);
         if (text) {
-          console.error(`[agent-runner] Assistant message: ${text.slice(0, 100)}...`);
+          log.error(`[agent-runner] Assistant message: ${text.slice(0, 100)}...`);
           events.message({
             role: 'assistant',
             content: text,
@@ -1413,9 +1459,7 @@ async function runExecutionPhase(): Promise<void> {
           is_error?: boolean;
           usage?: { input_tokens?: number; output_tokens?: number };
         };
-        console.error(
-          `[agent-runner] Result: subtype=${result.subtype}, is_error=${result.is_error}`
-        );
+        log.error(`[agent-runner] Result: subtype=${result.subtype}, is_error=${result.is_error}`);
 
         // Extract final token usage from result message
         if (result.usage) {
@@ -1427,7 +1471,7 @@ async function runExecutionPhase(): Promise<void> {
 
         if (result.is_error) {
           const errorText = result.text ?? 'Task ended with error';
-          console.error(`[agent-runner] SDK error result: ${errorText}`);
+          log.error(`[agent-runner] SDK error result: ${errorText}`);
           // Emit a single terminal event. The host maps status:'error' to the
           // error-handling path (agent:error semantics) and does not need a separate
           // agent:error event. Emitting both caused a race between handleAgentError
@@ -1453,7 +1497,7 @@ async function runExecutionPhase(): Promise<void> {
       }
     }
 
-    console.error(`[agent-runner] Stream ended. Total messages: ${messageCount}, turns: ${turn}`);
+    log.error(`[agent-runner] Stream ended. Total messages: ${messageCount}, turns: ${turn}`);
 
     // Emit results for any remaining active tools
     emitAllToolResults();
@@ -1472,9 +1516,9 @@ async function runExecutionPhase(): Promise<void> {
 
     const message = error instanceof Error ? error.message : String(error);
     const errorCode = (error as { code?: string }).code;
-    console.error('[agent-runner] Stream error:', message);
+    log.error('[agent-runner] Stream error:', { message: message });
     if (error instanceof Error && error.stack) {
-      console.error('[agent-runner] Stack:', error.stack);
+      log.error('[agent-runner] Stack:', { stack: error.stack });
     }
 
     events.error({
@@ -1500,7 +1544,7 @@ async function runAgent(): Promise<void> {
   // This must be done before creating the SDK session
   await writeCredentialsFile();
 
-  console.error(`[agent-runner] Phase: ${config.phase}`);
+  log.error(`[agent-runner] Phase: ${config.phase}`);
 
   if (config.phase === 'plan') {
     await runPlanningPhase();
@@ -1518,19 +1562,33 @@ runAgent()
     await flushAndExit(0);
   })
   .catch(async (error) => {
-    // Fatal error before agent could start - write JSON error to stderr
-    // The container bridge reads stderr for JSON error events
-    console.error(
-      JSON.stringify({
-        type: 'agent:error',
-        timestamp: Date.now(),
-        taskId: config.taskId ?? 'unknown',
-        sessionId: config.sessionId ?? 'unknown',
-        data: {
-          error: error instanceof Error ? error.message : String(error),
+    // Fatal error before agent could start. The container bridge parses
+    // JSON-line agent events from stdout (see event-emitter.ts); logging a
+    // JSON blob via log.error writes to stderr and would be wrapped in a
+    // structured log record, so the bridge would never see it as an event.
+    // Emit through the proper event path so the UI gets an `agent:error`.
+    const message = error instanceof Error ? error.message : String(error);
+    const errorCode = (error as { code?: string }).code;
+    log.error('[agent-runner] Fatal error before run:', { message });
+    if (error instanceof Error && error.stack) {
+      log.error('[agent-runner] Stack:', { stack: error.stack });
+    }
+
+    if (config.taskId && config.sessionId) {
+      try {
+        const events = createEventEmitter(config.taskId, config.sessionId);
+        events.error({
+          error: message,
+          code: errorCode ?? 'FATAL_ERROR',
           turnCount: 0,
-        },
-      })
-    );
+        });
+      } catch (emitErr) {
+        // Best-effort — if even the emitter fails, the stderr log above is
+        // the last-resort signal.
+        log.error('[agent-runner] Failed to emit fatal error event', {
+          error: emitErr instanceof Error ? emitErr.message : String(emitErr),
+        });
+      }
+    }
     await flushAndExit(1);
   });

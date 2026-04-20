@@ -11,6 +11,7 @@ import path from 'node:path';
 import { createLogger } from '../../../lib/logging/logger.js';
 import { resolveAnthropicApiKey } from '../../../lib/utils/resolve-anthropic-key.js';
 import type { ApiKeyService } from '../../../services/api-key.service.js';
+import type { BootstrapPhaseResult } from '../types.js';
 
 const log = createLogger('ApiKeyResolution');
 
@@ -25,35 +26,52 @@ const log = createLogger('ApiKeyResolution');
  * For DB-sourced keys:
  * - Regular API keys (sk-ant-api*): injected into process.env.ANTHROPIC_API_KEY
  * - OAuth tokens (sk-ant-oat*): written to ~/.claude/.credentials.json
+ *
+ * Returns a {@link BootstrapPhaseResult} so the orchestrator can apply a
+ * uniform fatal/non-fatal policy (F01-05). In production, missing API key
+ * is fatal. In development, it is logged and the server continues.
  */
-export async function resolveApiKey(apiKeyService: ApiKeyService): Promise<void> {
+export async function resolveApiKey(apiKeyService: ApiKeyService): Promise<BootstrapPhaseResult> {
   const hasEnvKey = !!process.env.ANTHROPIC_API_KEY || !!process.env.CLAUDE_OAUTH_TOKEN;
-  const resolvedKey = await resolveAnthropicApiKey(apiKeyService);
   const isProduction = process.env.NODE_ENV === 'production';
+
+  let resolvedKey: string | null | undefined;
+  try {
+    resolvedKey = await resolveAnthropicApiKey(apiKeyService);
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    return { ok: false, fatal: isProduction, error };
+  }
 
   if (!resolvedKey) {
     const msg =
       'No Anthropic API key found (checked database, ANTHROPIC_API_KEY env var, and ~/.claude/.credentials.json) - agent execution will fail';
     if (isProduction) {
       log.error(msg);
-      process.exit(1);
+      return { ok: false, fatal: true, error: new Error(msg) };
     }
     log.warn(msg);
-    return;
+    return { ok: false, fatal: false, error: new Error(msg) };
   }
 
   if (hasEnvKey) {
     const source = process.env.ANTHROPIC_API_KEY ? 'env' : 'env_oauth';
     log.info('Anthropic API key resolved', { data: { source } });
-    return;
+    return { ok: true };
   }
 
   const isOAuthToken = resolvedKey.startsWith('sk-ant-oat');
-  if (isOAuthToken) {
-    await writeOAuthCredentials(resolvedKey);
-  } else {
-    process.env.ANTHROPIC_API_KEY = resolvedKey;
-    log.info('Anthropic API key resolved', { data: { source: 'database' } });
+  try {
+    if (isOAuthToken) {
+      await writeOAuthCredentials(resolvedKey);
+    } else {
+      process.env.ANTHROPIC_API_KEY = resolvedKey;
+      log.info('Anthropic API key resolved', { data: { source: 'database' } });
+    }
+    return { ok: true };
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    return { ok: false, fatal: isProduction, error };
   }
 }
 

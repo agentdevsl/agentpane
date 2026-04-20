@@ -41,29 +41,20 @@ AgentPane runs Claude agents through two nearly-parallel pipelines: a **host-mod
 ### F1 — AgentCore path is dead code but still present in two packages
 
 **Priority:** P1
-**Observation:** `ContainerAgentService.setAgentCoreProvider` (`container-agent.service.ts:153`) is invoked only from tests; nothing in `server-bootstrap.ts` or `sandbox-init.ts` calls it. Migration `src/db/migrations/0011_drop_agentcore_columns.sql` removed the storage that previously drove configuration. Meanwhile the entire AgentCore stack is still shipped: `src/lib/agents/agentcore-bridge.ts`, `src/services/container-agent/agentcore-bridge.service.ts`, `src/lib/sandbox/providers/agentcore-sandbox-*.ts`, and `agent-runner/src/agentcore-handler.ts` (577 LOC) all compile into the build. `agent-runner/package.json:16` still ships `bedrock-agentcore@^0.2.2` as a runtime dep.
-**Risk:** Dual runtimes to test and maintain for a feature users cannot enable. Fresh changes to plan-approval, skill-chaining, team-mode, event shapes must be mirrored to the AgentCore branch by contributors who cannot exercise it. `'agentcore'` enum member (`src/db/schema/shared/enums.ts:62`) keeps the concept "real" to type-checks while there is no boot path.
-**Recommendation:** Either (a) archive AgentCore behind a feature flag and delete the bridge/handler/provider from the default build; or (b) restore a configuration surface (settings table + UI) and add at least one functional test that starts an AgentCore agent end-to-end. Document the decision in `specs/diagrams/02-agent-execution-flow.md`.
-**Effort:** M (1–2 d) to excise; L to restore parity.
-**Links:** `specs/application/state-machines/agent-lifecycle.md`, `specs/sandbox/` (provider matrix).
+**Status:** Resolved (pre-existing — theme-04 PR #166). `ContainerAgentService.setAgentCoreProvider` is now gated behind `AGENTCORE_ENABLED=true` and the `agentcore-sandbox-provider` module (the one that pulls the AWS SDK into the graph) is loaded via dynamic import only when the flag is set. The remaining `agentcore-bridge.ts`, `agentcore-bridge.service.ts`, and `agent-runner/src/agentcore-handler.ts` files contain only pure-JS bridge logic with `import type` references to the provider, so they do not force the AWS SDK into the default module graph. Full removal of the scaffolding and the `bedrock-agentcore` runtime dep in `agent-runner/package.json` is deferred — low-risk dead code behind a flag, not a correctness issue.
+**Observation (archived):** AgentCore stack was always compiled into the build; `bedrock-agentcore@^0.2.2` still ships as an `agent-runner/` runtime dep.
 
 ### F2 — Tool-use hooks are registered but never installed in the SDK session
 
 **Priority:** P1
-**Observation:** `AgentExecutionService` maintains `preToolHooks` and `postToolHooks` maps (`agent-execution.service.ts:82-83`), exposes `registerPreToolUseHook`/`registerPostToolUseHook` (`agent-execution.service.ts:1328,1337`), and deletes the entries on six cleanup paths. `src/lib/agents/hooks/index.ts` constructs a `createAgentHooks({ PreToolUse: [whitelist, streaming], PostToolUse: [audit, streaming] })`. `stream-handler.ts` contains **zero** references to either map — `runAgentPlanning`/`runAgentExecution` only wire a local `canUseTool` callback and never accept hooks through `StreamHandlerOptions`.
-**Risk:** Silent security regression. The tool-whitelist hook, audit hook, and streaming hook are not enforcing or recording anything for host-mode runs. `allowedTools` passed via config is honoured by the SDK's own permission layer, but any richer logic added to `createToolWhitelistHook` (e.g. deny-list, per-skill allow lists, path scoping) is inert. No caller notices because the hook registration API returns `void`.
-**Recommendation:** Either thread the hook arrays through `StreamHandlerOptions` into `canUseTool` (run PreToolUse before `{behavior:'allow'}`, PostToolUse on `tool:result`), or remove the dead registration API. Add a unit test that asserts a registered PreToolUse hook is invoked when a tool fires in planning/execution.
-**Effort:** M.
-**Links:** `specs/application/security/` (tool permission model), `specs/events_review/` (event ordering).
+**Status:** Resolved (theme-03). `StreamHandlerOptions` now carries `preToolUseHooks` and `postToolUseHooks`. `runAgentExecution.canUseTool` invokes pre-hooks in order before returning `{behavior:'allow'}`; the first hook returning `{deny:true}` produces `{behavior:'deny', message, interrupt:false}` and emits a `tool:result{isError:true}` event. The `tool_use_summary` handler runs post-hooks for each tracked tool with the captured tool_input. `AgentExecutionService.executeAgentExecution` forwards per-agent hooks from the `preToolHooks`/`postToolHooks` maps.
+**Tests:** `tests/lib/agents/stream-handler.test.ts` F2-a..d.
 
 ### F3 — Plan-option fields (`launchSwarm`, `teammateCount`) are carried end-to-end but never acted on
 
 **Priority:** P1
-**Observation:** `ExitPlanModeOptions` (`stream-handler.ts:92`) declares `launchSwarm` and `teammateCount`; `PlanReadyData`/`PlanData`/`AgentCorePlanReadyData` propagate them (`container-bridge.ts:51`, `agentcore-bridge.ts:38`, `container-agent/types.ts:93`, `plan-approval.service.ts:95`, `durable-streams.service.ts:219`). Plan approval logs them but passes only `prompt`, `phase`, `sdkSessionId` to `startAgentFn` (`plan-approval.service.ts:330`). `runAgentExecution` never reads these fields. Nothing in `container-exec.service.ts` spawns multiple `agent-runner` processes. Meanwhile `.claude/CLAUDE.md` "Team Mode" section states this is a live feature.
-**Risk:** Documentation fiction; agents that call `ExitPlanMode({ launchSwarm: true })` get no parallelism, users see single-agent execution. CLAUDE.md misleads future contributors. The SDK's own subagent spawning (`task_started` system messages) is what actually provides concurrency — it does not depend on these fields.
-**Recommendation:** Either delete the fields from the type chain and update CLAUDE.md to describe the actual SDK-driven topology, or implement a worktree-per-teammate fan-out in `PlanApprovalService.approvePlan`. Given the existing SDK subagent support, deletion is cheaper.
-**Effort:** S (delete) / XL (implement).
-**Links:** `.claude/CLAUDE.md` "Team Mode" section; `specs/application/state-machines/agent-lifecycle.md`.
+**Status:** Resolved (theme-03). Fields `launchSwarm`, `teammateCount`, and `pushToRemote` deleted from `ExitPlanModeOptions`, `PlanData`, `PlanReadyData`, `AgentCorePlanReadyData`, `ContainerAgentPlanReadyEvent`, `AgentPlanReadyData`, and the in-flight `handlePlanReady` callback shapes on both `container-agent.service.ts` and `container-exec.service.ts`. The SDK's own `task_started` subagent spawning continues to provide concurrency. CLAUDE.md "Team Mode" documentation is out of scope for this worktree; flagged as a follow-up doc fix.
+**Observation (archived):** `ExitPlanModeOptions` (`stream-handler.ts:92`) declared `launchSwarm` and `teammateCount`; `PlanReadyData`/`PlanData`/`AgentCorePlanReadyData` propagated them. Plan approval logged them but passed only `prompt`, `phase`, `sdkSessionId` to `startAgentFn`. `runAgentExecution` never read these fields. Nothing in `container-exec.service.ts` spawned multiple `agent-runner` processes.
 
 ### F4 — `allowedPrompts` are captured but never added to the execution `allowedTools`
 
@@ -77,20 +68,14 @@ AgentPane runs Claude agents through two nearly-parallel pipelines: a **host-mod
 ### F5 — Host-mode cannot resume an SDK session across plan approval
 
 **Priority:** P1
-**Observation:** The container-runner supports `AGENT_SDK_SESSION_ID` and calls `unstable_v2_resumeSession` so the execution phase inherits the planning conversation (`agent-runner/src/index.ts:914`). Host-mode `runAgentExecution` has no analogue — it calls `unstable_v2_createSession` unconditionally with a freshly-built "Execute the following approved plan: …" prompt (`agent-execution.service.ts:932`, `stream-handler.ts:947`). There is no `sdkSessionId` plumbing in `StreamHandlerOptions`.
-**Risk:** Host mode pays full context cost (plan restatement) and loses the planning-phase reasoning/tool-use history. Behaviour is semantically different from container mode, invalidating shared functional tests. The CLAUDE.md "Functional Tests" rule that plan approval must pass `sdkSessionId` describes container-mode only.
-**Recommendation:** Either thread `sdkSessionId` into host-mode (capture it from the SDK `init` message the same way agent-runner does, persist it on the agent row or task plan options, resume on approval) or document host-mode as a compatibility layer with explicit behavioural differences.
-**Effort:** M.
-**Links:** `specs/application/state-machines/agent-lifecycle.md` (plan → execute edge).
+**Status:** Resolved (theme-03). `runAgentPlanning` captures `session.sessionId` once it's available and returns it on `AgentRunResult.sdkSessionId` + the `agent:plan_ready` event. `AgentExecutionService.executeAgentAsync` merges it into `tasks.planOptions`; `executeAgentExecution` reads it back and passes it into `runAgentExecution`, which attempts `unstable_v2_resumeSession` first and falls back to `unstable_v2_createSession` on any failure — mirroring the agent-runner defense-in-depth flow.
+**Tests:** `tests/lib/agents/stream-handler.test.ts` 5 new F5 tests.
 
 ### F6 — `rejectPlan` has no host-mode fallback
 
 **Priority:** P1
-**Observation:** `TaskService.approvePlan` (`task.service.ts:196-236`) has both a container path and a host-mode path (`agentExecutionService.resume`). `TaskService.rejectPlan` (`task.service.ts:242-250`) short-circuits with `CONTAINER_AGENT_SERVICE_UNAVAILABLE` status 503 when the container service is not wired.
-**Risk:** In a deployment running host-mode agents (no Docker/K8s), users hit an un-rejectable plan. Tasks sit in `waiting_approval` forever and the worktree leaks. The state machine's `plan → backlog` edge is unreachable.
-**Recommendation:** Add a host-mode reject path that (a) updates `task.column='backlog'`, clears `plan`/`planOptions`/`lastAgentStatus`, and (b) calls `agentExecutionService.stop(agentId)` or sets agent back to idle and removes the worktree via `worktreeService.remove`. Mirror the atomic CAS (`where lastAgentStatus='planning'`) from container mode.
-**Effort:** S.
-**Links:** `specs/application/state-machines/agent-lifecycle.md`, `specs/application/state-machines/task-workflow.md`.
+**Status:** Resolved (theme-03). `AgentExecutionTrigger` gained optional `rejectPlanForTask`; `TaskService.rejectPlan` delegates to container mode when wired, falls back to the host-mode implementation, and returns `NO_EXECUTION_SERVICE` (503) when neither is configured. `AgentExecutionService.rejectPlanForTask` aborts any running host-mode agent, resets the agent row to idle, CAS-updates the task back to backlog where `lastAgentStatus='planning'` (clearing `plan`/`planOptions`/`worktreeId`/`branch`, storing `rejectionReason`), and best-effort removes the worktree.
+**Tests:** `tests/integration/agent-execution-service.test.ts` IT-F6-a..e and `tests/integration/task-plan-approval.test.ts` F6-a..c.
 
 ### F7 — Orphan sweep timer silently dies if any one iteration throws
 
@@ -131,11 +116,8 @@ AgentPane runs Claude agents through two nearly-parallel pipelines: a **host-mod
 ### F11 — `agent-runner` mints fake OAuth `expiresAt` and a null `refreshToken`
 
 **Priority:** P1
-**Observation:** `writeCredentialsFile` (`agent-runner/src/index.ts:303`) writes `expiresAt: Date.now() + 86_400_000` and `refreshToken: null` regardless of the actual token lifetime. The host supplies only `CLAUDE_OAUTH_TOKEN`; there is no mechanism to refresh a rotated token mid-run. Multiple agents per host share the same container-user credentials file (`~/.claude/.credentials.json`) under the node user.
-**Risk:** A token revoked externally still appears "valid for 24 h" to the SDK; actual 401s surface as opaque "assistant errors" mid-stream. Concurrent agents racing on the credentials file (two container starts within the same per-project container) can interleave writes — the 0o600 file is not atomic on overwrite. No mechanism to refresh a short-lived token (future OAuth PKCE rotation).
-**Recommendation:** (a) carry real `expiresAt` from the host token registry and emit a pre-run validation event when the token is expired/near-expiry; (b) write the credentials file under a unique `HOME` per agent-runner (set `HOME=/tmp/agents/<taskId>` at container start) to isolate writers; (c) if refresh tokens ever become available, plumb them in.
-**Effort:** M.
-**Links:** CLAUDE.md "Authentication Configuration"; `specs/application/security/`.
+**Status:** Resolved (theme-03). `agent-runner` now reads `CLAUDE_OAUTH_EXPIRES_AT` and `CLAUDE_OAUTH_REFRESH_TOKEN` from env (index.ts) and the invocation payload (agentcore-handler.ts). When absent, a far-future sentinel replaces the old 24h fiction. `shared-session.writeCredentialsFile` accepts optional `expiresAt`/`refreshToken` for a shared write path. Host-side `resolveOAuthExpiresAtMs` reads the existing `api_keys.expires_at` ISO column, and both `container-exec.service` and `agentcore-bridge.service` pass the parsed ms through to the runner. Per-agent HOME isolation is left to the container layout (`homedir()` already reads `HOME`) — unchanged; future follow-up can set `HOME=/tmp/agents/<taskId>` for concurrent-shared-container deployments.
+**Tests:** IT-304F-a..d cover `resolveOAuthExpiresAtMs`.
 
 ### F12 — Two stream handlers evolved in parallel and drifted
 

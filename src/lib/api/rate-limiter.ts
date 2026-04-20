@@ -1,24 +1,45 @@
 /**
- * Simple in-memory rate limiter middleware for Hono.
+ * Rate limiter middleware for Hono.
  *
- * Uses a fixed window counter per IP address (default) or per API token.
+ * F07-04: counters are keyed via a pluggable `keyFrom(ctx)` function that
+ * prefers the authenticated user ID, falls back to the API token ID when
+ * present, and finally falls back to the (trusted-proxy-aware) client IP
+ * for unauthenticated requests.
  *
- * IMPORTANT (AR-031): This rate limiter stores counters in process memory.
- * In a multi-instance deployment (e.g., behind a load balancer), each instance
- * maintains its own counters independently, so the effective rate limit is
- * multiplied by the number of instances. For production multi-instance
- * deployments, replace with a Redis-backed rate limiter (e.g., @upstash/ratelimit
- * or a custom Redis INCR/EXPIRE pattern) to get globally consistent limits.
+ * Storage is in-process (`Map`) for the default backend. Swapping in Redis
+ * is a drop-in change: implement the tiny `RateLimitBackend` interface and
+ * pass it in via `rateLimiter({ backend: redisBackend })`. The in-memory
+ * backend logs a one-time warning on startup so multi-instance deployments
+ * know they are running with per-instance counters until Redis is wired.
  *
- * TODO: Implement Redis-backed rate limiter for multi-instance production deployments.
+ * IMPORTANT (AR-031): When running multiple app instances behind a load
+ * balancer, the in-memory backend multiplies the effective limit by the
+ * number of instances. Use a Redis-backed `RateLimitBackend` in production.
  */
 
 import type { Context, Next } from 'hono';
+import { createLogger } from '../logging/logger.js';
 import type { AuthContext } from './auth-middleware.js';
+
+const log = createLogger('RateLimiter');
 
 interface RateLimitEntry {
   count: number;
   resetAt: number;
+}
+
+/**
+ * F07-04: pluggable rate-limit backend interface. The default backend is
+ * in-memory; a Redis backend can implement this interface verbatim using
+ * `INCR` + `PEXPIRE` for atomic counter updates.
+ */
+export interface RateLimitBackend {
+  /**
+   * Record a request for `key` within a `windowMs` window. Returns the
+   * current count within the window and the timestamp when the window
+   * resets (ms since epoch).
+   */
+  incr(key: string, windowMs: number): Promise<RateLimitEntry>;
 }
 
 /**
@@ -72,17 +93,51 @@ function extractClientIp(c: Context): string {
   return c.req.header('x-real-ip') ?? 'unknown';
 }
 
-export interface RateLimitOptions {
-  /** Max requests per window (default: 100) */
-  max?: number;
-  /** Window size in milliseconds (default: 60_000 = 1 minute) */
-  windowMs?: number;
-  /**
-   * When true, use the API token ID as the rate limiting key instead of IP.
-   * Requires the auth context to be enriched (must run after enrichAuthContext middleware).
-   * Falls back to skipping this limiter when no API token is present in the auth context.
-   */
-  keyOnToken?: boolean;
+/**
+ * F07-04: derive a rate-limit key from the request context.
+ *
+ * Preference order:
+ *  1. Authenticated user id     → `user:{userId}`
+ *  2. API token id              → `token:{tokenId}`
+ *  3. Trusted-proxy-aware IP    → `ip:{ip}`
+ *
+ * Routes can override this via `rateLimiter({ keyFrom: customFn })` to key
+ * on e.g. a webhook source slug.
+ */
+export function defaultKeyFrom(c: Context): string {
+  const auth = c.get('auth') as AuthContext | undefined;
+  if (auth?.userId && auth.userId !== '') {
+    return `user:${auth.userId}`;
+  }
+  if (auth?.tokenScope?.tokenId) {
+    return `token:${auth.tokenScope.tokenId}`;
+  }
+  return `ip:${extractClientIp(c)}`;
+}
+
+/**
+ * F07-04: token-only variant — used for the per-token limiter. Returns
+ * `null` for non-token-authenticated requests so the limiter can short-
+ * circuit (i.e. session/dev auth skip this stricter limit).
+ */
+export function tokenKeyFrom(c: Context): string | null {
+  const auth = c.get('auth') as AuthContext | undefined;
+  if (auth?.tokenScope?.tokenId) {
+    return `token:${auth.tokenScope.tokenId}`;
+  }
+  return null;
+}
+
+// F07-04: log a one-time warning at startup when using the in-memory
+// backend, so operators running multiple instances know counters don't
+// cross instances.
+let inMemoryWarningEmitted = false;
+function warnInMemoryOnce(): void {
+  if (inMemoryWarningEmitted) return;
+  inMemoryWarningEmitted = true;
+  log.warn(
+    'Rate limiter using in-memory backend. In multi-instance deployments, effective limits are multiplied by the number of instances. Provide a Redis-backed RateLimitBackend for globally consistent limits.'
+  );
 }
 
 // Module-level shared state: a single cleanup interval iterates all stores
@@ -106,56 +161,94 @@ function ensureCleanup() {
 }
 
 /**
+ * F07-04: in-memory backend. Kept as the default so local dev and tests
+ * don't require a running Redis. Export a Redis backend from this module
+ * (or a plugin) to swap in with a one-line change.
+ */
+export function createInMemoryBackend(): RateLimitBackend {
+  const store = new Map<string, RateLimitEntry>();
+  allStores.push(store);
+  ensureCleanup();
+  warnInMemoryOnce();
+  return {
+    incr: async (key, windowMs) => {
+      const now = Date.now();
+      let entry = store.get(key);
+      if (!entry || entry.resetAt <= now) {
+        entry = { count: 0, resetAt: now + windowMs };
+        store.set(key, entry);
+      }
+      entry.count += 1;
+      return entry;
+    },
+  };
+}
+
+export interface RateLimitOptions {
+  /** Max requests per window (default: 100) */
+  max?: number;
+  /** Window size in milliseconds (default: 60_000 = 1 minute) */
+  windowMs?: number;
+  /**
+   * When true, use the API token ID as the rate limiting key instead of the
+   * default (user → token → IP) chain. Requires `enrichAuthContext` to have
+   * populated `tokenScope`; session/dev auth requests are skipped so the
+   * limiter only applies to programmatic API-token traffic.
+   */
+  keyOnToken?: boolean;
+  /**
+   * F07-04: override the default key derivation. Return `null` to skip
+   * the limiter for this request (useful for auth-method-specific limits).
+   */
+  keyFrom?: (c: Context) => string | null;
+  /**
+   * F07-04: backend store. Defaults to a per-middleware in-memory map.
+   * Inject a Redis-backed `RateLimitBackend` for multi-instance
+   * deployments.
+   */
+  backend?: RateLimitBackend;
+}
+
+/**
  * Create a rate limiting middleware.
  *
  * @example
- * // IP-based rate limiting (default)
- * app.use('/api/*', rateLimiter({ max: 100, windowMs: 60_000 }));
+ * // Default: key on userId → tokenId → IP
+ * app.use('/api/*', rateLimiter({ max: 200, windowMs: 60_000 }));
  *
- * // Per-token rate limiting (must run after enrichAuthContext)
+ * @example
+ * // Per-token rate limit (session/dev auth requests are skipped)
  * app.use('/api/*', rateLimiter({ max: 100, windowMs: 60_000, keyOnToken: true }));
+ *
+ * @example
+ * // Redis backend (drop-in swap in production)
+ * const redisBackend: RateLimitBackend = {
+ *   async incr(key, windowMs) {
+ *     const count = await redis.incr(`rl:${key}`);
+ *     if (count === 1) await redis.pexpire(`rl:${key}`, windowMs);
+ *     const ttl = await redis.pttl(`rl:${key}`);
+ *     return { count, resetAt: Date.now() + ttl };
+ *   },
+ * };
+ * app.use('/api/*', rateLimiter({ max: 200, windowMs: 60_000, backend: redisBackend }));
  */
 export function rateLimiter(opts?: RateLimitOptions) {
   const max = opts?.max ?? 100;
   const windowMs = opts?.windowMs ?? 60_000;
   const keyOnToken = opts?.keyOnToken ?? false;
-
-  const store = new Map<string, RateLimitEntry>();
-  allStores.push(store);
-  ensureCleanup();
+  const backend = opts?.backend ?? createInMemoryBackend();
+  const keyFrom = opts?.keyFrom ?? (keyOnToken ? tokenKeyFrom : defaultKeyFrom);
 
   return async (c: Context, next: Next) => {
-    let rateLimitKey: string | null = null;
+    const rateLimitKey = keyFrom(c);
 
-    // When keyOnToken is enabled, try to use the API token ID as the key
-    if (keyOnToken) {
-      const auth = c.get('auth') as AuthContext | undefined;
-      if (auth?.tokenScope?.tokenId) {
-        rateLimitKey = `token:${auth.tokenScope.tokenId}`;
-      }
-    }
-
-    // Fall back to IP-based key when no token key is available
+    // F07-04: when keyFrom returns null (e.g. token-only limiter with a
+    // session auth request), skip the limiter entirely.
     if (!rateLimitKey) {
-      // If keyOnToken mode and no token present, skip this limiter entirely
-      // (the request is not token-authenticated, so per-token limiting doesn't apply)
-      if (keyOnToken) {
-        return next();
-      }
-
-      // SC-H2: Use trusted proxy-aware IP extraction
-      rateLimitKey = extractClientIp(c);
+      return next();
     }
 
-    const now = Date.now();
-    let entry = store.get(rateLimitKey);
-
-    if (!entry || entry.resetAt <= now) {
-      entry = { count: 0, resetAt: now + windowMs };
-      store.set(rateLimitKey, entry);
-    }
-
-    entry.count += 1;
+    const entry = await backend.incr(rateLimitKey, windowMs);
 
     // Set rate limit headers
     c.header('X-RateLimit-Limit', String(max));

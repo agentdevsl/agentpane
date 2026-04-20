@@ -8,6 +8,15 @@ spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
+  {{- with .Values.deploymentStrategy }}
+  strategy:
+    type: {{ .type }}
+    {{- if eq .type "RollingUpdate" }}
+    rollingUpdate:
+      maxSurge: {{ .maxSurge }}
+      maxUnavailable: {{ .maxUnavailable }}
+    {{- end }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "agentpane.selectorLabels" . | nindent 6 }}
@@ -32,6 +41,10 @@ spec:
       serviceAccountName: {{ include "agentpane.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      # F11-03: ensure the pod has at least as long to drain as the shutdown
+      # budget in src/server/bootstrap/shutdown.ts (30s) plus a few seconds of
+      # slack for SSE / sandbox stop calls. Operators can override.
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 60 }}
       containers:
         - name: {{ .Chart.Name }}
           image: {{ include "agentpane.image" . }}
@@ -39,6 +52,11 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           ports:
+            {{- if .Values.durableStreams.sidecar.enabled }}
+            - name: streams
+              containerPort: {{ .Values.durableStreams.sidecar.port }}
+              protocol: TCP
+            {{- end }}
             - name: http
               containerPort: 3001
               protocol: TCP
@@ -109,6 +127,13 @@ spec:
             - name: NO_PROXY
               value: {{ .Values.proxy.noProxy | quote }}
             {{- end }}
+            {{/* ---- Durable Streams (F11-02) ---- */}}
+            {{- if .Values.durableStreams.sidecar.enabled }}
+            - name: STREAMS_DATA_DIR
+              value: {{ .Values.durableStreams.sidecar.dataDir | quote }}
+            - name: CADDY_STREAMS_URL
+              value: "http://localhost:{{ .Values.durableStreams.sidecar.port }}/v1/stream"
+            {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -131,8 +156,14 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "agentpane.fullname" . }}-data
+        {{- else }}
         - name: data
           emptyDir: {}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

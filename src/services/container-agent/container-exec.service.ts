@@ -16,6 +16,7 @@ import type { CompleteEventMetrics, ContainerBridge } from '../../lib/agents/con
 import { createContainerBridge } from '../../lib/agents/container-bridge.js';
 import { DEFAULT_AGENT_MODEL, getFullModelId } from '../../lib/constants/models.js';
 import { CONTAINER_WORKSPACE_PATH } from '../../lib/constants/sandbox.js';
+import { getRequestId } from '../../lib/context/request-context.js';
 import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
@@ -29,6 +30,7 @@ import { getAgentMaxRuntimeMs, getGlobalDefaultModel } from '../settings.service
 import { TemplateService } from '../template.service.js';
 import type { SandboxStateManager } from './sandbox-state.js';
 import {
+  resolveOAuthExpiresAtMs,
   resolveOAuthToken,
   updateAgentStatus,
   updateTaskOnAgentComplete,
@@ -60,8 +62,6 @@ export class ContainerExecService {
         turnCount: number;
         sdkSessionId: string;
         allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-        launchSwarm?: boolean;
-        teammateCount?: number;
       }
     ) => Promise<void>,
     private onAgentCompleteCallback?: () =>
@@ -120,6 +120,10 @@ export class ContainerExecService {
     worktreePath: string;
     stopFilePath: string;
     oauthToken: string;
+    /** theme-03 F11: real OAuth expiry ms since epoch (null when host has no record). */
+    oauthExpiresAtMs?: number | null;
+    /** theme-03 F11: OAuth refresh token when the host registry carries one. */
+    oauthRefreshToken?: string | null;
   }): { env: Record<string, string>; bridge: ContainerBridge } {
     const {
       taskId,
@@ -131,7 +135,14 @@ export class ContainerExecService {
       agentConfig,
       worktreePath,
       stopFilePath,
+      oauthExpiresAtMs,
+      oauthRefreshToken,
     } = params;
+
+    // F10-03: propagate the spawning HTTP request id as the agent-runner's
+    // correlation id so structured log lines and emitted events can be joined
+    // back to the originating request without timestamp triangulation.
+    const correlationId = getRequestId();
 
     const env: Record<string, string> = {
       CLAUDE_OAUTH_TOKEN: '[REDACTED]',
@@ -147,6 +158,12 @@ export class ContainerExecService {
       AGENT_STOP_FILE: stopFilePath,
       AGENT_PHASE: phase,
       ...(sdkSessionId ? { AGENT_SDK_SESSION_ID: sdkSessionId } : {}),
+      // theme-03 F11: pass real OAuth metadata through to the agent-runner when
+      // the host registry has it. Omitted entries leave the agent-runner to use
+      // its far-future sentinel rather than a fabricated 24h expiry.
+      ...(oauthExpiresAtMs ? { CLAUDE_OAUTH_EXPIRES_AT: String(oauthExpiresAtMs) } : {}),
+      ...(oauthRefreshToken ? { CLAUDE_OAUTH_REFRESH_TOKEN: oauthRefreshToken } : {}),
+      ...(correlationId ? { CORRELATION_ID: correlationId } : {}),
     };
     log.debug('Env vars prepared', {
       data: {
@@ -484,6 +501,8 @@ export class ContainerExecService {
     log.info('Retrieving OAuth credentials', { data: { taskId } });
 
     const oauthToken = await resolveOAuthToken(apiKeyService);
+    // theme-03 F11: look up real token expiry alongside the token itself.
+    const oauthExpiresAtMs = oauthToken ? await resolveOAuthExpiresAtMs(db) : null;
 
     if (!oauthToken) {
       log.info('No OAuth token available');
@@ -695,6 +714,10 @@ export class ContainerExecService {
       worktreePath,
       stopFilePath,
       oauthToken,
+      oauthExpiresAtMs,
+      // refreshToken storage is not yet wired through the registry;
+      // agent-runner treats absence as "no refresh token".
+      oauthRefreshToken: null,
     });
 
     // Merge project-level env vars (sandbox.env setting) into container env.

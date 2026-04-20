@@ -16,6 +16,7 @@ import type { ProjectStatus, TaskCounts } from '@/app/components/features/projec
 import { AddProjectCard, ProjectCard } from '@/app/components/features/project-card';
 import { AgentPaneLogo } from '@/app/components/ui/agentpane-logo';
 import { Button } from '@/app/components/ui/button';
+import { DialogLoadingFallback } from '@/app/components/ui/suspense-fallbacks';
 import {
   apiClient,
   type CodespaceListItem,
@@ -508,7 +509,7 @@ function Dashboard(): React.JSX.Element {
         )}
       </div>
 
-      <Suspense fallback={null}>
+      <Suspense fallback={<DialogLoadingFallback label="Loading new codespace dialog…" />}>
         <NewProjectDialog
           open={showNewProject}
           onOpenChange={setShowNewProject}

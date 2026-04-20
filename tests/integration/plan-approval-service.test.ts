@@ -22,8 +22,6 @@ describe('PlanApprovalService — DB-level integration tests', () => {
     const planText = '## Implementation Plan\n1. Create module\n2. Add tests\n3. Deploy';
     const planOptions = {
       allowedPrompts: [{ tool: 'Bash' as const, prompt: 'npm test' }],
-      launchSwarm: false,
-      teammateCount: 0,
       sdkSessionId: 'sdk-session-123',
       planningSandboxId: 'sandbox-456',
     };
@@ -175,9 +173,6 @@ describe('PlanApprovalService — DB-level integration tests', () => {
         { tool: 'Bash' as const, prompt: 'npm install' },
         { tool: 'Bash' as const, prompt: 'npm test' },
       ],
-      launchSwarm: true,
-      teammateCount: 3,
-      pushToRemote: true,
       sdkSessionId: 'sdk-abc-def',
       planningSandboxId: 'sandbox-xyz',
     };
@@ -193,8 +188,10 @@ describe('PlanApprovalService — DB-level integration tests', () => {
 
     const dbTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
     expect(dbTask?.planOptions).toEqual(complexPlanOptions);
-    expect((dbTask?.planOptions as typeof complexPlanOptions)?.launchSwarm).toBe(true);
-    expect((dbTask?.planOptions as typeof complexPlanOptions)?.teammateCount).toBe(3);
+    expect((dbTask?.planOptions as typeof complexPlanOptions)?.sdkSessionId).toBe('sdk-abc-def');
+    expect((dbTask?.planOptions as typeof complexPlanOptions)?.planningSandboxId).toBe(
+      'sandbox-xyz'
+    );
     expect((dbTask?.planOptions as typeof complexPlanOptions)?.allowedPrompts).toHaveLength(2);
   });
 

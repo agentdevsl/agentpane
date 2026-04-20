@@ -115,6 +115,36 @@ export interface Sandbox {
    * Returns readable streams for stdout/stderr instead of buffered strings.
    */
   execStream?(options: ExecStreamOptions): Promise<ExecStreamResult>;
+
+  /**
+   * Write a file inside the sandbox without going through an exec `sh -c` path.
+   *
+   * theme-04 P1-05: Credential material must never appear in argv (visible via
+   * `ps`, proc entries, and container audit logs). Providers that support
+   * out-of-band file transfer (Docker via `putArchive`, K8s/Nomad via `cp`)
+   * implement this so credentials can be streamed over the file channel
+   * rather than embedded in a shell command.
+   *
+   * If the provider does not implement this, callers should fall back to the
+   * existing shell-exec path and accept the risk.
+   */
+  writeFile?(path: string, content: string | Buffer, mode?: number): Promise<void>;
+}
+
+/**
+ * Result of a provider recovery sweep on startup.
+ *
+ * theme-04 P1-03: Every provider must run `recover()` at boot so orphaned
+ * sandboxes from the previous process are discovered, either re-registered in
+ * memory or torn down. The Docker provider also tracks how many stale-image
+ * containers were removed; K8s / Nomad providers populate `recovered` and may
+ * leave `removed` at zero.
+ */
+export interface RecoverResult {
+  /** Number of sandboxes re-registered into the in-memory cache. */
+  recovered: number;
+  /** Number of stale/stopped sandboxes torn down during the sweep. */
+  removed: number;
 }
 
 /**
@@ -141,9 +171,25 @@ export interface SandboxProvider {
   getById(sandboxId: string): Promise<Sandbox | null>;
 
   /**
-   * List all sandboxes
+   * List all sandboxes.
+   *
+   * theme-04 P1-01: every provider implements this — Docker, K8s, Nomad. On
+   * transient failures the provider should throw (K8s/Nomad) or return an
+   * empty list (Docker) consistent with its cluster listing semantics. Callers
+   * should treat a thrown `list()` as "unknown", not "none".
    */
   list(): Promise<SandboxInfo[]>;
+
+  /**
+   * Reconcile in-memory state with the runtime on boot.
+   *
+   * theme-04 P1-03: crash-safe startup — scan the runtime for agentpane
+   * sandboxes, re-register running ones into the in-memory cache, tear down
+   * stale/stopped ones. Implemented by Docker, K8s and Nomad providers. The
+   * default implementation is a no-op for providers that do not persist state
+   * across restarts (e.g. AgentCore).
+   */
+  recover(): Promise<RecoverResult>;
 
   /**
    * Pull a container image

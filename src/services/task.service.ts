@@ -1,5 +1,5 @@
 import { createId } from '@paralleldrive/cuid2';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Task, TaskColumn } from '../db/schema';
 import { codespaces, sessions, settings, tasks } from '../db/schema';
 import { getFullModelId } from '../lib/constants/models.js';
@@ -59,6 +59,16 @@ export type ListTasksOptions = {
   offset?: number;
   orderBy?: 'position' | 'createdAt' | 'updatedAt';
   orderDirection?: 'asc' | 'desc';
+  /**
+   * F07-01: cursor-based pagination. When supplied, the service queries
+   * `limit + 1` rows strictly after the cursor position using a compound
+   * `(sortValue, id)` comparison. `offset` is ignored when `cursor` is
+   * present.
+   */
+  cursor?: {
+    sortValue: string | number | null;
+    id: string;
+  };
 };
 
 export type ApproveInput = {
@@ -106,6 +116,15 @@ export interface ContainerAgentTrigger {
  */
 export interface AgentExecutionTrigger {
   resume: (agentId: string, feedback?: string) => Promise<Result<unknown, unknown>>;
+  /**
+   * theme-03 F6: host-mode plan rejection. Stops any host-mode agent running
+   * for the task, moves the task back to backlog, clears plan state, and
+   * removes the worktree.
+   */
+  rejectPlanForTask?: (
+    taskId: string,
+    reason?: string
+  ) => Promise<Result<void, { code: string; message: string; status: number }>>;
 }
 
 export class TaskService {
@@ -296,28 +315,46 @@ export class TaskService {
 
   /**
    * Reject a pending plan for a task and move it back to backlog.
+   *
+   * theme-03 F6: falls back to host-mode rejection (agentExecutionService)
+   * when the container agent service is not configured, so deployments
+   * running host-mode agents can still reach the `plan → backlog` edge of
+   * the state machine.
    */
   async rejectPlan(taskId: string, reason?: string): Promise<Result<void, TaskError>> {
-    if (!this.containerAgentService) {
-      return err({
-        code: 'CONTAINER_AGENT_SERVICE_UNAVAILABLE',
-        message: 'Container agent service is not configured',
-        status: 503,
-      });
+    // Container mode: delegate to the container agent service.
+    if (this.containerAgentService) {
+      const result = await this.containerAgentService.rejectPlan(taskId, reason);
+      if (!result.ok) {
+        // Propagate the actual error — distinguish PLAN_NOT_FOUND from PLAN_REJECTION_FAILED
+        const errorObj = result.error;
+        return err({
+          code: errorObj?.code ?? 'PLAN_REJECTION_FAILED',
+          message: errorObj?.message ?? `Failed to reject plan for task ${taskId}`,
+          status: errorObj?.status ?? 500,
+        });
+      }
+      return ok(undefined);
     }
 
-    const result = await this.containerAgentService.rejectPlan(taskId, reason);
-    if (!result.ok) {
-      // Propagate the actual error — distinguish PLAN_NOT_FOUND from PLAN_REJECTION_FAILED
-      const errorObj = result.error;
-      return err({
-        code: errorObj?.code ?? 'PLAN_REJECTION_FAILED',
-        message: errorObj?.message ?? `Failed to reject plan for task ${taskId}`,
-        status: errorObj?.status ?? 500,
-      });
+    // theme-03 F6: host-mode fallback.
+    if (this.agentExecutionService?.rejectPlanForTask) {
+      const result = await this.agentExecutionService.rejectPlanForTask(taskId, reason);
+      if (!result.ok) {
+        return err({
+          code: result.error.code,
+          message: result.error.message,
+          status: result.error.status,
+        });
+      }
+      return ok(undefined);
     }
 
-    return ok(undefined);
+    return err({
+      code: 'NO_EXECUTION_SERVICE',
+      message: 'No execution service available for plan rejection',
+      status: 503,
+    });
   }
 
   /**
@@ -438,11 +475,39 @@ export class TaskService {
       filters.push(eq(tasks.agentId, options.agentId));
     }
 
+    // F07-01: cursor-based pagination. When supplied, append a compound
+    // `(sortValue, id)` tuple comparison filter. The route handler is
+    // responsible for passing `limit + 1` and slicing the overflow row via
+    // `paginate()` to detect `hasMore` — this method does NOT add a
+    // redundant `+ 1` on top.
+    //
+    // Precondition: sort columns (`tasks.position`, `tasks.createdAt`,
+    // `tasks.updatedAt`) are declared `.notNull()` in the SQLite and
+    // Postgres schemas, so the compound `col < v` comparison always yields
+    // a boolean (never NULL). If a nullable sort column is ever added,
+    // wrap with COALESCE or use explicit NULL ordering so pagination does
+    // not silently break.
+    const cursor = options?.cursor;
+    let fetchOffset = offset;
+    if (cursor) {
+      const sortVal = cursor.sortValue;
+      const primary =
+        direction === 'desc' ? sql`${orderColumn} < ${sortVal}` : sql`${orderColumn} > ${sortVal}`;
+      const tiebreak =
+        direction === 'desc'
+          ? sql`(${orderColumn} = ${sortVal} AND ${tasks.id} < ${cursor.id})`
+          : sql`(${orderColumn} = ${sortVal} AND ${tasks.id} > ${cursor.id})`;
+      filters.push(sql`(${primary} OR ${tiebreak})`);
+      fetchOffset = 0;
+    }
+
     const items = await this.db.query.tasks.findMany({
       where: filters.length > 1 ? and(...filters) : filters[0],
-      orderBy: (direction === 'asc' ? [orderColumn] : [desc(orderColumn)]) as never,
+      orderBy: (direction === 'asc'
+        ? [orderColumn, tasks.id]
+        : [desc(orderColumn), desc(tasks.id)]) as never,
       limit,
-      offset,
+      offset: fetchOffset,
     });
 
     return ok(items);

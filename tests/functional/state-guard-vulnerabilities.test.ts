@@ -70,6 +70,44 @@ function createMockContainerAgent() {
   };
 }
 
+/**
+ * TEST-SETUP: Enable sandbox defaults via direct settings insert.
+ *
+ * Settings are infrastructure configuration with no service API for seeding;
+ * see CLAUDE.md §"Functional Tests: Real Service Transitions" — raw writes
+ * for test infrastructure (as opposed to state transitions) are the allowed
+ * form. Moving this through SettingsService would add a dependency chain
+ * without improving coverage.
+ */
+async function enableSandboxDefaults(db: ReturnType<typeof getTestDb>): Promise<void> {
+  await db.insert(settings).values({
+    key: 'sandbox.defaults',
+    value: JSON.stringify({ enabled: true, mode: 'shared' }),
+  });
+}
+
+/**
+ * TEST-SETUP: Force-set a task's `lastAgentStatus` after creation.
+ *
+ * Several guard tests need a task in `waiting_approval` with a specific
+ * `lastAgentStatus` (e.g. 'planning', 'error', 'cancelled') as a
+ * precondition. Driving it through `updateTaskOnAgentComplete()` would
+ * require starting the agent via `moveColumn('in_progress')` first — that
+ * pulls the full lifecycle harness into every guard test and obscures the
+ * specific guard being asserted. The direct write is the minimal-surface
+ * precondition.
+ *
+ * This helper centralises the pattern so the intent is explicit at each
+ * call site (per CLAUDE.md §"Functional Tests: Real Service Transitions").
+ */
+async function setTaskLastAgentStatus(
+  db: ReturnType<typeof getTestDb>,
+  taskId: string,
+  status: NonNullable<typeof tasks.$inferSelect.lastAgentStatus>
+): Promise<void> {
+  await db.update(tasks).set({ lastAgentStatus: status }).where(eq(tasks.id, taskId));
+}
+
 function createPlanApprovalService(
   db: ReturnType<typeof getTestDb>,
   streams: DurableStreamsService,
@@ -140,10 +178,7 @@ describe('State Machine Guard Vulnerabilities', () => {
     // Set up container agent trigger so moveColumn works
     const mockContainerAgent = createMockContainerAgent();
     taskService.setContainerAgentService(mockContainerAgent);
-    await db.insert(settings).values({
-      key: 'sandbox.defaults',
-      value: JSON.stringify({ enabled: true, mode: 'shared' }),
-    });
+    await enableSandboxDefaults(db);
 
     await taskService.moveColumn(taskId, 'in_progress');
 
@@ -203,10 +238,7 @@ describe('State Machine Guard Vulnerabilities', () => {
     // Move to in_progress
     const mockContainerAgent = createMockContainerAgent();
     taskService.setContainerAgentService(mockContainerAgent);
-    await db.insert(settings).values({
-      key: 'sandbox.defaults',
-      value: JSON.stringify({ enabled: true, mode: 'shared' }),
-    });
+    await enableSandboxDefaults(db);
     await taskService.moveColumn(taskId, 'in_progress');
 
     // Simulate plan ready
@@ -250,10 +282,7 @@ describe('State Machine Guard Vulnerabilities', () => {
     // Move through the full lifecycle: backlog -> in_progress -> agent completes -> waiting_approval
     const mockContainerAgent = createMockContainerAgent();
     taskService.setContainerAgentService(mockContainerAgent);
-    await db.insert(settings).values({
-      key: 'sandbox.defaults',
-      value: JSON.stringify({ enabled: true, mode: 'shared' }),
-    });
+    await enableSandboxDefaults(db);
     await taskService.moveColumn(taskId, 'in_progress');
 
     // Simulate agent execution completion (not just planning)
@@ -303,7 +332,7 @@ describe('State Machine Guard Vulnerabilities', () => {
       column: 'waiting_approval',
       title: 'Completed task for move test',
     });
-    await db.update(tasks).set({ lastAgentStatus: 'completed' }).where(eq(tasks.id, task.id));
+    await setTaskLastAgentStatus(db, task.id, 'completed');
 
     // moveColumn to verified should succeed
     const moveResult = await taskService.moveColumn(task.id, 'verified');
@@ -331,10 +360,7 @@ describe('State Machine Guard Vulnerabilities', () => {
     // Move to in_progress
     const mockContainerAgent = createMockContainerAgent();
     taskService.setContainerAgentService(mockContainerAgent);
-    await db.insert(settings).values({
-      key: 'sandbox.defaults',
-      value: JSON.stringify({ enabled: true, mode: 'shared' }),
-    });
+    await enableSandboxDefaults(db);
     await taskService.moveColumn(taskId, 'in_progress');
 
     // Simulate agent hitting turn limit
@@ -377,10 +403,7 @@ describe('State Machine Guard Vulnerabilities', () => {
     // Move to in_progress
     const mockContainerAgent = createMockContainerAgent();
     taskService.setContainerAgentService(mockContainerAgent);
-    await db.insert(settings).values({
-      key: 'sandbox.defaults',
-      value: JSON.stringify({ enabled: true, mode: 'shared' }),
-    });
+    await enableSandboxDefaults(db);
     await taskService.moveColumn(taskId, 'in_progress');
 
     // User moves task to backlog (cancellation) while agent is still running
@@ -445,7 +468,7 @@ describe('State Machine Guard Vulnerabilities', () => {
       column: 'waiting_approval',
       title: 'Completed task that stopAgent is called on',
     });
-    await db.update(tasks).set({ lastAgentStatus: 'completed' }).where(eq(tasks.id, task.id));
+    await setTaskLastAgentStatus(db, task.id, 'completed');
 
     // Set up container agent service with no running agent
     const mockContainerAgent = createMockContainerAgent();
@@ -515,10 +538,7 @@ describe('State Machine Guard Vulnerabilities', () => {
     // Move to in_progress
     const mockContainerAgent = createMockContainerAgent();
     taskService.setContainerAgentService(mockContainerAgent);
-    await db.insert(settings).values({
-      key: 'sandbox.defaults',
-      value: JSON.stringify({ enabled: true, mode: 'shared' }),
-    });
+    await enableSandboxDefaults(db);
     await taskService.moveColumn(taskId, 'in_progress');
 
     // Store plan via real PlanApprovalService
@@ -621,10 +641,7 @@ describe('State Machine Guard Vulnerabilities', () => {
     // Set up container agent
     const mockContainerAgent = createMockContainerAgent();
     taskService.setContainerAgentService(mockContainerAgent);
-    await db.insert(settings).values({
-      key: 'sandbox.defaults',
-      value: JSON.stringify({ enabled: true, mode: 'shared' }),
-    });
+    await enableSandboxDefaults(db);
 
     // Move to in_progress (first run)
     await taskService.moveColumn(taskId, 'in_progress');
@@ -682,7 +699,7 @@ describe('State Machine Guard Vulnerabilities', () => {
         column: 'waiting_approval',
         title: 'Task with error status',
       });
-      await db.update(tasks).set({ lastAgentStatus: 'error' }).where(eq(tasks.id, task.id));
+      await setTaskLastAgentStatus(db, task.id, 'error');
 
       const moveResult = await taskService.moveColumn(task.id, 'verified');
       expect(moveResult.ok).toBe(true);
@@ -698,7 +715,7 @@ describe('State Machine Guard Vulnerabilities', () => {
         column: 'waiting_approval',
         title: 'Task with cancelled status',
       });
-      await db.update(tasks).set({ lastAgentStatus: 'cancelled' }).where(eq(tasks.id, task.id));
+      await setTaskLastAgentStatus(db, task.id, 'cancelled');
 
       const moveResult = await taskService.moveColumn(task.id, 'verified');
       expect(moveResult.ok).toBe(true);
@@ -715,7 +732,7 @@ describe('State Machine Guard Vulnerabilities', () => {
         column: 'waiting_approval',
         title: 'Task to abandon during planning',
       });
-      await db.update(tasks).set({ lastAgentStatus: 'planning' }).where(eq(tasks.id, task.id));
+      await setTaskLastAgentStatus(db, task.id, 'planning');
 
       // Moving to backlog should still work (user abandoning the task)
       const moveResult = await taskService.moveColumn(task.id, 'backlog');
@@ -734,7 +751,7 @@ describe('State Machine Guard Vulnerabilities', () => {
         column: 'waiting_approval',
         title: 'Task to restart during planning',
       });
-      await db.update(tasks).set({ lastAgentStatus: 'planning' }).where(eq(tasks.id, task.id));
+      await setTaskLastAgentStatus(db, task.id, 'planning');
 
       const moveResult = await taskService.moveColumn(task.id, 'in_progress');
       expect(moveResult.ok).toBe(true);
@@ -750,7 +767,7 @@ describe('State Machine Guard Vulnerabilities', () => {
         column: 'waiting_approval',
         title: 'Error task without worktree',
       });
-      await db.update(tasks).set({ lastAgentStatus: 'error' }).where(eq(tasks.id, task.id));
+      await setTaskLastAgentStatus(db, task.id, 'error');
 
       // approve() should fail with NO_DIFF (no worktreeId)
       const approveResult = await taskService.approve(task.id, { approvedBy: 'user' });
@@ -770,7 +787,7 @@ describe('State Machine Guard Vulnerabilities', () => {
         worktreeId: worktree.id,
         branch: worktree.branch,
       });
-      await db.update(tasks).set({ lastAgentStatus: 'completed' }).where(eq(tasks.id, task.id));
+      await setTaskLastAgentStatus(db, task.id, 'completed');
 
       // Mock getDiff to return zero changes
       mockWorktreeService.getDiff.mockResolvedValueOnce({
@@ -806,10 +823,7 @@ describe('State Machine Guard Vulnerabilities', () => {
     // Move to in_progress
     const mockContainerAgent = createMockContainerAgent();
     taskService.setContainerAgentService(mockContainerAgent);
-    await db.insert(settings).values({
-      key: 'sandbox.defaults',
-      value: JSON.stringify({ enabled: true, mode: 'shared' }),
-    });
+    await enableSandboxDefaults(db);
     await taskService.moveColumn(taskId, 'in_progress');
 
     // Store plan via real PlanApprovalService
@@ -879,10 +893,7 @@ describe('State Machine Guard Vulnerabilities', () => {
     // Move to in_progress
     const mockContainerAgent = createMockContainerAgent();
     taskService.setContainerAgentService(mockContainerAgent);
-    await db.insert(settings).values({
-      key: 'sandbox.defaults',
-      value: JSON.stringify({ enabled: true, mode: 'shared' }),
-    });
+    await enableSandboxDefaults(db);
     await taskService.moveColumn(taskId, 'in_progress');
 
     // User moves task to backlog (cancellation)
@@ -918,7 +929,7 @@ describe('State Machine Guard Vulnerabilities', () => {
       worktreeId: worktree.id,
       branch: worktree.branch,
     });
-    await db.update(tasks).set({ lastAgentStatus: 'completed' }).where(eq(tasks.id, task.id));
+    await setTaskLastAgentStatus(db, task.id, 'completed');
 
     // First approve — should succeed
     const first = await taskService.approve(task.id, { approvedBy: 'user1' });
@@ -956,7 +967,7 @@ describe('State Machine Guard Vulnerabilities', () => {
       worktreeId: worktree.id,
       branch: worktree.branch,
     });
-    await db.update(tasks).set({ lastAgentStatus: 'completed' }).where(eq(tasks.id, task.id));
+    await setTaskLastAgentStatus(db, task.id, 'completed');
 
     // getDiff returns files, merge succeeds, but remove FAILS
     mockWorktreeService.remove.mockResolvedValueOnce({
@@ -1003,10 +1014,7 @@ describe('State Machine Guard Vulnerabilities', () => {
     // Move to in_progress
     const mockContainerAgent = createMockContainerAgent();
     taskService.setContainerAgentService(mockContainerAgent);
-    await db.insert(settings).values({
-      key: 'sandbox.defaults',
-      value: JSON.stringify({ enabled: true, mode: 'shared' }),
-    });
+    await enableSandboxDefaults(db);
     await taskService.moveColumn(taskId, 'in_progress');
 
     // Create plan with a startAgentFn that FAILS

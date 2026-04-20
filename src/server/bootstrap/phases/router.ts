@@ -18,7 +18,8 @@ export function createAppRouter(
   services: ServiceContainer,
   getSandboxProvider: () => EventEmittingSandboxProvider | null,
   getK8sProvider: () => SandboxProviderHealth | null,
-  getNomadProvider: () => SandboxProviderHealth | null
+  getNomadProvider: () => SandboxProviderHealth | null,
+  isSandboxReady?: () => boolean
 ) {
   return createHonoRouter({
     db,
@@ -38,6 +39,7 @@ export function createAppRouter(
     getSandboxProvider,
     getK8sProvider,
     getNomadProvider,
+    isSandboxReady,
     cliMonitorService: services.cliMonitorService,
     terraformRegistryService: services.terraformRegistryService,
     terraformComposeService: services.terraformComposeService,
@@ -49,5 +51,6 @@ export function createAppRouter(
     memoryService: services.memoryService,
     skillTrackingService: services.skillTrackingService,
     dreamService: services.dreamService,
+    durableStreamsService: services.durableStreamsService,
   });
 }

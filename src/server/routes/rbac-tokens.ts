@@ -3,7 +3,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { and, count, eq, gt, inArray, ne } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, isNotNull, lte, ne } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { RBAC_ROLE_LEVEL, type RbacRole } from '../../db/schema/shared/enums';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
@@ -387,6 +387,77 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
       ok: true,
       data: { items, nextCursor, hasMore, totalCount },
     });
+  });
+
+  // GET /api/tokens/rotation-due - List tokens expiring soon (F06-09)
+  //
+  // Registered BEFORE `/:id` so Hono matches the literal path instead of
+  // interpreting `rotation-due` as an :id param. Returns tokens owned by
+  // the caller whose `expires_at` is in the next N days (default 30).
+  // Admins can pass `?teamId=...` to see all tokens in a team they manage.
+  app.get('/rotation-due', async (c) => {
+    const auth = c.get('auth');
+    const daysParam = c.req.query('days');
+    const days = daysParam ? Math.max(1, Math.min(365, Number.parseInt(daysParam, 10))) : 30;
+    if (Number.isNaN(days)) {
+      return json(
+        { ok: false, error: { code: 'VALIDATION_ERROR', message: '`days` must be a number' } },
+        400
+      );
+    }
+    const teamId = c.req.query('teamId');
+
+    const windowEnd = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+
+    // Admin-team mode: list every token in a team the caller admins.
+    if (teamId) {
+      if (auth.authMethod !== 'dev') {
+        const role = await rbacService.resolveTeamRole(auth.userId, teamId);
+        if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
+          return json(
+            {
+              ok: false,
+              error: {
+                code: 'FORBIDDEN',
+                message: 'Only team admins and owners can list team rotation-due tokens',
+              },
+            },
+            403
+          );
+        }
+      }
+
+      const rows = await db
+        .select(tokenListSelect)
+        .from(apiTokens)
+        .leftJoin(teams, eq(apiTokens.teamId, teams.id))
+        .where(
+          and(
+            eq(apiTokens.teamId, teamId),
+            ne(apiTokens.status, 'revoked'),
+            isNotNull(apiTokens.expiresAt),
+            lte(apiTokens.expiresAt, windowEnd)
+          )
+        )
+        .orderBy(apiTokens.expiresAt);
+      return json({ ok: true, data: { items: rows, windowDays: days } });
+    }
+
+    // User-scoped: only the caller's own tokens.
+    const rows = await db
+      .select(tokenListSelect)
+      .from(apiTokens)
+      .leftJoin(teams, eq(apiTokens.teamId, teams.id))
+      .where(
+        and(
+          eq(apiTokens.userId, auth.userId),
+          ne(apiTokens.status, 'revoked'),
+          isNotNull(apiTokens.expiresAt),
+          lte(apiTokens.expiresAt, windowEnd)
+        )
+      )
+      .orderBy(apiTokens.expiresAt);
+    return json({ ok: true, data: { items: rows, windowDays: days } });
   });
 
   // GET /api/tokens/:id - Get token details

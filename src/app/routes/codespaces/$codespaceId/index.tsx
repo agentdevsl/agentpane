@@ -15,6 +15,8 @@ import { LiveTaskView } from '@/app/components/features/live-task-view';
 import { SandboxIndicator } from '@/app/components/features/sandbox-indicator';
 import { TaskDetailDialog } from '@/app/components/features/task-detail-dialog/index';
 import { AIActionButton } from '@/app/components/ui/ai-action-button';
+import { ErrorBoundary } from '@/app/components/ui/error-boundary';
+import { DialogLoadingFallback } from '@/app/components/ui/suspense-fallbacks';
 import { useSandboxStatus } from '@/app/hooks/use-sandbox-status';
 import { useToast } from '@/app/hooks/use-toast';
 import type { Task } from '@/db/schema';
@@ -468,14 +470,16 @@ function CodespaceKanban(): React.JSX.Element {
       }
     >
       {viewMode === 'kanban' ? (
-        <KanbanBoard
-          tasks={tasks as Parameters<typeof KanbanBoard>[0]['tasks']}
-          onTaskMove={handleTaskMove as Parameters<typeof KanbanBoard>[0]['onTaskMove']}
-          onTaskClick={handleTaskClick as Parameters<typeof KanbanBoard>[0]['onTaskClick']}
-          onRunNow={handleRunNow}
-          onStopAgent={handleStopAgent}
-          onCancelTask={handleCancelTask}
-        />
+        <ErrorBoundary label="Kanban board">
+          <KanbanBoard
+            tasks={tasks as Parameters<typeof KanbanBoard>[0]['tasks']}
+            onTaskMove={handleTaskMove as Parameters<typeof KanbanBoard>[0]['onTaskMove']}
+            onTaskClick={handleTaskClick as Parameters<typeof KanbanBoard>[0]['onTaskClick']}
+            onRunNow={handleRunNow}
+            onStopAgent={handleStopAgent}
+            onCancelTask={handleCancelTask}
+          />
+        </ErrorBoundary>
       ) : (
         <LiveTaskView
           tasks={tasks}
@@ -503,7 +507,7 @@ function CodespaceKanban(): React.JSX.Element {
       )}
 
       {/* New Task Dialog - AI-powered task creation with streaming (lazy-loaded) */}
-      <Suspense fallback={null}>
+      <Suspense fallback={<DialogLoadingFallback label="Loading new task dialog…" />}>
         <NewTaskDialog
           codespaceId={codespaceId}
           open={showNewTask}

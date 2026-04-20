@@ -123,8 +123,12 @@ describe('enrichAuthContext', () => {
   });
 
   it('skips DB lookup for dev auth method and proceeds immediately', async () => {
+    // F06-05: enrichAuthContext now requires isDevAuthAllowed() to return
+    // true, which demands BOTH NODE_ENV!=='production' AND SKIP_AUTH='true'.
     const originalNodeEnv = process.env.NODE_ENV;
+    const originalSkipAuth = process.env.SKIP_AUTH;
     process.env.NODE_ENV = 'development';
+    process.env.SKIP_AUTH = 'true';
     try {
       const auth: AuthContext = { userId: 'dev-user', authMethod: 'dev' };
 
@@ -140,12 +144,19 @@ describe('enrichAuthContext', () => {
       expect(mockDb.select).not.toHaveBeenCalled();
     } finally {
       process.env.NODE_ENV = originalNodeEnv;
+      if (originalSkipAuth === undefined) {
+        delete process.env.SKIP_AUTH;
+      } else {
+        process.env.SKIP_AUTH = originalSkipAuth;
+      }
     }
   });
 
   it('grants owner role to dev auth method users', async () => {
     const originalNodeEnv = process.env.NODE_ENV;
+    const originalSkipAuth = process.env.SKIP_AUTH;
     process.env.NODE_ENV = 'development';
+    process.env.SKIP_AUTH = 'true';
     try {
       const auth: AuthContext = { userId: 'dev-user', authMethod: 'dev' };
       let capturedAuth: AuthContext | undefined;
@@ -163,6 +174,11 @@ describe('enrichAuthContext', () => {
       expect(capturedAuth?.roleLevel).toBe(RBAC_ROLE_LEVEL.owner);
     } finally {
       process.env.NODE_ENV = originalNodeEnv;
+      if (originalSkipAuth === undefined) {
+        delete process.env.SKIP_AUTH;
+      } else {
+        process.env.SKIP_AUTH = originalSkipAuth;
+      }
     }
   });
 

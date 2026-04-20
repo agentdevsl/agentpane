@@ -85,7 +85,10 @@ describe('Task API', () => {
     });
   });
 
-  it('lists tasks with counts', async () => {
+  it('lists tasks with cursor pagination envelope', async () => {
+    // F07-01: /api/tasks now returns the canonical cursor envelope
+    //   { data: { items, nextCursor, hasMore } }
+    // instead of the legacy `totalCount` shape.
     taskServiceMocks.list.mockResolvedValue(ok([sampleTask]));
 
     const response = await tasksRoute.request(
@@ -95,12 +98,13 @@ describe('Task API', () => {
     expect(response?.status).toBe(200);
     const data = await parseJson<{
       ok: true;
-      data: { items: Task[]; totalCount: number };
+      data: { items: Task[]; nextCursor: string | null; hasMore: boolean };
     }>(response as Response);
 
     expect(data.ok).toBe(true);
     expect(data.data.items).toHaveLength(1);
-    expect(data.data.totalCount).toBe(1);
+    expect(data.data.hasMore).toBe(false);
+    expect(data.data.nextCursor).toBeNull();
   });
 
   it('validates list query', async () => {

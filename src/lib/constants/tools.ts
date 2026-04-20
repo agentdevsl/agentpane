@@ -1,8 +1,11 @@
 /**
  * Tool groups and defaults for agent configurations.
  *
- * Note: An empty array means "allow all tools" - this is handled by the
- * tool whitelist hook which permits all tools when allowedTools is empty.
+ * F06-06: The whitelist hook previously treated an empty array as
+ * "allow all". The new contract requires an explicit `['*']` sentinel
+ * for open access — an empty array now DENIES every tool. Callers
+ * that want the legacy open-gate behaviour must use
+ * `ALLOW_ALL_TOOLS` (defined below), which is `['*']`.
  */
 
 /** Tool categories with their member tools (based on Claude Agent SDK) */
@@ -22,12 +25,13 @@ export const ALL_TOOLS = Object.values(TOOL_GROUPS).flat();
 export type ToolName = (typeof ALL_TOOLS)[number];
 
 /**
- * Special value indicating "allow all tools".
- * When tools array is empty, the whitelist hook permits all tools.
+ * Special sentinel indicating "allow all tools" (F06-06).
+ * Pass this (or `['*']`) to the whitelist hook to opt in to open access.
+ * An empty array now DENIES every tool.
  */
-export const ALLOW_ALL_TOOLS: string[] = [];
+export const ALLOW_ALL_TOOLS: string[] = ['*'];
 
-/** Default tools for agent execution (all tools - empty array) */
+/** Default tools for agent execution (all tools — requires explicit ['*']) */
 export const DEFAULT_AGENT_TOOLS: string[] = ALLOW_ALL_TOOLS;
 
 /** Default tools for task creation AI (read-only, no execution) */

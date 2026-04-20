@@ -30,14 +30,14 @@ import type { CronEventSourceConfig } from '../../db/schema/shared/cron-config.j
 import type { EventSourceStatus } from '../../db/schema/shared/enums.js';
 import { EVENT_SOURCE_STATUS, SCHEDULE_EXECUTION_STATUS } from '../../db/schema/shared/enums.js';
 import type { AuthContext } from '../../lib/api/auth-middleware.js';
+import { decodeRequestCursor, paginate } from '../../lib/api/pagination.js';
 import type { AppError } from '../../lib/errors/base.js';
 import {
   addStreamListener,
-  decrementSSEConnections,
-  getActiveSSEConnections,
-  incrementSSEConnections,
-  MAX_SSE_CONNECTIONS,
+  EVENT_BUS_ROUTE,
+  releaseEventBusSlot,
   removeStreamListener,
+  tryAcquireEventBusSlot,
 } from '../../lib/events/event-bus.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { EventSourceService } from '../../services/event-source.service.js';
@@ -190,7 +190,14 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
     const teamIds = await getUserTeamIds(auth, db);
 
     if (teamIds.length === 0) {
-      return json({ ok: true, data: { items: [], nextCursor: null, hasMore: false } });
+      // F07-03: explicitly mark as `empty` (user has no teams) so clients
+      // can distinguish this from a `degraded` response caused by an
+      // upstream failure. This is a legitimate empty result, not a masked
+      // failure.
+      return json({
+        ok: true,
+        data: { items: [], nextCursor: null, hasMore: false, source: 'empty' as const },
+      });
     }
 
     const conditions = [];
@@ -672,14 +679,24 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
       // Scope to user's teams' sources
       const teamIds = await getUserTeamIds(auth, db);
       if (teamIds.length === 0) {
-        return json({ ok: true, data: { items: [], nextCursor: null, hasMore: false } });
+        // F07-03: `source: 'empty'` — user has no teams. Legitimate empty,
+        // not a masked failure.
+        return json({
+          ok: true,
+          data: { items: [], nextCursor: null, hasMore: false, source: 'empty' as const },
+        });
       }
       const sources = await db
         .select({ id: eventSources.id })
         .from(eventSources)
         .where(inArray(eventSources.teamId, teamIds));
       if (sources.length === 0) {
-        return json({ ok: true, data: { items: [], nextCursor: null, hasMore: false } });
+        // F07-03: `source: 'empty'` — no event sources configured for user's
+        // teams. Legitimate empty, not a masked failure.
+        return json({
+          ok: true,
+          data: { items: [], nextCursor: null, hasMore: false, source: 'empty' as const },
+        });
       }
       scopeSourceIds = sources.map((s) => s.id);
     }
@@ -905,9 +922,10 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
       // Scope to user's team sources
       const teamIds = await getUserTeamIds(auth, db);
       if (teamIds.length === 0) {
+        // F07-03: `source: 'empty'` — user has no teams. Legitimate empty.
         return json({
           ok: true,
-          data: { items: [], nextCursor: null, hasMore: false },
+          data: { items: [], nextCursor: null, hasMore: false, source: 'empty' as const },
         });
       }
 
@@ -917,9 +935,10 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
         .where(inArray(eventSources.teamId, teamIds));
 
       if (sources.length === 0) {
+        // F07-03: `source: 'empty'` — no event sources for user's teams.
         return json({
           ok: true,
-          data: { items: [], nextCursor: null, hasMore: false },
+          data: { items: [], nextCursor: null, hasMore: false, source: 'empty' as const },
         });
       }
 
@@ -953,16 +972,33 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
       conditions.push(lte(eventLog.receivedAt, until));
     }
 
-    // Composite cursor: "receivedAt|id" for stable descending pagination
-    if (cursor) {
-      const separatorIdx = cursor.lastIndexOf('|');
-      if (separatorIdx > 0) {
-        const cursorTime = cursor.slice(0, separatorIdx);
-        const cursorId = cursor.slice(separatorIdx + 1);
-        conditions.push(
-          sql`(${eventLog.receivedAt} < ${cursorTime} OR (${eventLog.receivedAt} = ${cursorTime} AND ${eventLog.id} < ${cursorId}))`
-        );
-      }
+    // F07-01: use the canonical base64 cursor format shared with
+    // /api/tasks and /api/sessions. Legacy `receivedAt|id` cursors
+    // are no longer accepted; clients must use the opaque `nextCursor`
+    // returned by the latest response.
+    const sortField = 'receivedAt' as const;
+    const order = 'desc' as const;
+    const cursorResult = decodeRequestCursor(cursor, { sortField, order });
+    if (!cursorResult.ok) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'INVALID_CURSOR',
+            message: 'Invalid or malformed cursor. Restart pagination from the beginning.',
+          },
+        },
+        400
+      );
+    }
+    const cursorPayload = cursorResult.value;
+
+    if (cursorPayload) {
+      const cursorTime = cursorPayload.sortValue;
+      const cursorId = cursorPayload.id;
+      conditions.push(
+        sql`(${eventLog.receivedAt} < ${cursorTime} OR (${eventLog.receivedAt} = ${cursorTime} AND ${eventLog.id} < ${cursorId}))`
+      );
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -975,17 +1011,8 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
       .orderBy(desc(eventLog.receivedAt), desc(eventLog.id))
       .limit(limit + 1);
 
-    const hasMore = entries.length > limit;
-    const items = hasMore ? entries.slice(0, limit) : entries;
-    const nextCursor =
-      hasMore && items.length > 0
-        ? `${items[items.length - 1]?.receivedAt}|${items[items.length - 1]?.id}`
-        : null;
-
-    return json({
-      ok: true,
-      data: { items, nextCursor, hasMore },
-    });
+    const body = paginate(entries, { limit, sortField, order });
+    return json({ ok: true, data: body });
   });
 
   // GET /log/:id - Get event log entry by ID
@@ -1066,16 +1093,32 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
         : [];
     const allowedSourceIds = new Set(teamSources.map((s) => s.id));
 
-    if (getActiveSSEConnections() >= MAX_SSE_CONNECTIONS) {
-      return json(
-        {
+    // F05-03: unified EventRouter enforces global + per-user caps.
+    const acquire = tryAcquireEventBusSlot(auth.userId);
+    if (!acquire.ok) {
+      const status = acquire.code === 'USER_QUOTA_EXCEEDED' ? 429 : 503;
+      return new Response(
+        JSON.stringify({
           ok: false,
-          error: { code: 'TOO_MANY_CONNECTIONS', message: 'SSE connection limit reached' },
-        },
-        429
+          error: {
+            code: acquire.code,
+            message:
+              acquire.code === 'USER_QUOTA_EXCEEDED'
+                ? `Per-user SSE quota (${acquire.perUserCap}) reached`
+                : `Global SSE capacity (${acquire.globalCap}) reached`,
+          },
+        }),
+        {
+          status,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': String(acquire.retryAfterSeconds),
+          },
+        }
       );
     }
 
+    const userId = auth.userId;
     let listener: ((event: { type: string; data: unknown }) => void) | null = null;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
     let cleaned = false;
@@ -1083,14 +1126,15 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
     function cleanup() {
       if (cleaned) return;
       cleaned = true;
-      decrementSSEConnections();
+      releaseEventBusSlot(userId);
       if (pingInterval) clearInterval(pingInterval);
       if (listener) removeStreamListener(listener);
     }
 
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        incrementSSEConnections();
+        // Slot was already acquired before constructing the stream.
+        void EVENT_BUS_ROUTE;
         const encoder = new TextEncoder();
         const send = (data: unknown) => {
           if (cleaned) return;

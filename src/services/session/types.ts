@@ -67,6 +67,16 @@ export type ListSessionsOptions = {
   offset?: number;
   orderBy?: 'createdAt' | 'updatedAt';
   orderDirection?: 'asc' | 'desc';
+  /**
+   * F07-01: cursor-based pagination. When supplied, the service queries
+   * `limit + 1` rows starting strictly after the cursor position using a
+   * `(sortValue, id)` compound comparison. `offset` is ignored when
+   * `cursor` is present.
+   */
+  cursor?: {
+    sortValue: string | number | null;
+    id: string;
+  };
 };
 
 export type PresenceUpdate = {
@@ -104,6 +114,12 @@ export type GetEventsBySessionOptions = {
   limit?: number;
   offset?: number;
   afterEventId?: string;
+  /** F05-04: fetch events strictly before this durable offset (for "load earlier"). */
+  beforeOffset?: number;
+  /** F05-06: fetch the contiguous range [fromOffset, toOffset] for gap-fill on reconnect. */
+  fromOffset?: number;
+  /** F05-06: paired with fromOffset — inclusive upper bound. */
+  toOffset?: number;
 };
 
 export type SessionWithPresence = {

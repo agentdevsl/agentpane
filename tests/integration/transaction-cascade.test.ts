@@ -211,8 +211,6 @@ describe('Transaction & Cascade (IT-196 to IT-200)', () => {
     const plan = '## Implementation Plan\n1. Parse input\n2. Validate\n3. Transform\n4. Output';
     const planOptions = {
       allowedPrompts: [{ tool: 'Bash' as const, prompt: 'npm test' }],
-      launchSwarm: false,
-      teammateCount: 1,
     };
 
     await db

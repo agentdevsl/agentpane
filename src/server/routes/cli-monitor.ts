@@ -7,6 +7,7 @@
 
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { acquireSseSlot, releaseSseSlot } from '../../lib/events/event-router.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { CliMonitorService } from '../../services/cli-monitor/cli-monitor.service.js';
 import type { CliSession } from '../../services/cli-monitor/types.js';
@@ -172,17 +173,13 @@ const deregisterSchema = z.object({
 
 // ── Constants ──
 
-const MAX_SSE_CONNECTIONS = 50;
 const MAX_BODY_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 
 /**
- * RS-002: CLI monitor SSE connections use a local counter for now.
- * TODO: Centralize to use event-bus.ts getActiveSSEConnections() counter
- * once the event-bus is refactored to support per-route connection tracking.
- * The event-bus counter tracks main event stream connections while this
- * counter tracks CLI monitor stream connections independently.
+ * F05-03: CLI monitor SSE connections now share the EventRouter with the main
+ * `/api/events` stream, so the global cap applies across both.
  */
-let activeSSEConnections = 0;
+const CLI_MONITOR_SSE_ROUTE = '/api/cli-monitor/stream';
 
 // ── Helpers ──
 
@@ -394,16 +391,32 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
 
   // GET /stream — SSE endpoint for live updates
   app.get('/stream', (c) => {
-    if (activeSSEConnections >= MAX_SSE_CONNECTIONS) {
-      return c.json(
-        {
+    // F05-03: shared EventRouter enforces global + per-user caps across all SSE routes.
+    const auth = (c.get as (key: string) => unknown)('auth') as { userId?: string } | undefined;
+    const userId = auth?.userId ?? null;
+    const acquire = acquireSseSlot(CLI_MONITOR_SSE_ROUTE, userId);
+    if (!acquire.ok) {
+      const status = acquire.code === 'USER_QUOTA_EXCEEDED' ? 429 : 503;
+      return new Response(
+        JSON.stringify({
           ok: false,
-          error: { code: 'TOO_MANY_CONNECTIONS', message: 'SSE connection limit reached' },
-        },
-        429
+          error: {
+            code: acquire.code,
+            message:
+              acquire.code === 'USER_QUOTA_EXCEEDED'
+                ? `Per-user SSE quota (${acquire.perUserCap}) reached`
+                : `Global SSE capacity (${acquire.globalCap}) reached`,
+          },
+        }),
+        {
+          status,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': String(acquire.retryAfterSeconds),
+          },
+        }
       );
     }
-    activeSSEConnections++;
 
     let unsubscribe: (() => void) | null = null;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
@@ -416,7 +429,7 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
     function cleanup() {
       if (cleaned) return;
       cleaned = true;
-      activeSSEConnections = Math.max(0, activeSSEConnections - 1);
+      releaseSseSlot(CLI_MONITOR_SSE_ROUTE, userId);
       if (pingInterval) clearInterval(pingInterval);
       if (unsubscribe) unsubscribe();
     }

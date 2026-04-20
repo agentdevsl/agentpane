@@ -5,6 +5,7 @@
 import { Hono } from 'hono';
 import type { SessionStatus } from '../../db/schema/shared/enums.js';
 import { SESSION_STATUS } from '../../db/schema/shared/enums.js';
+import { decodeRequestCursor, paginate } from '../../lib/api/pagination.js';
 import type { SessionService } from '../../services/session.service.js';
 import { errorResponse, json, parseLimit, parseOffset, validateIdParam } from '../shared.js';
 import { createSessionSchema, exportSessionSchema, parseJsonBody } from '../validation.js';
@@ -132,6 +133,15 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
   const app = new Hono();
 
   // GET /api/sessions
+  //
+  // F07-01: two modes:
+  //   (a) Filtered mode (when `codespaceId` is supplied): keeps the existing
+  //       offset/total shape because the UI explicitly relies on `total` for
+  //       badges and filter-count readouts. This path is documented as the
+  //       legacy offset path in specs/application/api/pagination.md.
+  //   (b) Global list (no `codespaceId`): cursor-paginated, sorted by
+  //       `updatedAt` desc with `id` as tiebreaker. Returns the canonical
+  //       `{ items, nextCursor, hasMore }` envelope.
   app.get('/', async (c) => {
     const codespaceId = c.req.query('codespaceId');
     const limit = parseLimit(c);
@@ -174,19 +184,69 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
       });
     }
 
-    // Fallback: no codespaceId filter (existing behavior)
-    const result = await sessionService.list({ limit, offset });
+    // F07-01: cursor-based pagination for the global session list.
+    //
+    // Backward-compatible envelope: `data` stays a flat array (so
+    // `apiServerFetch<Session[]>` keeps working) and `pagination` exposes
+    // the opaque `nextCursor` + `hasMore` flags alongside the legacy
+    // `limit`/`offset`.
+    //
+    // Bug fix: previously only requests that carried an inbound `cursor`
+    // query param went through `paginate()`; the first page (no cursor) fell
+    // back to the legacy offset branch and never emitted `nextCursor`,
+    // leaving clients with no way to advance beyond page 1. We now always
+    // fetch `limit + 1` and run through `paginate()` so the first page
+    // returns a valid `nextCursor` whenever there are more rows.
+    const sortField = 'updatedAt' as const;
+    const order = 'desc' as const;
+    const rawCursor = c.req.query('cursor') || undefined;
+    const cursorResult = decodeRequestCursor(rawCursor, { sortField, order });
+    if (!cursorResult.ok) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'INVALID_CURSOR',
+            message: 'Invalid or malformed cursor. Restart pagination from the beginning.',
+          },
+        },
+        400
+      );
+    }
+    const cursorPayload = cursorResult.value;
+
+    const result = await sessionService.list({
+      // F07-01: fetch `limit + 1` so `paginate()` can detect `hasMore`
+      // without a count query. When a cursor is supplied we do not apply an
+      // offset (the cursor itself positions the page); when absent we keep
+      // the legacy `offset` semantics so pre-cursor clients that still pass
+      // `offset` continue to work.
+      limit: limit + 1,
+      offset: cursorPayload ? 0 : offset,
+      orderBy: sortField,
+      orderDirection: order,
+      ...(cursorPayload
+        ? {
+            cursor: {
+              sortValue: cursorPayload.sortValue,
+              id: cursorPayload.id,
+            },
+          }
+        : {}),
+    });
     if (!result.ok) {
       return errorResponse(result);
     }
 
+    const body = paginate(result.value, { limit, sortField, order });
     return json({
       ok: true,
-      data: result.value,
+      data: body.items,
       pagination: {
         limit,
-        offset,
-        hasMore: result.value.length === limit,
+        offset: cursorPayload ? 0 : offset,
+        nextCursor: body.nextCursor,
+        hasMore: body.hasMore,
       },
     });
   });
@@ -214,23 +274,72 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
     const offset = parseOffset(c);
     const afterEventId = c.req.query('afterEventId') ?? undefined;
 
-    if (afterEventId && c.req.query('offset') !== undefined) {
+    // F05-04: "load earlier" via beforeOffset.
+    // F05-06: contiguous gap-fill via fromOffset + toOffset.
+    const beforeOffsetRaw = c.req.query('beforeOffset');
+    const fromOffsetRaw = c.req.query('fromOffset');
+    const toOffsetRaw = c.req.query('toOffset');
+    const beforeOffset =
+      beforeOffsetRaw !== undefined ? Number.parseInt(beforeOffsetRaw, 10) : undefined;
+    const fromOffset = fromOffsetRaw !== undefined ? Number.parseInt(fromOffsetRaw, 10) : undefined;
+    const toOffset = toOffsetRaw !== undefined ? Number.parseInt(toOffsetRaw, 10) : undefined;
+
+    const hasOffset = c.req.query('offset') !== undefined;
+    const hasAfter = afterEventId !== undefined;
+    const hasBefore = beforeOffset !== undefined;
+    const hasRange = fromOffset !== undefined || toOffset !== undefined;
+
+    // Pagination modes are mutually exclusive. At most ONE of:
+    //   1. default pagination (offset+limit)
+    //   2. afterEventId (history resume)
+    //   3. beforeOffset (load earlier)
+    //   4. fromOffset + toOffset (gap-fill range)
+    // If the client specifies more than one, return 400 rather than silently
+    // picking a branch (which previously hid e.g. `beforeOffset + range`).
+    const modeCount =
+      (hasOffset ? 1 : 0) + (hasAfter ? 1 : 0) + (hasBefore ? 1 : 0) + (hasRange ? 1 : 0);
+    if (modeCount > 1) {
       return json(
         {
           ok: false,
           error: {
             code: 'INVALID_PARAMS',
-            message: 'Use either offset or afterEventId, not both',
+            message:
+              'Use exactly one of: offset, afterEventId, beforeOffset, or (fromOffset + toOffset) — not multiple',
           },
         },
         400
       );
     }
 
-    const result = await sessionService.getEventsBySession(
-      id,
-      afterEventId ? { limit, afterEventId } : { limit, offset }
-    );
+    if (hasRange && (fromOffset === undefined || toOffset === undefined)) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'INVALID_PARAMS',
+            message: 'fromOffset and toOffset must be used together',
+          },
+        },
+        400
+      );
+    }
+
+    let result: Awaited<ReturnType<typeof sessionService.getEventsBySession>>;
+    if (afterEventId) {
+      result = await sessionService.getEventsBySession(id, { limit, afterEventId });
+    } else if (beforeOffset !== undefined && Number.isFinite(beforeOffset)) {
+      result = await sessionService.getEventsBySession(id, { limit, beforeOffset });
+    } else if (
+      fromOffset !== undefined &&
+      toOffset !== undefined &&
+      Number.isFinite(fromOffset) &&
+      Number.isFinite(toOffset)
+    ) {
+      result = await sessionService.getEventsBySession(id, { limit, fromOffset, toOffset });
+    } else {
+      result = await sessionService.getEventsBySession(id, { limit, offset });
+    }
     if (!result.ok) {
       return errorResponse(result);
     }
@@ -243,6 +352,9 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
         limit,
         offset,
         afterEventId: afterEventId ?? null,
+        beforeOffset: beforeOffset ?? null,
+        fromOffset: fromOffset ?? null,
+        toOffset: toOffset ?? null,
       },
     });
   });

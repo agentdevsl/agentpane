@@ -65,11 +65,15 @@ describe('Tasks Routes (IT-1350)', () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.data.items).toHaveLength(2);
-    expect(body.data.totalCount).toBe(2);
+    // F07-01: cursor envelope returns {items, nextCursor, hasMore} without
+    // a synthesized totalCount that was just the page size.
+    expect(body.data.hasMore).toBe(false);
+    expect(body.data.nextCursor).toBeNull();
     expect(mockService.list).toHaveBeenCalledWith('cs-1', {
       column: undefined,
-      limit: 50,
-      offset: 0,
+      limit: 51,
+      orderBy: 'position',
+      orderDirection: 'asc',
     });
   });
 
@@ -78,10 +82,12 @@ describe('Tasks Routes (IT-1350)', () => {
 
     await app.request('http://localhost/?codespaceId=cs-1&column=in_progress');
 
+    // F07-01: cursor-paginated route fetches limit+1 and fixes the sort.
     expect(mockService.list).toHaveBeenCalledWith('cs-1', {
       column: 'in_progress',
-      limit: 50,
-      offset: 0,
+      limit: 51,
+      orderBy: 'position',
+      orderDirection: 'asc',
     });
   });
 

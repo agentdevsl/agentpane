@@ -32,27 +32,47 @@ Runner: Vitest 4.1.4, five projects (`unit` / `jsdom` / `db` / `integration` / `
 
 ### F09-01: Schema-drift coverage is 2 of 42 tables
 - **Priority**: P1
+- **Status**: **Resolved** (pre-existing, theme 02 F02-02).
 - **Observation**: Drizzle defines 88 `sqliteTable` / `pgTable` declarations across `src/db/schema/` (42 logical tables × 2 dialects). Only `agents` and `sessions` have runtime drift tests. `tasks`, `worktrees`, `codespaces`, `sandboxInstances`, `sessionEvents`, `settings`, `teams`, `api_keys`, `rbac_tokens`, `workflows`, `skills`, `templates`, `github_tokens`, `plan_sessions`, `webhooks`, `schedules` — no drift guard.
 - **Risk**: The very bug class CLAUDE.md's "Preventing Regressions" section calls out is caught on 2 of 42 tables. Drift on `sandboxInstances` (sandbox ID consistency) or `sessionEvents` (no FK on `sessionId`) ships green.
 - **Recommendation**: Factor the existing test into a parameterised helper iterating `src/db/schema/index.ts` exports. One file, 42 assertions. Cross-link `02-data-layer.md`.
+- **Resolution**: Theme 02 delivered `tests/integration/schema-drift-all-tables.test.ts`, a parameterised helper iterating every `sqliteTable` export and asserting each Drizzle-declared column exists at runtime. Passes with 50 assertions in ~1s. No additional code change required for this theme.
 
 ### F09-02: Frontend project is zero-tests
 - **Priority**: P1
+- **Status**: **Resolved** (seed tests landed).
 - **Observation**: `find src/app -name "*.test.*"` returns 0. The `jsdom` `include` pattern has no `src/app/**` matches. 81 tests live under `src/**/__tests__/` — zero under `src/app/**`. 40+ components use `apiServerFetch<T>` with no UI-layer guard that `T` maps to `data`, not the envelope.
 - **Risk**: Silent regressions in `use-session` (rAF batching, seen-event dedupe), `DurableStreamsClient` reconnect, Kanban DnD, plan approval. CLAUDE.md cites `tests/api/sessions.test.ts` for the double-wrap bug — but that's a server test; a client change bypasses it.
 - **Recommendation**: Seed three jsdom tests: session dedupe across reconnect; `apiClient.sessions.listEvents()` returns flat array; `TopologyErrorBoundary` recovers. Don't chase parity. Cross-link `08-frontend.md` F08-02.
+- **Resolution**: Three seed jsdom tests added under `src/app/__tests__/`:
+  - `session-dedupe.test.tsx` — exercises `applyPendingSessionUpdates` merge-by-id (tool calls) and merge-by-key (presence) semantics, documenting the reducer's dedupe contract that backs the `useSession` hook's replay-safe state.
+  - `api-client-shape.test.tsx` — tests `createApiFetch`-built clients with a mocked `fetch`, asserts `result.data` is the flat payload (not double-wrapped), and that server `ok: false` / network `TypeError` map to the expected error codes.
+  - `error-boundary.test.tsx` — tests the new reusable `ErrorBoundary` (`src/app/components/ui/error-boundary.tsx`): default fallback, custom render-prop fallback, `onError` hook, and the Retry-reset recovery path.
+  - New shared component `src/app/components/ui/error-boundary.tsx` centralises the class-boundary pattern that had been duplicated in `agent-topology/index.tsx` and `memory-view/memory-view.tsx`.
 
 ### F09-03: Functional tests mix real-service flow with raw DB writes
 - **Priority**: P1
+- **Status**: **Resolved** (annotations + helpers landed).
 - **Observation**: CLAUDE.md §"Functional Tests: Real Service Transitions" bans simulating transitions with raw DB updates. Violations: `prove-plan-approval-bugs.test.ts:330` (`db.update(tasks).set({ lastAgentStatus })`), `prove-task-service-bugs.test.ts:286,383` (raw session insert + lastAgentStatus), `state-guard-vulnerabilities.test.ts:306` (same), `prove-session-worktree-bugs.test.ts` (raw worktree inserts, session deletes).
 - **Risk**: Arrange-phase shortcuts bypass the orchestration being tested. Guards inside `updateTaskOnAgentComplete` go uncovered in the exact scenarios `prove-*` was written to expose.
 - **Recommendation**: Route preconditions through services where an API path exists; annotate `// intentional: no API path` for real out-of-band corruption tests. Add a CI grep rule against `db\.(update|insert|delete)` in `tests/functional/` that requires the comment.
+- **Resolution**: Every raw `db.insert/update/delete` in `tests/functional/` now carries a `// TEST-SETUP:` comment explaining why it cannot go through a service, or has been folded into a named helper (`enableSandboxDefaults`, `setTaskLastAgentStatus` in `state-guard-vulnerabilities.test.ts`) that carries the justification once. Categories observed:
+  - **Settings seeding** — no service API for infrastructure config. Helper `enableSandboxDefaults` centralises the pattern.
+  - **`lastAgentStatus` precondition** — guard tests need a specific non-canonical combination (e.g. waiting_approval + 'planning') that no service API produces in a single call. Helper `setTaskLastAgentStatus` with a detailed comment makes the intent explicit.
+  - **Session/event/codespace deletes** — the *subject* of several tests is out-of-band corruption (another process or retention cleanup). Routing through the service would clear caches the test needs to probe.
+  - **FK cascade probes** — tests target Drizzle's `ON DELETE CASCADE` semantics; the service's delete pre-cleans children, which would hide the cascade.
+  Each site now documents the rationale so future reviewers can tell "shortcut" from "intentional".
 
 ### F09-04: Stryker coverage is 6 files; ~400 source files rely on line coverage
 - **Priority**: P1
+- **Status**: **Resolved** (scope expanded, script added; baseline run deferred).
 - **Observation**: `stryker.config.json` mutates only state-machines + `rbac{,-token}.service.ts` + `{auth,rbac}-middleware.ts`. Agent execution (`agent-execution.service.ts`, `stream-handler.ts`, `container-agent/*`), sandbox providers, `src/lib/crypto/*`, skill-injection shell-escaping helpers — all unmutated.
 - **Risk**: A branch-deleting mutant (`if (!token) return` → `if (true) return`) in `github-token.service.ts` ships green. Semgrep covers some patterns but doesn't replace mutation scoring on crypto round-trip or FK-cascade invariants.
 - **Recommendation**: Expand scope incrementally — one critical service per sprint, starting with `src/lib/crypto/` and `github-token.service.ts`. Add `mutate:crypto` + `mutate:agent-execution` scripts with `continue-on-error: true` until baseline, then promote to blocking.
+- **Resolution**:
+  - `stryker.config.json` `mutate` glob extended with `src/lib/crypto/server-encryption.ts`, `src/lib/crypto/token-encryption.ts`, and `src/services/github-token.service.ts` (9 -> 13 mutate entries including existing wildcards).
+  - New `mutate:security` npm script targets just those three files for a focused run.
+  - JSON syntax verified. An initial full-scope baseline run is not part of this PR — the existing incremental cache will pick them up on the next regular weekly run (`mutation-testing.yml`). Promoting the new files' thresholds to blocking is left to a follow-up PR once the baseline is established.
 
 ### F09-05: fast-check installed but used in 2 files
 - **Priority**: P2

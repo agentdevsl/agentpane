@@ -83,6 +83,16 @@ export type SessionState = {
   terminal: SessionTerminal[];
   presence: SessionPresence[];
   agentState: SessionAgentState;
+  /**
+   * F05-04: true when the chunks array has been trimmed to stay under MAX_CHUNKS.
+   * The UI should surface a "load earlier" banner backed by the REST events endpoint.
+   */
+  truncated: boolean;
+  /**
+   * F05-04: count of chunks dropped from the head since the session opened.
+   * Consumers can use this as a "before" hint when fetching older events.
+   */
+  truncatedCount: number;
 };
 
 type PendingSessionUpdates = {
@@ -106,6 +116,8 @@ function createInitialState(): SessionState {
     terminal: [],
     presence: [],
     agentState: null,
+    truncated: false,
+    truncatedCount: 0,
   };
 }
 
@@ -135,7 +147,7 @@ function getStableEventId(
   return fallbackParts.map((part) => String(part ?? 'unknown')).join(':');
 }
 
-function applyPendingSessionUpdates(
+export function applyPendingSessionUpdates(
   prev: SessionState,
   batch: PendingSessionUpdates
 ): SessionState {
@@ -143,10 +155,21 @@ function applyPendingSessionUpdates(
 
   if (batch.chunks.length > 0) {
     const chunks = [...prev.chunks, ...batch.chunks];
-    nextState = {
-      ...nextState,
-      chunks: chunks.length > MAX_CHUNKS ? chunks.slice(chunks.length - MAX_CHUNKS) : chunks,
-    };
+    if (chunks.length > MAX_CHUNKS) {
+      const dropped = chunks.length - MAX_CHUNKS;
+      // F05-04: surface truncation so the UI can show a "load earlier" banner.
+      nextState = {
+        ...nextState,
+        chunks: chunks.slice(dropped),
+        truncated: true,
+        truncatedCount: prev.truncatedCount + dropped,
+      };
+    } else {
+      nextState = {
+        ...nextState,
+        chunks,
+      };
+    }
   }
 
   if (batch.toolCalls.length > 0) {
@@ -202,7 +225,15 @@ function applyPendingSessionUpdates(
 const PRESENCE_HEARTBEAT_INTERVAL = 30000;
 
 /** RS-011: Maximum number of chunks to retain in state to prevent unbounded memory growth. */
-const MAX_CHUNKS = 5000;
+export const MAX_CHUNKS = 5000;
+
+export function createInitialSessionStateForTest(): SessionState {
+  return createInitialState();
+}
+
+export function createPendingSessionUpdatesForTest(): PendingSessionUpdates {
+  return createPendingSessionUpdates();
+}
 
 export function useSession(
   sessionId: string,

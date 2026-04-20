@@ -50,6 +50,24 @@ export interface ServerConfig {
   skipAuth: boolean;
   sandboxInitTimeoutMs: number;
   caddyStreamsUrl: string;
+  /** PostgreSQL connection pool / client configuration (F02-05). */
+  postgres: PostgresClientConfig;
+}
+
+/** PostgreSQL connection pool / client configuration. */
+export interface PostgresClientConfig {
+  /** Maximum number of connections in the pool. */
+  max: number;
+  /** Seconds a connection may remain idle before being closed. 0 disables idle close. */
+  idleTimeoutSeconds: number;
+  /** Maximum lifetime of a connection in seconds. 0 disables. */
+  maxLifetimeSeconds: number;
+  /** Seconds to wait for a new connection before giving up. */
+  connectTimeoutSeconds: number;
+  /** Value set on `application_name` for pg_stat_activity. */
+  applicationName: string;
+  /** SSL configuration: 'disable' | 'require' | 'prefer'. Undefined means driver default. */
+  ssl?: 'disable' | 'require' | 'prefer';
 }
 
 /** Database initialization result. */
@@ -110,7 +128,25 @@ export interface SandboxState {
   retryTimer: ReturnType<typeof setTimeout> | null;
   retryCount: number;
   initializing: boolean;
+  /**
+   * Set to `true` once the sandbox reconciliation phase has completed
+   * (F01-01). Used by the `/api/health` readiness gate (F01-03) to avoid
+   * returning 200 until live containers have been cross-referenced with
+   * the `sandbox_instances` DB table.
+   */
+  reconciled: boolean;
 }
+
+/**
+ * Result of a bootstrap phase (F01-05).
+ *
+ * Each phase returns this explicitly so the orchestrator can apply a uniform
+ * policy: `fatal: true` terminates the process via `process.exit(1)`;
+ * `fatal: false` logs the error and continues. This replaces the previous
+ * inconsistent handling where some phases called `process.exit` directly,
+ * some logged and continued, and some swallowed errors silently.
+ */
+export type BootstrapPhaseResult = { ok: true } | { ok: false; fatal: boolean; error: Error };
 
 /** Bootstrap context passed through phases. */
 export interface BootstrapContext {

@@ -110,10 +110,43 @@ export class SessionCrudService {
 
     const orderColumn = orderBy === 'createdAt' ? sessions.createdAt : sessions.updatedAt;
 
+    // F07-01: when a cursor is supplied, query strictly after the cursor
+    // position using a compound `(sortValue, id)` comparison. The route
+    // handler is responsible for passing `limit + 1` and slicing the
+    // overflow row via `paginate()` to detect `hasMore` — this method does
+    // NOT add a redundant `+ 1` on top.
+    //
+    // Precondition: sort columns (`sessions.createdAt`, `sessions.updatedAt`)
+    // are declared `.notNull()` in the SQLite and Postgres schemas, so the
+    // compound `col < v` comparison always yields a boolean (never NULL).
+    // If a nullable sort column is ever added, wrap with COALESCE or use
+    // explicit NULL ordering so pagination does not silently break.
+    const cursor = options?.cursor;
+    let where: ReturnType<typeof and> | undefined;
+    let fetchOffset = offset;
+    if (cursor) {
+      const sortVal = cursor.sortValue;
+      // Compound tuple comparison:
+      //   desc: (col, id) < (sortVal, cursorId)
+      //   asc : (col, id) > (sortVal, cursorId)
+      // SQL: `(col < v) OR (col = v AND id < cursorId)` (flip < for asc).
+      const primary =
+        direction === 'desc' ? sql`${orderColumn} < ${sortVal}` : sql`${orderColumn} > ${sortVal}`;
+      const tiebreak =
+        direction === 'desc'
+          ? sql`(${orderColumn} = ${sortVal} AND ${sessions.id} < ${cursor.id})`
+          : sql`(${orderColumn} = ${sortVal} AND ${sessions.id} > ${cursor.id})`;
+      where = and(sql`(${primary} OR ${tiebreak})`) as ReturnType<typeof and>;
+      fetchOffset = 0;
+    }
+
     const items = await this.db.query.sessions.findMany({
-      orderBy: (direction === 'asc' ? [orderColumn] : [desc(orderColumn)]) as never,
+      where,
+      orderBy: (direction === 'asc'
+        ? [orderColumn, sessions.id]
+        : [desc(orderColumn), desc(sessions.id)]) as never,
       limit,
-      offset,
+      offset: fetchOffset,
     });
 
     return ok(

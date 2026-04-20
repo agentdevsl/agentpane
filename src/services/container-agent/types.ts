@@ -90,8 +90,6 @@ export interface PlanData {
   createdAt: Date;
   /** Sandbox ID at the time planning completed -- used to detect container changes before execution */
   sandboxId?: string;
-  launchSwarm?: boolean;
-  teammateCount?: number;
 }
 
 /**

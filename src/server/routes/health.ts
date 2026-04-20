@@ -37,6 +37,14 @@ interface HealthDeps {
   getK8sProvider?: () => K8sProviderHealth | null;
   /** CB-011: URL of the durable streams server for reachability checks. */
   streamsUrl?: string;
+  /**
+   * F01-03: Readiness gate. Returns true once the sandbox provider has been
+   * initialized. Until then, `/api/health` responds 503 with
+   * `status: 'initializing'` so load balancers do not route traffic to a
+   * half-booted instance. If undefined (e.g., in tests), the gate is
+   * considered always-ready.
+   */
+  isSandboxReady?: () => boolean;
 }
 
 export function createHealthRoutes({
@@ -45,11 +53,34 @@ export function createHealthRoutes({
   getSandboxProvider,
   getK8sProvider,
   streamsUrl,
+  isSandboxReady,
 }: HealthDeps) {
   const app = new Hono();
 
   app.get('/', async (_c) => {
     const startTime = Date.now();
+
+    // F01-03: readiness gate. If the sandbox init hasn't completed yet,
+    // return 503 so load balancers hold traffic until the subsystem is up.
+    // `isSandboxReady` is optional — tests and early-boot contexts omit it
+    // and get the always-ready behaviour.
+    if (isSandboxReady && !isSandboxReady()) {
+      return json(
+        {
+          ok: false,
+          data: {
+            status: 'initializing' as const,
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime(),
+            message:
+              'Sandbox provider is still initializing — retry shortly. ' +
+              'This instance is not ready to accept traffic.',
+            responseTimeMs: Date.now() - startTime,
+          },
+        },
+        503
+      );
+    }
     const checks: {
       database: {
         status: 'ok' | 'error';

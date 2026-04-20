@@ -1,4 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// theme-04 P1-02: AgentCore provider is gated behind AGENTCORE_ENABLED.
+// Enable it for this test suite so setAgentCoreProvider actually wires up.
+const ORIGINAL_AGENTCORE_ENABLED = process.env.AGENTCORE_ENABLED;
+beforeAll(() => {
+  process.env.AGENTCORE_ENABLED = 'true';
+});
+afterAll(() => {
+  if (ORIGINAL_AGENTCORE_ENABLED === undefined) {
+    delete process.env.AGENTCORE_ENABLED;
+  } else {
+    process.env.AGENTCORE_ENABLED = ORIGINAL_AGENTCORE_ENABLED;
+  }
+});
 
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { err } from '../../lib/utils/result.js';
@@ -197,7 +211,7 @@ describe('ContainerAgentService', () => {
 
     it('delegates to AgentCoreBridgeService when AgentCore provider is set', async () => {
       // Set up AgentCore provider
-      service.setAgentCoreProvider({
+      await service.setAgentCoreProvider({
         region: 'us-east-1',
         accessKeyId: 'AKIA',
         secretAccessKey: 'secret',
@@ -262,7 +276,7 @@ describe('ContainerAgentService', () => {
     });
 
     it('returns PROJECT_NOT_FOUND for AgentCore path when project missing', async () => {
-      service.setAgentCoreProvider({
+      await service.setAgentCoreProvider({
         region: 'us-east-1',
         accessKeyId: 'AKIA',
         secretAccessKey: 'secret',
@@ -480,8 +494,8 @@ describe('ContainerAgentService', () => {
       expect(service.providerName).toBe('docker');
     });
 
-    it('providerName returns "agentcore" after setAgentCoreProvider', () => {
-      service.setAgentCoreProvider({
+    it('providerName returns "agentcore" after setAgentCoreProvider', async () => {
+      await service.setAgentCoreProvider({
         region: 'us-east-1',
         accessKeyId: 'AKIA',
         secretAccessKey: 'secret',
@@ -490,8 +504,8 @@ describe('ContainerAgentService', () => {
       expect(service.providerName).toBe('agentcore');
     });
 
-    it('clearAgentCoreProvider reverts to container provider name', () => {
-      service.setAgentCoreProvider({
+    it('clearAgentCoreProvider reverts to container provider name', async () => {
+      await service.setAgentCoreProvider({
         region: 'us-east-1',
         accessKeyId: 'AKIA',
         secretAccessKey: 'secret',
@@ -516,8 +530,8 @@ describe('ContainerAgentService', () => {
       expect(stateManager.dispose).toHaveBeenCalled();
     });
 
-    it('cleans up AgentCore provider when set', () => {
-      service.setAgentCoreProvider({
+    it('cleans up AgentCore provider when set', async () => {
+      await service.setAgentCoreProvider({
         region: 'us-east-1',
         accessKeyId: 'AKIA',
         secretAccessKey: 'secret',

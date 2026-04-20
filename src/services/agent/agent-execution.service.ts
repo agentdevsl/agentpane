@@ -1,5 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
+import type { TaskColumn } from '../../db/schema';
 import { agentRuns, agents, codespaces, sessions, tasks, worktrees } from '../../db/schema';
 import { handleAgentError } from '../../lib/agents/recovery.js';
 import { runAgentExecution, runAgentPlanning } from '../../lib/agents/stream-handler.js';
@@ -11,6 +12,7 @@ import { ConcurrencyErrors } from '../../lib/errors/concurrency-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import { createAgentLifecycleMachine } from '../../lib/state-machines/agent-lifecycle/machine.js';
 import type { AgentLifecycleEvent } from '../../lib/state-machines/agent-lifecycle/types.js';
+import { captureException } from '../../lib/telemetry/error-sink.js';
 import { errorMessage } from '../../lib/utils/error-message.js';
 import { resolveModel } from '../../lib/utils/resolve-model.js';
 import type { Result } from '../../lib/utils/result.js';
@@ -722,16 +724,33 @@ export class AgentExecutionService {
           })
           .where(eq(agents.id, agentId));
 
-        // Store the plan and options on the task
+        // theme-03 F5: persist the captured SDK session id alongside the plan
+        // options so host-mode execution (TaskService.approvePlan → resume)
+        // can resume the same conversation rather than reseeding full context.
+        const mergedPlanOptions = {
+          ...(result.planOptions ?? {}),
+          ...(result.sdkSessionId ? { sdkSessionId: result.sdkSessionId } : {}),
+        };
+
+        // Store the plan and options on the task, and flip to the
+        // waiting_approval state. Without this the kanban UI would not
+        // surface the plan and the theme-03 F6 rejectPlanForTask guard
+        // (which requires lastAgentStatus === 'planning') would never
+        // match, rendering host-mode reject non-functional. Mirrors
+        // PlanApprovalService.handlePlanReady for container-mode.
         await this.db
           .update(tasks)
           .set({
             plan: result.plan,
-            planOptions: result.planOptions,
+            planOptions: mergedPlanOptions,
+            lastAgentStatus: 'planning',
+            column: 'waiting_approval',
           })
           .where(eq(tasks.id, taskId));
 
-        log.info('Agent planning complete, awaiting approval', { data: { agentId } });
+        log.info('Agent planning complete, awaiting approval', {
+          data: { agentId, hasSdkSessionId: !!result.sdkSessionId },
+        });
       } else if (result.status === 'completed') {
         await this.db
           .update(agents)
@@ -814,6 +833,14 @@ export class AgentExecutionService {
       }
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
+      // F10-04: forward to telemetry sink with task/session/agent tags so a
+      // future Sentry adapter can group the failures correctly.
+      captureException(error, {
+        source: 'AgentExecutionService.runPlanning',
+        agentId,
+        taskId,
+        sessionId,
+      });
       this.finalizeMemorySession(memoryRef, agentId, 'planning error', { status: 'failed' });
 
       const errMsg = errorMessage(error);
@@ -1161,6 +1188,24 @@ export class AgentExecutionService {
 
       const maxRuntimeMs = await getAgentMaxRuntimeMs(this.db);
 
+      // theme-03 F5: recover the SDK session id captured during planning so
+      // the execution phase can resume the same conversation. Falls back to
+      // a fresh session when absent (mirrors agent-runner behaviour).
+      const taskRow = await this.db.query.tasks.findFirst({
+        where: eq(tasks.id, task.id),
+        columns: { planOptions: true },
+      });
+      const storedSdkSessionId =
+        (taskRow?.planOptions as { sdkSessionId?: string } | null | undefined)?.sdkSessionId ??
+        undefined;
+
+      // theme-03 F2: forward any hooks registered for this agent into the
+      // stream handler. `agent/types.PreToolUseHook` and its post-hook
+      // sibling are structurally compatible with the stream-handler's
+      // StreamPre/PostToolUseHook — both accept {tool_name, tool_input}.
+      const preHooks = this.preToolHooks.get(agentId);
+      const postHooks = this.postToolHooks.get(agentId);
+
       const result = await runAgentExecution({
         agentId,
         sessionId,
@@ -1173,6 +1218,28 @@ export class AgentExecutionService {
         maxRuntimeMs,
         skillId: task.skillId,
         skillName: task.skillName,
+        sdkSessionId: storedSdkSessionId,
+        preToolUseHooks: preHooks && preHooks.length > 0 ? preHooks : undefined,
+        // Service-level PostToolUseHook returns Promise<void>; the stream
+        // handler only cares about fire-and-forget semantics, so adapt on
+        // the fly to StreamPostToolUseHook's tool_response shape.
+        postToolUseHooks:
+          postHooks && postHooks.length > 0
+            ? postHooks.map(
+                (hook) =>
+                  async (input: {
+                    tool_name: string;
+                    tool_input: Record<string, unknown>;
+                    tool_response: { summary: string; is_error: boolean };
+                  }) => {
+                    await hook({
+                      tool_name: input.tool_name,
+                      tool_input: input.tool_input,
+                      tool_response: input.tool_response,
+                    });
+                  }
+              )
+            : undefined,
         sessionService: this.sessionService,
         onMessage: this.buildOnMessageCallback(memoryRef, this.memoryService),
       });
@@ -1283,6 +1350,14 @@ export class AgentExecutionService {
       }
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
+      // F10-04: forward to telemetry sink with task/session/agent tags so a
+      // future Sentry adapter can group the failures correctly.
+      captureException(error, {
+        source: 'AgentExecutionService.runExecution',
+        agentId,
+        taskId: task.id,
+        sessionId,
+      });
       this.finalizeMemorySession(memoryRef, agentId, 'execution error', {
         status: 'failed',
       });
@@ -1378,6 +1453,116 @@ export class AgentExecutionService {
         )
       );
     return ok(result?.count ?? 0);
+  }
+
+  /**
+   * theme-03 F6: host-mode plan rejection.
+   *
+   * Atomically:
+   *   1. Stop the running agent (abort controller + status → idle),
+   *   2. CAS-move the task to backlog where `lastAgentStatus='planning'`,
+   *      clearing plan/planOptions/worktreeId/branch,
+   *   3. Remove the worktree (best-effort).
+   *
+   * Returns `PLAN_NOT_FOUND` when the task is not in a rejectable state so
+   * the API layer can mirror the container-mode 404. Mirrors the CAS from
+   * PlanApprovalService.rejectPlan — both paths refuse to reject a task
+   * that has already moved on.
+   */
+  async rejectPlanForTask(
+    taskId: string,
+    reason?: string
+  ): Promise<Result<void, { code: string; message: string; status: number }>> {
+    const task = await this.db.query.tasks.findFirst({
+      where: eq(tasks.id, taskId),
+    });
+
+    if (!task || !task.plan || task.lastAgentStatus !== 'planning') {
+      return err({
+        code: 'PLAN_NOT_FOUND',
+        message: `No pending plan for task ${taskId}`,
+        status: 404,
+      });
+    }
+
+    const worktreeIdToClean = task.worktreeId ?? null;
+    const agentId = task.agentId ?? null;
+
+    // Stop the host-mode agent first so its background executeAgentAsync does
+    // not race with the DB update. stop() is best-effort — if the agent is
+    // already gone (crashed / never started) we proceed with cleanup anyway.
+    if (agentId && this.runningAgents.has(agentId)) {
+      const controller = this.runningAgents.get(agentId);
+      controller?.abort();
+      this.runningAgents.delete(agentId);
+      this.agentStartTimes.delete(agentId);
+      this.preToolHooks.delete(agentId);
+      this.postToolHooks.delete(agentId);
+      try {
+        await this.db
+          .update(agents)
+          .set({
+            status: 'idle',
+            currentTaskId: null,
+            currentSessionId: null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(agents.id, agentId));
+      } catch (agentErr) {
+        log.warn('Failed to reset agent state on plan reject (continuing)', {
+          error: agentErr instanceof Error ? agentErr.message : String(agentErr),
+          data: { agentId, taskId },
+        });
+      }
+    }
+
+    // CAS-move: only reject if the task is still in the `planning` status.
+    try {
+      const [updated] = await this.db
+        .update(tasks)
+        .set({
+          column: 'backlog' as TaskColumn,
+          plan: null,
+          planOptions: null,
+          lastAgentStatus: null,
+          rejectionReason: reason ?? null,
+          worktreeId: null,
+          branch: null,
+        })
+        .where(and(eq(tasks.id, taskId), eq(tasks.lastAgentStatus, 'planning')))
+        .returning();
+
+      if (!updated) {
+        return err({
+          code: 'PLAN_NOT_FOUND',
+          message: `Plan rejection failed — task ${taskId} no longer in planning state`,
+          status: 404,
+        });
+      }
+    } catch (dbErr) {
+      const errorMsg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      log.error('Failed to reject plan (host-mode)', { data: { taskId, error: errorMsg } });
+      return err({
+        code: 'PLAN_REJECTION_FAILED',
+        message: `Failed to reject plan for task ${taskId}: ${errorMsg}`,
+        status: 500,
+      });
+    }
+
+    // Remove the worktree (best-effort, fire-and-forget)
+    if (worktreeIdToClean) {
+      this.worktreeService.remove(worktreeIdToClean, true).catch((rmErr) => {
+        log.warn('Failed to remove worktree on host-mode plan reject', {
+          error: rmErr instanceof Error ? rmErr.message : String(rmErr),
+          data: { taskId, worktreeId: worktreeIdToClean },
+        });
+      });
+    }
+
+    log.info('Plan rejected (host-mode)', {
+      data: { taskId, reason: reason ?? null, worktreeRemoved: !!worktreeIdToClean },
+    });
+    return ok(undefined);
   }
 
   /**

@@ -101,6 +101,11 @@ export type CodespaceSummary = {
 
 export type CommandRunner = {
   exec: (command: string, cwd: string) => Promise<{ stdout: string; stderr: string }>;
+  /**
+   * Positional-argv spawn (F06-02). Optional for test-stub compatibility;
+   * production runners always provide it.
+   */
+  execArgs?: (argv: string[], cwd: string) => Promise<{ stdout: string; stderr: string }>;
 };
 
 export class CodespaceService {
@@ -564,12 +569,26 @@ export class CodespaceService {
     }
 
     try {
-      // SC-C3: Validate inputs to prevent shell injection
-      // Reject URLs/paths containing characters that could break out of double quotes
-      if (/["\\\n\r\0$`!]/.test(url)) {
+      // SC-C3 / F06-02: Validate inputs to prevent shell injection.
+      // The primary path uses `execArgs` (no shell). But the fallback
+      // below uses `exec` with double-quoted shell interpolation — if the
+      // caller supplied a runner without `execArgs`, we must enforce the
+      // stricter check or a URL like `https://evil/$(whoami)` would
+      // reach the shell.
+      const BASE_INVALID = /[\0\n\r]/;
+      const SHELL_INVALID = /["\\\0\n\r$`!]/; // chars special inside double-quoted shell strings
+      const invalidForPath = (s: string): boolean =>
+        this.runner.execArgs ? BASE_INVALID.test(s) : SHELL_INVALID.test(s);
+
+      if (invalidForPath(url) || url.startsWith('-')) {
         return err(CodespaceErrors.CONFIG_INVALID(['Invalid characters in repository URL']));
       }
-      if (/["\\\n\r\0$`!]/.test(resolved) || /["\\\n\r\0$`!]/.test(targetPath)) {
+      if (
+        invalidForPath(resolved) ||
+        invalidForPath(targetPath) ||
+        resolved.startsWith('-') ||
+        targetPath.startsWith('-')
+      ) {
         return err(CodespaceErrors.CONFIG_INVALID(['Invalid characters in destination path']));
       }
       // SC-C2: Validate path traversal - resolved path must not escape via '..'
@@ -577,19 +596,40 @@ export class CodespaceService {
         return err(CodespaceErrors.CONFIG_INVALID(['Path traversal sequences not allowed']));
       }
 
-      // Check if destination directory exists, create if not
-      await this.runner.exec(`mkdir -p "${resolved}"`, '/tmp');
+      // F06-02: route all external-input commands through execArgs so
+      // positional values never touch a shell. The runner contract
+      // documents execArgs as the safe primitive for untrusted input.
+      if (!this.runner.execArgs) {
+        // Shouldn't happen in the real bootstrap, but some tests construct
+        // a partial CommandRunner. Fall back to exec with the original
+        // quoted form in that case; callers using a full runner always
+        // take the safe path above.
+        await this.runner.exec(`mkdir -p "${resolved}"`, '/tmp');
+      } else {
+        // Check if destination directory exists, create if not
+        await this.runner.execArgs(['mkdir', '-p', resolved], '/tmp');
+      }
 
       // Check if target path already exists
       try {
-        await this.runner.exec(`test -d "${targetPath}"`, '/tmp');
+        if (this.runner.execArgs) {
+          await this.runner.execArgs(['test', '-d', targetPath], '/tmp');
+        } else {
+          await this.runner.exec(`test -d "${targetPath}"`, '/tmp');
+        }
         return err(CodespaceErrors.PATH_EXISTS);
       } catch {
         // Directory doesn't exist, which is good
       }
 
-      // Clone the repository
-      await this.runner.exec(`git clone "${url}" "${targetPath}"`, resolved);
+      // Clone the repository. Using execArgs with `--` separator so a
+      // hostile URL beginning with `-` cannot be interpreted as a flag
+      // by git-clone.
+      if (this.runner.execArgs) {
+        await this.runner.execArgs(['git', 'clone', '--', url, targetPath], resolved);
+      } else {
+        await this.runner.exec(`git clone "${url}" "${targetPath}"`, resolved);
+      }
 
       return ok({
         path: targetPath,

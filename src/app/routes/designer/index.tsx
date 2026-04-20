@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { WorkflowDesigner } from '@/app/components/features/workflow-designer';
+import { ErrorBoundary } from '@/app/components/ui/error-boundary';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Workflow } from '@/db/schema';
 
@@ -97,7 +98,9 @@ function DesignerPage(): React.JSX.Element {
   return (
     <LayoutShell breadcrumbs={[{ label: breadcrumbLabel }]}>
       <div className="h-full w-full" data-testid="designer-page">
-        <WorkflowDesigner initialWorkflow={workflow ?? undefined} />
+        <ErrorBoundary label="Workflow Designer">
+          <WorkflowDesigner initialWorkflow={workflow ?? undefined} />
+        </ErrorBoundary>
       </div>
     </LayoutShell>
   );

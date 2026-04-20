@@ -21,6 +21,7 @@ import {
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { sql } from 'drizzle-orm';
+import type { BackgroundJob, BackgroundJobSnapshot } from '../lib/background/job.js';
 import { createLogger } from '../lib/logging/logger.js';
 import type { Database } from '../types/database.js';
 import type { SettingsService } from './settings.service.js';
@@ -63,12 +64,14 @@ export interface BackupResult {
   oldBackupsRemoved?: number;
 }
 
-export class EventCleanupService {
+export class EventCleanupService implements BackgroundJob {
+  readonly name = 'eventCleanup';
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private initialTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private isRunning = false;
   private lastRunAt: string | null = null;
   private lastBackupAt: string | null = null;
+  private lastError: string | null = null;
 
   constructor(
     private db: Database,
@@ -338,6 +341,7 @@ export class EventCleanupService {
     );
 
     this.lastRunAt = now.toISOString();
+    this.lastError = null;
 
     if (sessionEventsDeleted > 0 || eventLogDeleted > 0) {
       log.info('Event cleanup completed', {
@@ -366,18 +370,19 @@ export class EventCleanupService {
   }
 
   /**
-   * Start the cleanup scheduler.
-   * Returns a stop function for use with the shutdown handler.
+   * Start the cleanup scheduler. Idempotent per the {@link BackgroundJob}
+   * contract: calling while already running is a no-op.
    */
-  start(): () => void {
+  start(): void {
     if (this.isRunning) {
-      return () => this.stop();
+      return;
     }
     this.isRunning = true;
 
     // Delay the first run to avoid startup contention
     this.initialTimeoutId = setTimeout(() => {
       this.runCleanup().catch((error) => {
+        this.lastError = error instanceof Error ? error.message : String(error);
         log.error('Event cleanup failed', {
           error: error instanceof Error ? error : new Error(String(error)),
         });
@@ -386,14 +391,13 @@ export class EventCleanupService {
       // Set up periodic cleanup
       this.intervalId = setInterval(() => {
         this.runCleanup().catch((error) => {
+          this.lastError = error instanceof Error ? error.message : String(error);
           log.error('Event cleanup failed', {
             error: error instanceof Error ? error : new Error(String(error)),
           });
         });
       }, CLEANUP_INTERVAL_MS);
     }, INITIAL_DELAY_MS);
-
-    return () => this.stop();
   }
 
   /**
@@ -429,6 +433,19 @@ export class EventCleanupService {
       isRunning: this.isRunning,
       lastRunAt: this.lastRunAt,
       lastBackupAt: this.lastBackupAt,
+    };
+  }
+
+  /**
+   * {@link BackgroundJob.healthSnapshot} — returns a minimal snapshot
+   * suitable for an ops endpoint. Never throws.
+   */
+  healthSnapshot(): BackgroundJobSnapshot {
+    return {
+      name: this.name,
+      running: this.isRunning,
+      lastRunAt: this.lastRunAt ?? undefined,
+      lastError: this.lastError ?? undefined,
     };
   }
 }

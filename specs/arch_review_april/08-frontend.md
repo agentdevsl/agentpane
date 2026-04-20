@@ -29,15 +29,23 @@ Stack: TanStack Start 1.167 + Router with `autoCodeSplitting`, TanStack DB, Reac
 
 ### F08-01: Every prior readiness critical is still open
 - **Priority**: P1
+- **Status**: Resolved (April 2026 remediation) — except console.* cleanup, see follow-up.
 - **Observation**: `specs/release_plan/08-frontend-readiness.md` C1-C5 all reproduce at HEAD. `fallback={null}` in six sites (`routes/index.tsx:511`, `codespaces/index.tsx:477`, `codespaces/$codespaceId/index.tsx:467`, `workflow-designer/index.tsx:599`, `live-task-view/index.tsx:249`, `global-shortcuts.tsx:387`). 229 `console.*` calls across 62 `src/app` files. Only three component error boundaries. `ui/connection-status-banner.tsx` exists but is never mounted.
 - **Risk**: Kanban render crash still wipes the route tree; blank panels on lazy-load; API outages produce inconsistent per-view errors.
 - **Recommendation**: One PR: wrap Kanban / WorkflowDesigner / SessionHistory in boundaries, replace `fallback={null}` with skeletons, mount `ConnectionStatusBanner` at `__root.tsx`, strip `console.debug/log` via Vite define. Close the readiness doc.
+- **Resolution**:
+  - Error boundaries: `KanbanBoard` now wrapped in `codespaces/$codespaceId/index.tsx`; `WorkflowDesigner` wrapped in `routes/designer/index.tsx` and `routes/catalog/$workflowId.tsx`; `SessionHistory` wrapped in `routes/sessions/index.tsx`. All use the shared `ErrorBoundary` from `src/app/components/ui/error-boundary.tsx` (added by F09-02, theme 09).
+  - Suspense skeletons: all six `fallback={null}` sites replaced with the shared `DialogLoadingFallback` (SR-only live region) or `PanelLoadingFallback` (skeleton scaffold) from `src/app/components/ui/suspense-fallbacks.tsx`.
+  - Connection banner: `ConnectionStatusBanner` mounted at `__root.tsx`, driven by a new `useGlobalConnectionStatus()` hook that combines `navigator.onLine`, the `online`/`offline` events, and a 60s `/api/health` poll with a 5s timeout and a two-failure debounce before escalating from `reconnecting` → `disconnected`.
+- **Follow-up**: The 229 `console.*` calls are intentionally out of scope for this PR — the change set would sprawl. Track as a dedicated follow-up: add a Biome rule forbidding `console.debug`/`console.log` in `src/app/**` and a Vite `define` to strip any survivors in production. Documented under `specs/release_plan/08-frontend-readiness.md` C2.
 
 ### F08-02: Frontend test directory is empty
 - **Priority**: P1
+- **Status**: Resolved (pre-existing, April 2026 — theme 09 F09-02).
 - **Observation**: `find src/app -name "*.test.*"` returns zero results. No component, hook, or route-loader tests. The `apiServerFetch<T>` double-wrap bug has a server-side test but 40+ frontend consumers have none. `use-session` rAF batching, seen-event dedupe, SSE reconnect state, Kanban DnD reorder, plan-approval transitions are all UI-untested.
 - **Risk**: Regressions land silently. Refactors to `use-session.ts` or `DurableStreamsClient` can break streaming without a CI signal.
 - **Recommendation**: Stand up Vitest + `@testing-library/react` + `jsdom`. Seed three tests: (a) `use-session` dedupe across reconnect, (b) flat-array shape of `apiClient.sessions.listEvents()`, (c) `TopologyErrorBoundary` recovers. Add `src/app` to the 3-way Vitest shard split.
+- **Resolution**: Addressed by theme 09 F09-02 — the shared `ErrorBoundary` plus the three seed tests (`src/app/__tests__/{api-client-shape,error-boundary,session-dedupe}.test.tsx`) landed in #172. Theme 08 adds two more seed suites on top: `connection-status-banner.test.tsx` (3 tests) and `suspense-fallbacks.test.tsx` (3 tests).
 
 ### F08-03: `warning` Tailwind classes are silent no-ops
 - **Priority**: P2

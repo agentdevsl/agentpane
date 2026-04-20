@@ -35,8 +35,6 @@ export interface AgentCorePlanReadyData {
   turnCount: number;
   sdkSessionId: string;
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  launchSwarm?: boolean;
-  teammateCount?: number;
 }
 
 /**

@@ -35,6 +35,7 @@ import type {
   AgentToolStartData,
   AgentTurnData,
 } from './event-emitter.js';
+import { createAgentRunnerLogger } from './logger.js';
 // SC-023: Use shared logic extracted from index.ts and agentcore-handler.ts
 import {
   type ExitPlanModeInput,
@@ -44,6 +45,9 @@ import {
   shouldStop,
   writeCredentialsFile,
 } from './shared-session.js';
+
+// F10-05: structured runner logger (see index.ts for rationale).
+const log = createAgentRunnerLogger();
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,6 +75,10 @@ interface InvocationPayload {
   cwd?: string;
   /** OAuth token for Claude authentication. */
   oauthToken?: string;
+  /** theme-03 F11: real OAuth expiry (ms since epoch) from the host registry. */
+  oauthExpiresAt?: number;
+  /** theme-03 F11: OAuth refresh token when the host has one. */
+  oauthRefreshToken?: string | null;
   /** Path to a sentinel file — when it exists the agent stops. */
   stopFile?: string;
 }
@@ -126,6 +134,8 @@ async function* handleInvocation(
     sdkSessionId,
     allowedPrompts,
     oauthToken,
+    oauthExpiresAt,
+    oauthRefreshToken,
     stopFile,
   } = payload;
 
@@ -155,7 +165,22 @@ async function* handleInvocation(
   }
 
   try {
-    await writeCredentialsFile(token);
+    // theme-03 F11: pass through real OAuth metadata from the host when
+    // available so the SDK does not see a fictitious 24h expiry. Prefer the
+    // per-invocation payload; fall back to process env vars for backwards
+    // compatibility with hosts that still propagate via env.
+    const rawEnvExpiresAt = process.env.CLAUDE_OAUTH_EXPIRES_AT;
+    const parsedEnvExpiresAt = rawEnvExpiresAt ? Number(rawEnvExpiresAt) : undefined;
+    const envExpiresAt =
+      parsedEnvExpiresAt && Number.isFinite(parsedEnvExpiresAt) && parsedEnvExpiresAt > 0
+        ? parsedEnvExpiresAt
+        : undefined;
+    const expiresAt =
+      oauthExpiresAt && Number.isFinite(oauthExpiresAt) && oauthExpiresAt > 0
+        ? oauthExpiresAt
+        : envExpiresAt;
+    const refreshToken = oauthRefreshToken ?? process.env.CLAUDE_OAUTH_REFRESH_TOKEN ?? null;
+    await writeCredentialsFile(token, { expiresAt, refreshToken });
   } catch (credErr) {
     yield evt('agent:error', {
       error: `Credential setup failed: ${credErr instanceof Error ? credErr.message : String(credErr)}`,
@@ -170,7 +195,7 @@ async function* handleInvocation(
     phase: string;
   });
 
-  console.error(`[agentcore-handler] Phase: ${phase}, model: ${model}, maxTurns: ${maxTurns}`);
+  log.error(`[agentcore-handler] Phase: ${phase}, model: ${model}, maxTurns: ${maxTurns}`);
 
   // -- Tool tracking (mirrors index.ts) -----------------------------------
   const activeTools = new Map<string, { toolName: string; startTime: number }>();
@@ -231,7 +256,7 @@ async function* handleInvocation(
       exitPlanModeOptions = planInput;
       exitPlanModeDetected = true;
       exitPlanModePlan = typeof planInput?.plan === 'string' ? planInput.plan : undefined;
-      console.error(
+      log.error(
         `[agentcore-handler] ExitPlanMode captured — plan: ${exitPlanModePlan ? `${exitPlanModePlan.length} chars` : 'none'}`
       );
     }
@@ -244,7 +269,7 @@ async function* handleInvocation(
           (ap) => ap.tool === 'Bash' && ap.prompt === bashInput.command
         );
         if (isAllowed) {
-          console.error(`[agentcore-handler] Auto-approved Bash command from allowedPrompts`);
+          log.error(`[agentcore-handler] Auto-approved Bash command from allowedPrompts`);
         }
       }
     }
@@ -258,9 +283,7 @@ async function* handleInvocation(
 
   try {
     const permissionMode = phase === 'plan' ? 'plan' : 'bypassPermissions';
-    console.error(
-      `[agentcore-handler] Creating SDK session (permissionMode: ${permissionMode})...`
-    );
+    log.error(`[agentcore-handler] Creating SDK session (permissionMode: ${permissionMode})...`);
 
     if (sdkSessionId && phase === 'execute') {
       try {
@@ -271,10 +294,10 @@ async function* handleInvocation(
           canUseTool,
         });
         sessionResumed = true;
-        console.error(`[agentcore-handler] Resumed SDK session: ${sdkSessionId}`);
+        log.error(`[agentcore-handler] Resumed SDK session: ${sdkSessionId}`);
       } catch (resumeErr) {
         const msg = resumeErr instanceof Error ? resumeErr.message : String(resumeErr);
-        console.warn(`[agentcore-handler] Resume failed, creating fresh session: ${msg}`);
+        log.warn(`[agentcore-handler] Resume failed, creating fresh session: ${msg}`);
         yield evt('agent:message', {
           role: 'assistant',
           content: `Previous session could not be resumed (${msg}). Starting fresh execution with full plan context.`,
@@ -290,10 +313,10 @@ async function* handleInvocation(
         canUseTool,
       });
     }
-    console.error('[agentcore-handler] SDK session ready');
+    log.error('[agentcore-handler] SDK session ready');
   } catch (sessionErr) {
     const errMsg = sessionErr instanceof Error ? sessionErr.message : String(sessionErr);
-    console.error('[agentcore-handler] SDK session creation failed:', errMsg);
+    log.error('[agentcore-handler] SDK session creation failed:', { errMsg: errMsg });
     yield evt('agent:error', {
       error: `SDK session creation failed: ${errMsg}`,
       code: 'SDK_SESSION_FAILED',
@@ -331,7 +354,7 @@ async function* handleInvocation(
       : prompt;
 
     await session.send(sendPrompt);
-    console.error(`[agentcore-handler] Processing SDK stream (${phase})...`);
+    log.error(`[agentcore-handler] Processing SDK stream (${phase})...`);
 
     let messageCount = 0;
 
@@ -345,7 +368,7 @@ async function* handleInvocation(
 
       // Check for cancellation
       if (await shouldStop(stopFile)) {
-        console.error('[agentcore-handler] Stop file detected, cancelling...');
+        log.error('[agentcore-handler] Stop file detected, cancelling...');
         yield evt('agent:cancelled', { turnCount: turn });
         closeSession();
         return;
@@ -356,7 +379,7 @@ async function* handleInvocation(
         const sysMsg = msg as { subtype?: string };
         if (sysMsg.subtype === 'init') {
           capturedSdkSessionId = session.sessionId;
-          console.error(`[agentcore-handler] SDK session ID: ${capturedSdkSessionId}`);
+          log.error(`[agentcore-handler] SDK session ID: ${capturedSdkSessionId}`);
         }
       }
 
@@ -371,7 +394,7 @@ async function* handleInvocation(
         // Turn tracking on message_start
         if (event.type === 'message_start') {
           turn++;
-          console.error(`[agentcore-handler] Turn ${turn}/${maxTurns}`);
+          log.error(`[agentcore-handler] Turn ${turn}/${maxTurns}`);
           yield evt('agent:turn', {
             turn,
             maxTurns,
@@ -379,7 +402,7 @@ async function* handleInvocation(
           } satisfies AgentTurnData);
 
           if (turn >= maxTurns) {
-            console.error('[agentcore-handler] Turn limit reached');
+            log.error('[agentcore-handler] Turn limit reached');
             yield evt('agent:complete', {
               status: 'turn_limit',
               turnCount: turn,
@@ -429,7 +452,7 @@ async function* handleInvocation(
         const rateLimitMsg = msg as {
           rate_limit_info: { status: string; resetsAt?: number };
         };
-        console.error(`[agentcore-handler] Rate limit: ${rateLimitMsg.rate_limit_info.status}`);
+        log.error(`[agentcore-handler] Rate limit: ${rateLimitMsg.rate_limit_info.status}`);
       }
 
       // -- tool_use_summary -----------------------------------------------
@@ -453,7 +476,7 @@ async function* handleInvocation(
             } satisfies AgentToolResultData);
 
             if (startInfo.toolName === 'ExitPlanMode') {
-              console.error('[agentcore-handler] ExitPlanMode tool completed — waiting for result');
+              log.error('[agentcore-handler] ExitPlanMode tool completed — waiting for result');
             }
           }
         }
@@ -485,7 +508,7 @@ async function* handleInvocation(
           // Planning phase: emit plan_ready if ExitPlanMode was called
           if (exitPlanModeDetected || exitPlanModeOptions !== undefined || accumulatedText) {
             const planContent = exitPlanModePlan || accumulatedText;
-            console.error(
+            log.error(
               `[agentcore-handler] Emitting plan_ready (source: ${exitPlanModePlan ? 'ExitPlanModeInput' : 'accumulated'}, length: ${planContent.length})`
             );
             yield evt('agent:plan_ready', {
@@ -523,7 +546,7 @@ async function* handleInvocation(
     }
 
     // Stream ended without explicit result
-    console.error(`[agentcore-handler] Stream ended. Messages: ${messageCount}, turns: ${turn}`);
+    log.error(`[agentcore-handler] Stream ended. Messages: ${messageCount}, turns: ${turn}`);
     flushAllToolResults();
     yield* drainQueue(pendingToolResults);
     closeSession();
@@ -548,9 +571,9 @@ async function* handleInvocation(
 
     const message = error instanceof Error ? error.message : String(error);
     const errorCode = (error as { code?: string }).code;
-    console.error(`[agentcore-handler] ${phase} error:`, message);
+    log.error(`[agentcore-handler] ${phase} error:`, { message: message });
     if (error instanceof Error && error.stack) {
-      console.error('[agentcore-handler] Stack:', error.stack);
+      log.error('[agentcore-handler] Stack:', { stack: error.stack });
     }
 
     yield evt('agent:error', {
@@ -573,5 +596,5 @@ const app = new BedrockAgentCoreApp({
   },
 });
 
-console.error('[agentcore-handler] Starting BedrockAgentCoreApp on port 8080...');
+log.error('[agentcore-handler] Starting BedrockAgentCoreApp on port 8080...');
 app.run();

@@ -63,10 +63,13 @@ describe('Tasks API Routes', () => {
       expect(json.ok).toBe(true);
       expect(json.data.items).toHaveLength(2);
       expect(json.data.items[0].id).toBe('task-1');
+      // F07-01: cursor-paginated route fetches limit+1 rows and fixes the
+      // sort direction so cursor comparison is deterministic.
       expect(taskService.list).toHaveBeenCalledWith('proj-1', {
         column: undefined,
-        limit: 50,
-        offset: 0,
+        limit: 51,
+        orderBy: 'position',
+        orderDirection: 'asc',
       });
     });
 
@@ -98,10 +101,12 @@ describe('Tasks API Routes', () => {
 
       await request(app, 'GET', '/api/tasks?codespaceId=proj-1&column=backlog');
 
+      // F07-01: cursor-paginated route fetches limit+1 rows.
       expect(taskService.list).toHaveBeenCalledWith('proj-1', {
         column: 'backlog',
-        limit: 50,
-        offset: 0,
+        limit: 51,
+        orderBy: 'position',
+        orderDirection: 'asc',
       });
     });
   });

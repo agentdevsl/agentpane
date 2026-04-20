@@ -64,7 +64,16 @@ describe('Sessions Routes (IT-1250)', () => {
     expect(body.data).toHaveLength(2);
     expect(body.pagination.limit).toBe(50);
     expect(body.pagination.offset).toBe(0);
-    expect(mockService.list).toHaveBeenCalledWith({ limit: 50, offset: 0 });
+    // F07-01: global sessions list always runs in cursor mode — the route
+    // fetches `limit + 1` so `paginate()` can derive `hasMore`/`nextCursor`
+    // without a count query. Default sort is `updatedAt` desc (with `id` as
+    // the tiebreaker).
+    expect(mockService.list).toHaveBeenCalledWith({
+      limit: 51,
+      offset: 0,
+      orderBy: 'updatedAt',
+      orderDirection: 'desc',
+    });
   });
 
   it('IT-1251: GET / respects limit and offset params', async () => {
@@ -72,7 +81,14 @@ describe('Sessions Routes (IT-1250)', () => {
 
     await app.request('http://localhost/?limit=10&offset=20');
 
-    expect(mockService.list).toHaveBeenCalledWith({ limit: 10, offset: 20 });
+    // F07-01: same cursor-mode semantics — route overshoots by 1 to detect
+    // `hasMore`.
+    expect(mockService.list).toHaveBeenCalledWith({
+      limit: 11,
+      offset: 20,
+      orderBy: 'updatedAt',
+      orderDirection: 'desc',
+    });
   });
 
   it('IT-1252: GET / returns error on service failure', async () => {
@@ -320,7 +336,9 @@ describe('Sessions Routes (IT-1250)', () => {
     const body = await res.json();
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe('INVALID_PARAMS');
-    expect(body.error.message).toContain('either');
+    // The exclusivity-violation message must call out the pagination modes.
+    expect(body.error.message).toContain('offset');
+    expect(body.error.message).toContain('afterEventId');
   });
 
   // ─── GET /:id/summary ─────────────────────────────────

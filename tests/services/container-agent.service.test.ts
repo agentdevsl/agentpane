@@ -1976,27 +1976,42 @@ describe('ContainerAgentService', () => {
   // =========================================================================
 
   describe('AgentCore provider management', () => {
-    it('setAgentCoreProvider configures the provider', () => {
-      service.setAgentCoreProvider({
-        region: 'us-east-1',
-        accessKeyId: 'AKIA...',
-        secretAccessKey: 'secret',
-        runtimeArn: 'arn:aws:agentcore:...',
-      });
-      expect(service.providerName).toBe('agentcore');
+    it('setAgentCoreProvider configures the provider', async () => {
+      // theme-04 P1-02: AgentCore is gated on AGENTCORE_ENABLED
+      const prev = process.env.AGENTCORE_ENABLED;
+      process.env.AGENTCORE_ENABLED = 'true';
+      try {
+        await service.setAgentCoreProvider({
+          region: 'us-east-1',
+          accessKeyId: 'AKIA...',
+          secretAccessKey: 'secret',
+          runtimeArn: 'arn:aws:agentcore:...',
+        });
+        expect(service.providerName).toBe('agentcore');
+      } finally {
+        if (prev === undefined) delete process.env.AGENTCORE_ENABLED;
+        else process.env.AGENTCORE_ENABLED = prev;
+      }
     });
 
-    it('clearAgentCoreProvider resets to container provider', () => {
-      service.setAgentCoreProvider({
-        region: 'us-east-1',
-        accessKeyId: 'AKIA...',
-        secretAccessKey: 'secret',
-        runtimeArn: 'arn:aws:agentcore:...',
-      });
-      expect(service.providerName).toBe('agentcore');
+    it('clearAgentCoreProvider resets to container provider', async () => {
+      const prev = process.env.AGENTCORE_ENABLED;
+      process.env.AGENTCORE_ENABLED = 'true';
+      try {
+        await service.setAgentCoreProvider({
+          region: 'us-east-1',
+          accessKeyId: 'AKIA...',
+          secretAccessKey: 'secret',
+          runtimeArn: 'arn:aws:agentcore:...',
+        });
+        expect(service.providerName).toBe('agentcore');
 
-      service.clearAgentCoreProvider();
-      expect(service.providerName).toBe('docker');
+        service.clearAgentCoreProvider();
+        expect(service.providerName).toBe('docker');
+      } finally {
+        if (prev === undefined) delete process.env.AGENTCORE_ENABLED;
+        else process.env.AGENTCORE_ENABLED = prev;
+      }
     });
   });
 

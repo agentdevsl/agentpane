@@ -11,8 +11,62 @@ import type {
   DurableStreamsService,
   StreamEventMap,
 } from '../../services/durable-streams.service.js';
+import { createLogger } from '../logging/logger.js';
 import { errorMessage } from '../utils/error-message';
 import { type AgentRunnerEventType, EVENT_TYPE_MAP } from './event-type-map.js';
+
+/**
+ * F10-05: host-side replay logger for structured agent-runner log lines.
+ * The runner emits JSON records with `channel: 'agent-runner-log'`; we parse
+ * them off stderr and replay at the matching level so the host's structured
+ * logger sees them with correlation id preserved.
+ */
+const runnerLog = createLogger('agent-runner');
+
+type RunnerLogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+interface AgentRunnerLogRecord {
+  channel: 'agent-runner-log';
+  level: RunnerLogLevel;
+  msg: string;
+  ts?: string;
+  correlationId?: string | null;
+  taskId?: string | null;
+  sessionId?: string | null;
+  [key: string]: unknown;
+}
+
+function isAgentRunnerLogRecord(value: unknown): value is AgentRunnerLogRecord {
+  if (!value || typeof value !== 'object') return false;
+  const rec = value as Record<string, unknown>;
+  return (
+    rec.channel === 'agent-runner-log' &&
+    typeof rec.level === 'string' &&
+    ['debug', 'info', 'warn', 'error'].includes(rec.level as string) &&
+    typeof rec.msg === 'string'
+  );
+}
+
+/**
+ * Try to interpret a stderr line as a structured agent-runner log record and
+ * replay it through the host logger. Returns true if the line was handled.
+ */
+export function tryReplayAgentRunnerLogLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('{')) return false;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!isAgentRunnerLogRecord(parsed)) return false;
+    const { level, msg, ...rest } = parsed;
+    // Drop the protocol channel marker from the replayed context — the logger
+    // name already identifies it as an agent-runner line.
+    const { channel: _channel, ...context } = rest;
+    runnerLog[level](msg, { data: context });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // Re-export AgentRunnerEventType as ContainerAgentEventType for backwards compatibility
 export type ContainerAgentEventType = AgentRunnerEventType;
@@ -48,8 +102,6 @@ export interface PlanReadyData {
   turnCount: number;
   sdkSessionId: string;
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  launchSwarm?: boolean;
-  teammateCount?: number;
 }
 
 import type { AgentCompleteMetrics } from '../../services/container-agent/types.js';
@@ -371,6 +423,24 @@ export function createContainerBridge(options: ContainerBridgeOptions): Containe
           continue;
         }
 
+        // F05-11: decode token batches into individual agent:token events.
+        // The batch envelope is `{ type: 'agent:token:batch', data: { deltas: AgentTokenData[] } }`.
+        // We expand each delta into a standalone agent:token event so downstream
+        // consumers see the same wire shape they did before batching.
+        if ((event.type as string) === 'agent:token:batch') {
+          const deltas = (event.data as { deltas?: Array<Record<string, unknown>> }).deltas;
+          if (Array.isArray(deltas)) {
+            for (const delta of deltas) {
+              await publishEvent({
+                ...event,
+                type: 'agent:token',
+                data: delta,
+              });
+            }
+          }
+          continue;
+        }
+
         // Publish event
         await publishEvent(event);
 
@@ -411,6 +481,13 @@ export function createContainerBridge(options: ContainerBridgeOptions): Containe
 
       stderrReader.on('line', async (line: string) => {
         if (stopped) {
+          return;
+        }
+
+        // F10-05: structured agent-runner log lines (channel === 'agent-runner-log')
+        // are replayed through the host logger so the correlation id, taskId, and
+        // sessionId are preserved in a single log stream.
+        if (tryReplayAgentRunnerLogLine(line)) {
           return;
         }
 
