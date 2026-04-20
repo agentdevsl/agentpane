@@ -14,11 +14,28 @@ const mockSessionCreate = vi.hoisted(() =>
       })()
     ),
     close: vi.fn(),
+    sessionId: 'sdk-session-mock-id',
+  })
+);
+
+// theme-03 F5: host-mode stream-handler now calls unstable_v2_resumeSession
+// when the caller supplies an sdkSessionId (mirroring the agent-runner).
+const mockSessionResume = vi.hoisted(() =>
+  vi.fn().mockReturnValue({
+    send: vi.fn(),
+    stream: vi.fn().mockReturnValue(
+      (async function* () {
+        // empty stream
+      })()
+    ),
+    close: vi.fn(),
+    sessionId: 'sdk-session-mock-resumed-id',
   })
 );
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   unstable_v2_createSession: mockSessionCreate,
+  unstable_v2_resumeSession: mockSessionResume,
 }));
 
 vi.mock('@/lib/topology/map-agent-role', () => ({
@@ -39,8 +56,10 @@ function createMockSession() {
       })()
     ),
     close: vi.fn(),
+    sessionId: 'sdk-session-mock-id',
   };
   mockSessionCreate.mockReturnValue(session);
+  mockSessionResume.mockReturnValue(session);
   return session;
 }
 
@@ -1307,6 +1326,168 @@ describe('runAgentExecution', () => {
     expect(result.status).toBe('completed');
     expect(result.turnCount).toBe(1);
     expect(result.result).toBe('Implementation done');
+  });
+});
+
+// =============================================================================
+// theme-03 F5: host-mode SDK session resume across plan approval
+// =============================================================================
+
+describe('F5: host-mode SDK session resume', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    createMockSession();
+  });
+
+  it('runAgentPlanning captures sdkSessionId from the session and returns it', async () => {
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockReturnValue(
+        yieldMessages([
+          {
+            type: 'result',
+            total_cost_usd: 0.01,
+            duration_ms: 1000,
+            num_turns: 1,
+            stop_reason: 'end_turn',
+          },
+        ])
+      ),
+      close: vi.fn(),
+      sessionId: 'captured-sdk-session-42',
+    };
+    mockSessionCreate.mockReturnValue(mockSession);
+
+    const sessionService = createMockSessionService();
+    const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+
+    const result = await runAgentPlanning(createDefaultOptions(sessionService));
+
+    expect(result.sdkSessionId).toBe('captured-sdk-session-42');
+  });
+
+  it('runAgentPlanning emits plan_ready event carrying captured sdkSessionId', async () => {
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockReturnValue(
+        yieldMessages([
+          {
+            type: 'result',
+            total_cost_usd: 0.01,
+            duration_ms: 1000,
+            num_turns: 1,
+            stop_reason: 'end_turn',
+          },
+        ])
+      ),
+      close: vi.fn(),
+      sessionId: 'planning-sdk-session-xyz',
+    };
+    mockSessionCreate.mockReturnValue(mockSession);
+
+    const sessionService = createMockSessionService();
+    const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+
+    await runAgentPlanning(createDefaultOptions(sessionService));
+
+    const call = findPublishedEvent(sessionService, 'agent:plan_ready');
+    expect(call).toBeDefined();
+    const event = call![1] as { data: Record<string, unknown> };
+    expect(event.data.sdkSessionId).toBe('planning-sdk-session-xyz');
+  });
+
+  it('runAgentExecution calls unstable_v2_resumeSession when sdkSessionId is provided', async () => {
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockReturnValue(
+        yieldMessages([
+          {
+            type: 'result',
+            total_cost_usd: 0.01,
+            duration_ms: 1000,
+            num_turns: 1,
+            stop_reason: 'end_turn',
+          },
+        ])
+      ),
+      close: vi.fn(),
+      sessionId: 'resumed-123',
+    };
+    mockSessionResume.mockReturnValue(mockSession);
+
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    await runAgentExecution(createDefaultOptions(sessionService, { sdkSessionId: 'plan-sdk-77' }));
+
+    expect(mockSessionResume).toHaveBeenCalledWith(
+      'plan-sdk-77',
+      expect.objectContaining({ permissionMode: 'acceptEdits' })
+    );
+    expect(mockSessionCreate).not.toHaveBeenCalled();
+  });
+
+  it('runAgentExecution skips resume and calls createSession when no sdkSessionId is provided', async () => {
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockReturnValue(
+        yieldMessages([
+          {
+            type: 'result',
+            total_cost_usd: 0.01,
+            duration_ms: 1000,
+            num_turns: 1,
+            stop_reason: 'end_turn',
+          },
+        ])
+      ),
+      close: vi.fn(),
+      sessionId: 'fresh-123',
+    };
+    mockSessionCreate.mockReturnValue(mockSession);
+
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    await runAgentExecution(createDefaultOptions(sessionService));
+
+    expect(mockSessionCreate).toHaveBeenCalledTimes(1);
+    expect(mockSessionResume).not.toHaveBeenCalled();
+  });
+
+  it('runAgentExecution falls back to createSession when resume throws', async () => {
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockReturnValue(
+        yieldMessages([
+          {
+            type: 'result',
+            total_cost_usd: 0.01,
+            duration_ms: 1000,
+            num_turns: 1,
+            stop_reason: 'end_turn',
+          },
+        ])
+      ),
+      close: vi.fn(),
+      sessionId: 'fallback-123',
+    };
+    mockSessionResume.mockImplementationOnce(() => {
+      throw new Error('session expired');
+    });
+    mockSessionCreate.mockReturnValue(mockSession);
+
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    const result = await runAgentExecution(
+      createDefaultOptions(sessionService, { sdkSessionId: 'stale-sdk' })
+    );
+
+    expect(mockSessionResume).toHaveBeenCalledWith('stale-sdk', expect.any(Object));
+    // Fallback to fresh session on resume failure
+    expect(mockSessionCreate).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe('completed');
   });
 });
 

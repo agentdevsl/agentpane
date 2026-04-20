@@ -1,4 +1,8 @@
-import { type CanUseTool, unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
+import {
+  type CanUseTool,
+  unstable_v2_createSession,
+  unstable_v2_resumeSession,
+} from '@anthropic-ai/claude-agent-sdk';
 import { createId } from '@paralleldrive/cuid2';
 import { createLogger } from '../../lib/logging/logger.js';
 import { createSessionEventWithMetadata } from '../../services/session/event-metadata.js';
@@ -78,6 +82,13 @@ export interface StreamHandlerOptions {
   /** Skill identity from the task — threaded into session events for replay context. */
   skillId?: string | null;
   skillName?: string | null;
+  /**
+   * theme-03 F5: When provided, `runAgentExecution` tries to resume the given
+   * Claude SDK session id via `unstable_v2_resumeSession`. On any failure the
+   * handler falls back to a fresh session with the full plan prompt — same
+   * defense-in-depth pattern the agent-runner uses.
+   */
+  sdkSessionId?: string;
   sessionService: {
     publish: (sessionId: string, event: SessionEvent) => Promise<unknown>;
     persistOnly?: (sessionId: string, event: SessionEvent) => Promise<unknown>;
@@ -112,6 +123,12 @@ export interface AgentRunResult {
   result?: string;
   plan?: string;
   planOptions?: ExitPlanModeOptions;
+  /**
+   * theme-03 F5: Claude SDK session id captured during planning so the
+   * execution phase can resume the same conversation rather than paying the
+   * full-context cost of a fresh session.
+   */
+  sdkSessionId?: string;
   error?: string;
   metrics?: {
     totalCostUsd?: number;
@@ -468,6 +485,9 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   let turn = 0;
   let planContent = '';
   let exitPlanModeOptions: ExitPlanModeOptions | undefined;
+  // theme-03 F5: capture the SDK session id once the session is initialized
+  // so PlanApprovalService / TaskService.approvePlan can resume it on execute.
+  let capturedSdkSessionId: string | undefined;
 
   // Topology tracker for subagent lifecycle events during planning.
   // Skills can spawn subagents via the Agent tool, which emit task_started/progress/notification.
@@ -611,6 +631,19 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
 
     // Stream the planning response
     for await (const msg of session.stream()) {
+      // theme-03 F5: capture SDK session id as soon as it becomes available
+      // so it can be persisted in plan options and used to resume on approval.
+      if (!capturedSdkSessionId) {
+        try {
+          const sid = session.sessionId;
+          if (typeof sid === 'string' && sid.length > 0) {
+            capturedSdkSessionId = sid;
+          }
+        } catch {
+          // sessionId throws until the first message is received — retry on next iteration.
+        }
+      }
+
       // Check if abort signal or runtime timeout has been triggered
       if (signal?.aborted || timeoutController.signal.aborted) {
         clearTimeout(timeoutId);
@@ -888,6 +921,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
               runId,
               plan: planContent || accumulated,
               allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+              sdkSessionId: capturedSdkSessionId,
             },
           })
         );
@@ -898,6 +932,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           turnCount: turn,
           plan: planContent || accumulated,
           planOptions: exitPlanModeOptions,
+          sdkSessionId: capturedSdkSessionId,
           metrics: extractResultMetrics(result),
           skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
           fileChanges:
@@ -926,6 +961,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           runId,
           plan: planContent || accumulated,
           allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+          sdkSessionId: capturedSdkSessionId,
         },
       })
     );
@@ -936,6 +972,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
       turnCount: turn,
       plan: planContent || accumulated || 'No plan generated',
       planOptions: exitPlanModeOptions,
+      sdkSessionId: capturedSdkSessionId,
       skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
       fileChanges:
         modifiedFiles.size > 0
@@ -1115,15 +1152,41 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     return { behavior: 'allow' as const, toolUseID: toolOptions.toolUseID };
   };
 
-  // Create Claude Agent SDK session for execution
-  const session = unstable_v2_createSession({
+  // theme-03 F5: try to resume the planning-phase SDK session when the
+  // caller supplied one. Mirrors the agent-runner flow: on resume failure
+  // (stale session, SDK error) we fall back to a fresh session with the
+  // full plan prompt. The fresh-session branch is the status quo behavior.
+  const sdkSessionOptions = {
     model,
     env: buildSdkEnv(),
     allowedTools,
-    permissionMode: 'acceptEdits', // Auto-accept edits for execution
+    permissionMode: 'acceptEdits' as const, // Auto-accept edits for execution
     executableArgs: ['--add-dir', cwd],
     canUseTool,
-  });
+  };
+
+  let session: ReturnType<typeof unstable_v2_createSession>;
+  let sessionResumed = false;
+  if (options.sdkSessionId) {
+    try {
+      session = unstable_v2_resumeSession(options.sdkSessionId, sdkSessionOptions);
+      sessionResumed = true;
+      log.info('SDK session resumed for execution', {
+        data: { agentId, sdkSessionId: options.sdkSessionId },
+      });
+    } catch (resumeErr) {
+      const msg = resumeErr instanceof Error ? resumeErr.message : String(resumeErr);
+      log.warn('SDK session resume failed, falling back to fresh session', {
+        data: { agentId, sdkSessionId: options.sdkSessionId, error: msg },
+      });
+      session = unstable_v2_createSession(sdkSessionOptions);
+    }
+  } else {
+    session = unstable_v2_createSession(sdkSessionOptions);
+  }
+  // Suppress unused-var warning in builds that don't strip it; sessionResumed
+  // is retained for possible future telemetry / tests.
+  void sessionResumed;
 
   const batcher = createChunkBatcher(sessionId, agentId, 'execution', sessionService);
 

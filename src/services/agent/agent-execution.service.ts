@@ -722,16 +722,26 @@ export class AgentExecutionService {
           })
           .where(eq(agents.id, agentId));
 
+        // theme-03 F5: persist the captured SDK session id alongside the plan
+        // options so host-mode execution (TaskService.approvePlan → resume)
+        // can resume the same conversation rather than reseeding full context.
+        const mergedPlanOptions = {
+          ...(result.planOptions ?? {}),
+          ...(result.sdkSessionId ? { sdkSessionId: result.sdkSessionId } : {}),
+        };
+
         // Store the plan and options on the task
         await this.db
           .update(tasks)
           .set({
             plan: result.plan,
-            planOptions: result.planOptions,
+            planOptions: mergedPlanOptions,
           })
           .where(eq(tasks.id, taskId));
 
-        log.info('Agent planning complete, awaiting approval', { data: { agentId } });
+        log.info('Agent planning complete, awaiting approval', {
+          data: { agentId, hasSdkSessionId: !!result.sdkSessionId },
+        });
       } else if (result.status === 'completed') {
         await this.db
           .update(agents)
@@ -1161,6 +1171,17 @@ export class AgentExecutionService {
 
       const maxRuntimeMs = await getAgentMaxRuntimeMs(this.db);
 
+      // theme-03 F5: recover the SDK session id captured during planning so
+      // the execution phase can resume the same conversation. Falls back to
+      // a fresh session when absent (mirrors agent-runner behaviour).
+      const taskRow = await this.db.query.tasks.findFirst({
+        where: eq(tasks.id, task.id),
+        columns: { planOptions: true },
+      });
+      const storedSdkSessionId =
+        (taskRow?.planOptions as { sdkSessionId?: string } | null | undefined)?.sdkSessionId ??
+        undefined;
+
       const result = await runAgentExecution({
         agentId,
         sessionId,
@@ -1173,6 +1194,7 @@ export class AgentExecutionService {
         maxRuntimeMs,
         skillId: task.skillId,
         skillName: task.skillName,
+        sdkSessionId: storedSdkSessionId,
         sessionService: this.sessionService,
         onMessage: this.buildOnMessageCallback(memoryRef, this.memoryService),
       });
