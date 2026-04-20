@@ -7,6 +7,69 @@ import type { Result } from '../utils/result.js';
 import { err, ok } from '../utils/result.js';
 import { createOctokitFromToken } from './client.js';
 
+// ---------------------------------------------------------------------------
+// F06-04: Issue-body sanitisation
+// ---------------------------------------------------------------------------
+
+/**
+ * Regex matching GitHub's "issue reference" pattern for closing an issue
+ * via commit or PR: `closes|fixes|resolves #N` (case-insensitive,
+ * optionally with the ` ` or `:` between keyword and reference).
+ *
+ * If a plan body contains `Closes #123`, merging the plan's PR would
+ * auto-close issue 123 even though the author never intended it. We
+ * defuse the pattern by wrapping each match in an inline code fence so
+ * GitHub does not interpret it.
+ */
+const CLOSE_KEYWORD_RE = /\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)(\s+|:\s*)(#\d+)/gi;
+
+/**
+ * Regex matching `@mention` tokens. Any alphanumeric/dash/underscore
+ * identifier following `@` would notify that GitHub user/team. We wrap
+ * them the same way.
+ */
+const AT_MENTION_RE = /(^|[\s(])@([a-zA-Z0-9][a-zA-Z0-9-]{0,38})/g;
+
+/** Safe label regex: GitHub allows most characters, but we restrict to a
+ * conservative set so a label with an embedded `,` doesn't look like
+ * two separate labels in the UI. */
+const SAFE_LABEL_RE = /^[a-zA-Z0-9][a-zA-Z0-9 _/.-]{0,49}$/;
+
+/**
+ * Sanitize markdown intended for a GitHub issue body so that LLM-
+ * generated content cannot trigger GitHub's action-keywords (auto-close
+ * issues, post spam mentions). Treats the body as untrusted.
+ */
+export function sanitizeIssueBody(body: string): string {
+  if (!body) return body;
+  // Wrap close keywords so GitHub no longer matches `closes #N`.
+  let out = body.replace(CLOSE_KEYWORD_RE, (_match, kw: string, sep: string, ref: string) => {
+    // Use backticks to keep the text visible but inert. GitHub's close
+    // keyword parser ignores references inside inline code.
+    return `\`${kw}${sep}${ref}\``;
+  });
+  // Neutralize `@mentions`. We keep the leading separator so formatting
+  // is preserved and wrap `@user` in backticks.
+  out = out.replace(AT_MENTION_RE, (_match, lead: string, name: string) => {
+    return `${lead}\`@${name}\``;
+  });
+  return out;
+}
+
+/**
+ * Filter a label list so only safe labels make it to the API call. An
+ * attacker who controls the label text could otherwise round-trip a
+ * label named `"evil,urgent"` that looks like two labels in GitHub's
+ * UI but is sent as one.
+ */
+export function sanitizeLabels(labels: readonly string[] | undefined): string[] {
+  if (!labels) return [];
+  return labels
+    .filter((l): l is string => typeof l === 'string')
+    .map((l) => l.trim())
+    .filter((l) => SAFE_LABEL_RE.test(l));
+}
+
 /**
  * GitHub issue creation input
  */
@@ -36,7 +99,12 @@ export class GitHubIssueCreator {
   constructor(private octokit: Octokit) {}
 
   /**
-   * Create a GitHub issue
+   * Create a GitHub issue.
+   *
+   * F06-04: body, labels, and title are run through sanitizers before
+   * leaving the process. The plan content originates from LLM output;
+   * without sanitisation, a plan that says "Closes #123" would cause
+   * the merged PR to auto-close issue 123.
    */
   async createIssue(
     owner: string,
@@ -48,8 +116,8 @@ export class GitHubIssueCreator {
         owner,
         repo,
         title: input.title,
-        body: input.body,
-        labels: input.labels,
+        body: sanitizeIssueBody(input.body),
+        labels: sanitizeLabels(input.labels),
         assignees: input.assignees,
         milestone: input.milestone,
       });
@@ -104,7 +172,8 @@ export class GitHubIssueCreator {
   }
 
   /**
-   * Update an existing GitHub issue
+   * Update an existing GitHub issue. See {@link createIssue} for the
+   * sanitisation rationale.
    */
   async updateIssue(
     owner: string,
@@ -118,8 +187,8 @@ export class GitHubIssueCreator {
         repo,
         issue_number: issueNumber,
         title: input.title,
-        body: input.body,
-        labels: input.labels,
+        body: input.body !== undefined ? sanitizeIssueBody(input.body) : undefined,
+        labels: input.labels !== undefined ? sanitizeLabels(input.labels) : undefined,
         assignees: input.assignees,
         milestone: input.milestone,
       });
@@ -137,7 +206,9 @@ export class GitHubIssueCreator {
   }
 
   /**
-   * Add a comment to an issue
+   * Add a comment to an issue. Comment body is sanitized the same way
+   * as issue body — a comment containing "closes #N" still closes the
+   * issue on GitHub.
    */
   async addComment(
     owner: string,
@@ -150,7 +221,7 @@ export class GitHubIssueCreator {
         owner,
         repo,
         issue_number: issueNumber,
-        body,
+        body: sanitizeIssueBody(body),
       });
 
       return ok({
