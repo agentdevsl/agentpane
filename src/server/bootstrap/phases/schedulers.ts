@@ -3,8 +3,14 @@
  *
  * Starts template sync, Terraform sync, and task schedulers.
  * Registers cleanup functions directly with the shutdown handler.
+ *
+ * F12-04: new-style timer owners (implementing `BackgroundJob`) go through
+ * the shared {@link BackgroundJobRegistry}. The registry itself is stopped
+ * via a single LIFO entry on the shutdown handler, guaranteeing that a
+ * failure in one job's `stop()` does not strand timers in another.
  */
 
+import { type BackgroundJob, BackgroundJobRegistry } from '../../../lib/background/job.js';
 import { createLogger } from '../../../lib/logging/logger.js';
 import { EventCleanupService } from '../../../services/event-cleanup.service.js';
 import { startDreamScheduler } from '../../../services/memory/dream-scheduler.service.js';
@@ -28,35 +34,39 @@ const log = createLogger('Schedulers');
 export async function startSchedulers(
   db: Database,
   services: ServiceContainer,
-  shutdown: GracefulShutdown
+  shutdown: GracefulShutdown,
+  registry: BackgroundJobRegistry = new BackgroundJobRegistry()
 ): Promise<BootstrapPhaseResult> {
-  // Template sync scheduler
+  // Template sync scheduler (legacy — returns its own stop fn)
   const stopTemplateSync = startSyncScheduler(db, services.templateService);
   shutdown.register('templateSyncScheduler', stopTemplateSync);
   log.info('Template sync scheduler started');
 
-  // Terraform sync scheduler
+  // Terraform sync scheduler (legacy — returns its own stop fn)
   const stopTerraformSync = startTerraformSyncScheduler(db, services.terraformRegistryService);
   shutdown.register('terraformSyncScheduler', stopTerraformSync);
   log.info('Terraform sync scheduler started');
 
-  // Event cleanup scheduler
+  // F12-04: BackgroundJob-shaped services register with the shared registry
+  // so they share a single drain path. Any individual stop() failure is
+  // logged by the registry and does not prevent siblings from stopping.
   const eventCleanup = new EventCleanupService(db, services.settingsService);
-  const stopEventCleanup = eventCleanup.start();
-  shutdown.register('eventCleanupScheduler', stopEventCleanup);
-  log.info('Event cleanup scheduler started');
+  registry.register(eventCleanup satisfies BackgroundJob);
 
-  // Dream scheduler (skill improvement via Claude analysis)
+  // Dream scheduler (legacy — returns its own stop fn)
   if (services.dreamService) {
     const stopDreamScheduler = startDreamScheduler(services.dreamService, services.settingsService);
     shutdown.register('dreamScheduler', stopDreamScheduler);
     log.info('Dream scheduler started');
   }
 
-  // Task scheduler
+  // Task scheduler: we still start() it explicitly so an initialisation
+  // failure (schedule recovery throws) can be reported as a phase result.
+  // After a successful start we register it with the registry for shutdown
+  // so every BackgroundJob-shaped service flows through the same drain path.
   try {
     await services.schedulerService.start();
-    shutdown.register('taskScheduler', () => services.schedulerService.stop());
+    registry.register(services.schedulerService satisfies BackgroundJob);
     log.info('Task scheduler started');
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
@@ -66,6 +76,14 @@ export async function startSchedulers(
     const fatal = process.env.NODE_ENV === 'production';
     return { ok: false, fatal, error };
   }
+
+  // Start remaining BackgroundJob-shaped services (scheduler was started above).
+  // `startAll()` catches per-job errors so a single failure does not abort the loop.
+  await registry.startAll();
+
+  // Single LIFO-ordered drain: the registry handles per-job errors internally.
+  shutdown.register('backgroundJobRegistry', () => registry.stopAll());
+  log.info(`Background job registry started with ${registry.size()} job(s)`);
 
   return { ok: true };
 }

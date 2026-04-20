@@ -45,9 +45,16 @@ Horizontal hygiene that spans every subsystem: type-safety escapes, `Result<T,E>
 
 ### F12-04: Background timer lifecycle is inconsistent
 - **Priority**: P1
+- **Status**: RESOLVED (April 2026 — `p0-p1-april` remediation)
 - **Observation**: Eleven services own long-lived `setInterval`s. Cleanup discipline varies: `SchedulerService`, `EventCleanupService`, `DreamScheduler`, `CliMonitorService`, `SandboxController`, `SessionPresenceService`, `AgentExecutionService`, `SandboxStateManager` all expose `stop()` and are drained by bootstrap shutdown. `TaskCreationService` starts `cleanupInterval` at line 214 but exposes no stop method (grep: 0 matches for `stop()`/`dispose()`/`shutdown()` in the file). `server/routes/auth.ts:312` starts a session-cleanup `setInterval` in module init and relies on `unref()` alone — no way to stop from tests or graceful shutdown. `agentcore-bridge.service.ts:302` sets a per-agent `setTimeout` with `unref()` but never `clearTimeout`s it on successful completion — dangling timers accumulate one-per-task.
 - **Risk**: Vitest cross-test leaks (timers firing against a closed DB handle), process taking longer than the shutdown deadline, and in `agentcore-bridge` a monotonic memory footprint across agent runs.
 - **Recommendation**: Standardise a `BackgroundJob` interface (`start()` / `stop()` / `isRunning()`), require every service owning a timer to implement it, and have `ServerBootstrap` track them in an array drained on `SIGTERM`. Add an ESLint/Semgrep rule: top-level `setInterval` outside a class owning a `stop()` is an error.
+- **Resolution**:
+  - Added `src/lib/background/job.ts` with `BackgroundJob` + `BackgroundJobRegistry`. The registry drains jobs in LIFO order and — critically — catches and logs per-job `stop()` failures so one bad actor cannot strand siblings' timers. Snapshots surface `running` + `lastRunAt` + `lastError` for ops.
+  - `EventCleanupService`, `SchedulerService`, and `EventOutboxRelayService` (F05-05) all implement the interface. `EventCleanupService.start()` is now idempotent `void` (previously returned its own stop fn) and carries a `healthSnapshot()`.
+  - `server/bootstrap/phases/schedulers.ts` owns the registry and registers a single LIFO `backgroundJobRegistry` shutdown hook. The registry instance is injectable so tests can swap in a fake.
+  - Follow-up scope (documented, not in this PR): `server/routes/auth.ts:312` session cleanup interval, `agentcore-bridge.service.ts:302` per-agent timeouts, `server/routes/events.ts` + `cli-monitor.ts` SSE pings, and `task-creation.service.ts` cleanup interval. Each adopt the interface when next touched; they remain `unref()`-safe in the interim.
+  - Tests: `tests/lib/background/job.test.ts` covers startAll/stopAll idempotency, LIFO order, error-isolation on stop and start, duplicate-name rejection, and snapshot shape (including a healthSnapshot that throws).
 
 ### F12-05: `Result<T,E>` discipline stops at the route boundary
 - **Priority**: P2

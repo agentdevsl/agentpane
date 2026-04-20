@@ -21,6 +21,7 @@
 
 import { and, eq, lt, lte, sql } from 'drizzle-orm';
 import { eventOutbox } from '../db/schema/sqlite/event-outbox.js';
+import type { BackgroundJob, BackgroundJobSnapshot } from '../lib/background/job.js';
 import { createLogger } from '../lib/logging/logger.js';
 import type { Database } from '../types/database.js';
 import type { DurableStreamsServer } from './durable-streams.service.js';
@@ -35,11 +36,14 @@ const RETENTION_CLEANUP_INTERVAL_MS = 60 * 1000;
 const MAX_BACKOFF_MS = 30_000;
 const BASE_BACKOFF_MS = 100;
 
-export class EventOutboxRelayService {
+export class EventOutboxRelayService implements BackgroundJob {
+  readonly name = 'eventOutboxRelay';
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private retentionTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private inFlight = false;
+  private lastTickAt: string | null = null;
+  private lastError: string | null = null;
 
   constructor(
     private db: Database,
@@ -95,6 +99,7 @@ export class EventOutboxRelayService {
     this.inFlight = true;
     try {
       const now = new Date().toISOString();
+      this.lastTickAt = now;
       const rows = await this.db
         .select()
         .from(eventOutbox)
@@ -105,13 +110,28 @@ export class EventOutboxRelayService {
       for (const row of rows) {
         await this.processRow(row);
       }
+      this.lastError = null;
     } catch (err) {
+      this.lastError = err instanceof Error ? err.message : String(err);
       log.warn('EventOutboxRelay tick failed', {
-        data: { error: err instanceof Error ? err.message : String(err) },
+        data: { error: this.lastError },
       });
     } finally {
       this.inFlight = false;
     }
+  }
+
+  /**
+   * {@link BackgroundJob.healthSnapshot} — reports last poll-tick timing and
+   * any transient failure. Never throws.
+   */
+  healthSnapshot(): BackgroundJobSnapshot {
+    return {
+      name: this.name,
+      running: this.running,
+      lastRunAt: this.lastTickAt ?? undefined,
+      lastError: this.lastError ?? undefined,
+    };
   }
 
   private async processRow(row: typeof eventOutbox.$inferSelect): Promise<void> {

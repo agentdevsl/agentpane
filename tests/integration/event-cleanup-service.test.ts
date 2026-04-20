@@ -180,10 +180,10 @@ describe('EventCleanupService (IT-400)', () => {
     expect(cleanupService.getState().lastRunAt).toBeNull();
     expect(cleanupService.getState().lastBackupAt).toBeNull();
 
-    const stop = cleanupService.start();
+    cleanupService.start();
     expect(cleanupService.getState().isRunning).toBe(true);
 
-    stop();
+    cleanupService.stop();
     expect(cleanupService.getState().isRunning).toBe(false);
   });
 
@@ -196,13 +196,13 @@ describe('EventCleanupService (IT-400)', () => {
     expect(cleanupService.getState().isRunning).toBe(false);
   });
 
-  it('IT-409: start is idempotent — calling start twice returns stop without double-starting', () => {
-    const _stop1 = cleanupService.start();
-    const stop2 = cleanupService.start();
+  it('IT-409: start is idempotent — calling start twice does not double-start', () => {
+    cleanupService.start();
+    cleanupService.start(); // second call is a no-op per F12-04 BackgroundJob contract
 
     expect(cleanupService.getState().isRunning).toBe(true);
 
-    stop2();
+    cleanupService.stop();
     expect(cleanupService.getState().isRunning).toBe(false);
   });
 
