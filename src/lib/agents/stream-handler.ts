@@ -68,6 +68,28 @@ function createMetadataEvent(params: {
   };
 }
 
+/**
+ * theme-03 F2: pre-tool-use hook signature used by the host-mode stream
+ * handler. Returning `{deny:true, reason?}` blocks the tool invocation —
+ * the SDK is told via `canUseTool` that the tool is not permitted and the
+ * reason (if any) is surfaced on a `tool:result` event with `isError:true`.
+ */
+export type StreamPreToolUseHook = (input: {
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+}) => Promise<{ deny?: boolean; reason?: string }>;
+
+/**
+ * theme-03 F2: post-tool-use hook signature. Runs after the SDK emits the
+ * `tool_use_summary` for a tracked tool. Errors are logged and do not
+ * propagate — hook failures must never abort the agent.
+ */
+export type StreamPostToolUseHook = (input: {
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  tool_response: { summary: string; is_error: boolean };
+}) => Promise<void>;
+
 export interface StreamHandlerOptions {
   agentId: string;
   sessionId: string;
@@ -89,6 +111,15 @@ export interface StreamHandlerOptions {
    * defense-in-depth pattern the agent-runner uses.
    */
   sdkSessionId?: string;
+  /**
+   * theme-03 F2: pre/post tool-use hooks. Registered on the service per-agent
+   * and threaded through the options here. Pre-hooks run before each
+   * `canUseTool` decision and can block the tool. Post-hooks run after the
+   * SDK returns a `tool_use_summary` for that tool. All hook errors are
+   * logged and swallowed.
+   */
+  preToolUseHooks?: StreamPreToolUseHook[];
+  postToolUseHooks?: StreamPostToolUseHook[];
   sessionService: {
     publish: (sessionId: string, event: SessionEvent) => Promise<unknown>;
     persistOnly?: (sessionId: string, event: SessionEvent) => Promise<unknown>;
@@ -1082,10 +1113,18 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     })
   );
 
-  // Track active tools by toolUseID for correlating with tool_use_summary
+  // Track active tools by toolUseID for correlating with tool_use_summary.
+  // theme-03 F2: `toolInput` is retained alongside the other tracking state
+  // so post-tool-use hooks can receive the original input when the summary
+  // arrives.
   const activeTools = new Map<
     string,
-    { toolName: string; startTime: number; skillName?: string }
+    {
+      toolName: string;
+      startTime: number;
+      skillName?: string;
+      toolInput: Record<string, unknown>;
+    }
   >();
 
   // Accumulate Skill tool calls for AgentRunResult
@@ -1095,14 +1134,67 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
   const modifiedFiles = new Set<string>();
 
   const canUseTool: CanUseTool = async (toolName, input, toolOptions) => {
-    const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
+    const toolInputRecord = (input ?? {}) as Record<string, unknown>;
+
+    // theme-03 F2: run each registered pre-tool-use hook. First hook that
+    // returns {deny:true} blocks the tool. Hook exceptions are logged and
+    // treated as "no opinion" so a buggy hook cannot silently allow/deny.
+    if (options.preToolUseHooks && options.preToolUseHooks.length > 0) {
+      for (const hook of options.preToolUseHooks) {
+        let hookResult: { deny?: boolean; reason?: string } = {};
+        try {
+          hookResult = await hook({ tool_name: toolName, tool_input: toolInputRecord });
+        } catch (hookErr) {
+          log.warn('Pre-tool-use hook threw, ignoring verdict', {
+            error: hookErr instanceof Error ? hookErr.message : String(hookErr),
+            data: { agentId, toolName },
+          });
+          continue;
+        }
+        if (hookResult.deny) {
+          const reason = hookResult.reason ?? `Tool "${toolName}" blocked by pre-tool-use hook`;
+          await sessionService.publish(
+            sessionId,
+            createMetadataEvent({
+              sessionId,
+              type: 'tool:result',
+              partType: 'tool_result',
+              blockId: toolOptions.toolUseID,
+              data: {
+                agentId,
+                toolId: toolOptions.toolUseID,
+                tool: toolName,
+                output: reason,
+                isError: true,
+              },
+            })
+          );
+          log.info('Pre-tool-use hook denied tool', {
+            data: { agentId, toolName, reason },
+          });
+          return {
+            behavior: 'deny' as const,
+            message: reason,
+            interrupt: false,
+          };
+        }
+      }
+    }
+
+    const toolEntry: {
+      toolName: string;
+      startTime: number;
+      skillName?: string;
+      toolInput: Record<string, unknown>;
+    } = {
       toolName,
       startTime: Date.now(),
+      toolInput: toolInputRecord,
     };
 
     // Enrich Skill tool calls with the invoked skill name for downstream tracking
     if (toolName === 'Skill') {
-      const skillInput = input as Record<string, unknown>;
+      const skillInput = toolInputRecord;
       const invokedSkillName = typeof skillInput.skill === 'string' ? skillInput.skill : undefined;
       if (invokedSkillName) {
         toolEntry.skillName = invokedSkillName;
@@ -1115,7 +1207,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
 
     // Capture subagent_type from Agent tool calls for topology grouping
     if (toolName === 'Agent') {
-      const agentInput = input as Record<string, unknown>;
+      const agentInput = toolInputRecord;
       const subagentType =
         typeof agentInput.subagent_type === 'string' ? agentInput.subagent_type : null;
       if (subagentType) {
@@ -1128,8 +1220,8 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     // Track file-modifying tools for file change metrics
     if (toolName === 'Write' || toolName === 'Edit' || toolName === 'NotebookEdit') {
       const filePath =
-        ((input as Record<string, unknown>).file_path as string | undefined) ??
-        ((input as Record<string, unknown>).notebook_path as string | undefined);
+        (toolInputRecord.file_path as string | undefined) ??
+        (toolInputRecord.notebook_path as string | undefined);
       if (filePath) modifiedFiles.add(filePath);
     }
 
@@ -1144,7 +1236,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           agentId,
           toolId: toolOptions.toolUseID,
           tool: toolName,
-          input: input as Record<string, unknown>,
+          input: toolInputRecord,
         },
       })
     );
@@ -1402,6 +1494,30 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
               },
             })
           );
+
+          // theme-03 F2: run post-tool-use hooks for this tool. Hooks are
+          // fire-and-forget — any thrown error is logged but never aborts
+          // the stream or replaces the already-published tool:result event.
+          if (options.postToolUseHooks && options.postToolUseHooks.length > 0) {
+            const hookPayload = {
+              tool_name: tracked.toolName,
+              tool_input: tracked.toolInput,
+              tool_response: {
+                summary: toolSummary.summary ?? '',
+                is_error: summaryIsError,
+              },
+            };
+            for (const hook of options.postToolUseHooks) {
+              try {
+                await hook(hookPayload);
+              } catch (hookErr) {
+                log.warn('Post-tool-use hook threw', {
+                  error: hookErr instanceof Error ? hookErr.message : String(hookErr),
+                  data: { agentId, toolName: tracked.toolName },
+                });
+              }
+            }
+          }
 
           // Accumulate Skill tool calls for metrics
           if (tracked.skillName) {

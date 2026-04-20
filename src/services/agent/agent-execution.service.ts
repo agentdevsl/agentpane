@@ -1183,6 +1183,13 @@ export class AgentExecutionService {
         (taskRow?.planOptions as { sdkSessionId?: string } | null | undefined)?.sdkSessionId ??
         undefined;
 
+      // theme-03 F2: forward any hooks registered for this agent into the
+      // stream handler. `agent/types.PreToolUseHook` and its post-hook
+      // sibling are structurally compatible with the stream-handler's
+      // StreamPre/PostToolUseHook — both accept {tool_name, tool_input}.
+      const preHooks = this.preToolHooks.get(agentId);
+      const postHooks = this.postToolHooks.get(agentId);
+
       const result = await runAgentExecution({
         agentId,
         sessionId,
@@ -1196,6 +1203,27 @@ export class AgentExecutionService {
         skillId: task.skillId,
         skillName: task.skillName,
         sdkSessionId: storedSdkSessionId,
+        preToolUseHooks: preHooks && preHooks.length > 0 ? preHooks : undefined,
+        // Service-level PostToolUseHook returns Promise<void>; the stream
+        // handler only cares about fire-and-forget semantics, so adapt on
+        // the fly to StreamPostToolUseHook's tool_response shape.
+        postToolUseHooks:
+          postHooks && postHooks.length > 0
+            ? postHooks.map(
+                (hook) =>
+                  async (input: {
+                    tool_name: string;
+                    tool_input: Record<string, unknown>;
+                    tool_response: { summary: string; is_error: boolean };
+                  }) => {
+                    await hook({
+                      tool_name: input.tool_name,
+                      tool_input: input.tool_input,
+                      tool_response: input.tool_response,
+                    });
+                  }
+              )
+            : undefined,
         sessionService: this.sessionService,
         onMessage: this.buildOnMessageCallback(memoryRef, this.memoryService),
       });
