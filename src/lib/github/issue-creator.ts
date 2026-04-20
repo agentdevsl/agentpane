@@ -28,7 +28,7 @@ const CLOSE_KEYWORD_RE = /\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)(\s+|:\s*)(#\
  * identifier following `@` would notify that GitHub user/team. We wrap
  * them the same way.
  */
-const AT_MENTION_RE = /(^|[\s(])@([a-zA-Z0-9][a-zA-Z0-9-]{0,38})/g;
+const AT_MENTION_RE = /(^|[\s([{])@([a-zA-Z0-9][a-zA-Z0-9-]{0,38})/g;
 
 /** Safe label regex: GitHub allows most characters, but we restrict to a
  * conservative set so a label with an embedded `,` doesn't look like

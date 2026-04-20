@@ -569,15 +569,26 @@ export class CodespaceService {
     }
 
     try {
-      // SC-C3 / F06-02: Validate inputs to prevent shell injection. Even
-      // though we now use `execArgs` (which does not invoke a shell), we
-      // keep the character check as belt-and-braces: command-line tools
-      // like git treat leading `-` as an option, and null bytes / CR-LF
-      // cause their own problems.
-      if (/[\0\n\r]/.test(url) || url.startsWith('-')) {
+      // SC-C3 / F06-02: Validate inputs to prevent shell injection.
+      // The primary path uses `execArgs` (no shell). But the fallback
+      // below uses `exec` with double-quoted shell interpolation — if the
+      // caller supplied a runner without `execArgs`, we must enforce the
+      // stricter check or a URL like `https://evil/$(whoami)` would
+      // reach the shell.
+      const BASE_INVALID = /[\0\n\r]/;
+      const SHELL_INVALID = /["\\\0\n\r$`!]/; // chars special inside double-quoted shell strings
+      const invalidForPath = (s: string): boolean =>
+        this.runner.execArgs ? BASE_INVALID.test(s) : SHELL_INVALID.test(s);
+
+      if (invalidForPath(url) || url.startsWith('-')) {
         return err(CodespaceErrors.CONFIG_INVALID(['Invalid characters in repository URL']));
       }
-      if (/[\0\n\r]/.test(resolved) || /[\0\n\r]/.test(targetPath)) {
+      if (
+        invalidForPath(resolved) ||
+        invalidForPath(targetPath) ||
+        resolved.startsWith('-') ||
+        targetPath.startsWith('-')
+      ) {
         return err(CodespaceErrors.CONFIG_INVALID(['Invalid characters in destination path']));
       }
       // SC-C2: Validate path traversal - resolved path must not escape via '..'
