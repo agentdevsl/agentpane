@@ -33,11 +33,10 @@ import type { AuthContext } from '../../lib/api/auth-middleware.js';
 import type { AppError } from '../../lib/errors/base.js';
 import {
   addStreamListener,
-  decrementSSEConnections,
-  getActiveSSEConnections,
-  incrementSSEConnections,
-  MAX_SSE_CONNECTIONS,
+  EVENT_BUS_ROUTE,
+  releaseEventBusSlot,
   removeStreamListener,
+  tryAcquireEventBusSlot,
 } from '../../lib/events/event-bus.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { EventSourceService } from '../../services/event-source.service.js';
@@ -1066,16 +1065,32 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
         : [];
     const allowedSourceIds = new Set(teamSources.map((s) => s.id));
 
-    if (getActiveSSEConnections() >= MAX_SSE_CONNECTIONS) {
-      return json(
-        {
+    // F05-03: unified EventRouter enforces global + per-user caps.
+    const acquire = tryAcquireEventBusSlot(auth.userId);
+    if (!acquire.ok) {
+      const status = acquire.code === 'USER_QUOTA_EXCEEDED' ? 429 : 503;
+      return new Response(
+        JSON.stringify({
           ok: false,
-          error: { code: 'TOO_MANY_CONNECTIONS', message: 'SSE connection limit reached' },
-        },
-        429
+          error: {
+            code: acquire.code,
+            message:
+              acquire.code === 'USER_QUOTA_EXCEEDED'
+                ? `Per-user SSE quota (${acquire.perUserCap}) reached`
+                : `Global SSE capacity (${acquire.globalCap}) reached`,
+          },
+        }),
+        {
+          status,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': String(acquire.retryAfterSeconds),
+          },
+        }
       );
     }
 
+    const userId = auth.userId;
     let listener: ((event: { type: string; data: unknown }) => void) | null = null;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
     let cleaned = false;
@@ -1083,14 +1098,15 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
     function cleanup() {
       if (cleaned) return;
       cleaned = true;
-      decrementSSEConnections();
+      releaseEventBusSlot(userId);
       if (pingInterval) clearInterval(pingInterval);
       if (listener) removeStreamListener(listener);
     }
 
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        incrementSSEConnections();
+        // Slot was already acquired before constructing the stream.
+        void EVENT_BUS_ROUTE;
         const encoder = new TextEncoder();
         const send = (data: unknown) => {
           if (cleaned) return;

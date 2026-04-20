@@ -11,25 +11,24 @@
 
   # Durable streams (LMDB persistence, SSE + long-poll)
   #
-  # RS-019: SSE Authentication
-  # These stream endpoints currently have no authentication at the Caddy level.
-  # Security is enforced via network-level access control:
-  #   - In production: Caddy is only reachable from the internal Docker network.
-  #     The reverse proxy (handle /api/*) is the sole external entry point,
-  #     which routes through the authenticated Bun API server.
-  #   - Clients connect to /v1/stream/* only from the browser after authenticating
-  #     via the /api/auth/* flow. The session cookie is validated on API endpoints
-  #     but not on Caddy stream endpoints directly.
+  # F05-07: SSE Authentication
+  # `forward_auth` validates every stream request against
+  # POST /api/auth/verify-stream on the Bun API server. The API server checks:
+  #   1. The session cookie maps to an active user session (not expired).
+  #   2. The X-Original-URI header parses to /v1/stream/{kind}/{id}.
+  # A 200 response greenlights the connection; 401/400 blocks it.
   #
-  # To add Caddy-level auth, uncomment and configure forward_auth:
-  #   forward_auth localhost:3001 {
-  #     uri /api/auth/verify
-  #     copy_headers Authorization
-  #   }
-  #
-  # Alternatively, use Caddy's `basicauth` or a JWT plugin for direct validation.
+  # In local development (no Caddy running, DurableStreamTestServer on :3002
+  # handling streams), this block is not executed and authentication falls
+  # back to the API server only. The test server is dev-only and not exposed
+  # to production traffic.
   @streams path /v1/stream /v1/stream/*
   handle @streams {
+    forward_auth localhost:3001 {
+      uri /api/auth/verify-stream
+      copy_headers Cookie X-Original-URI
+      header_up X-Original-URI {uri}
+    }
     durable_streams {
       data_dir {$STREAMS_DATA_DIR:/app/data/streams}
       long_poll_timeout 30s

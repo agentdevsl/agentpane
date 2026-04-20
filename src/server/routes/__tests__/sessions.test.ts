@@ -401,6 +401,88 @@ describe('Sessions API Routes', () => {
       expect(sessionService.getEventsBySession).not.toHaveBeenCalled();
     });
 
+    it('rejects mixed offset and beforeOffset params', async () => {
+      const { app, sessionService } = createTestApp();
+
+      const res = await request(app, 'GET', '/api/sessions/sess-1/events?offset=10&beforeOffset=5');
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(sessionService.getEventsBySession).not.toHaveBeenCalled();
+    });
+
+    it('rejects mixed offset and fromOffset/toOffset range', async () => {
+      const { app, sessionService } = createTestApp();
+
+      const res = await request(
+        app,
+        'GET',
+        '/api/sessions/sess-1/events?offset=10&fromOffset=1&toOffset=5'
+      );
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(sessionService.getEventsBySession).not.toHaveBeenCalled();
+    });
+
+    it('rejects mixed beforeOffset and fromOffset/toOffset range', async () => {
+      const { app, sessionService } = createTestApp();
+
+      const res = await request(
+        app,
+        'GET',
+        '/api/sessions/sess-1/events?beforeOffset=5&fromOffset=1&toOffset=5'
+      );
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(sessionService.getEventsBySession).not.toHaveBeenCalled();
+    });
+
+    it('rejects mixed afterEventId and beforeOffset params', async () => {
+      const { app, sessionService } = createTestApp();
+
+      const res = await request(
+        app,
+        'GET',
+        '/api/sessions/sess-1/events?afterEventId=evt-1&beforeOffset=5'
+      );
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(sessionService.getEventsBySession).not.toHaveBeenCalled();
+    });
+
+    it('rejects partial range (fromOffset without toOffset)', async () => {
+      const { app, sessionService } = createTestApp();
+
+      const res = await request(app, 'GET', '/api/sessions/sess-1/events?fromOffset=1');
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(json.error.message).toContain('fromOffset and toOffset');
+      expect(sessionService.getEventsBySession).not.toHaveBeenCalled();
+    });
+
+    it('accepts fromOffset + toOffset together', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getEventsBySession.mockResolvedValue({ ok: true, value: [] });
+
+      const res = await request(app, 'GET', '/api/sessions/sess-1/events?fromOffset=1&toOffset=5');
+
+      expect(res.status).toBe(200);
+      expect(sessionService.getEventsBySession).toHaveBeenCalledWith('sess-1', {
+        limit: 100,
+        fromOffset: 1,
+        toOffset: 5,
+      });
+    });
+
     it('defaults to limit=100 and offset=0', async () => {
       const { app, sessionService } = createTestApp();
       sessionService.getEventsBySession.mockResolvedValue({ ok: true, value: [] });

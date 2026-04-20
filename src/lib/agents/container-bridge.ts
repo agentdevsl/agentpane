@@ -369,6 +369,24 @@ export function createContainerBridge(options: ContainerBridgeOptions): Containe
           continue;
         }
 
+        // F05-11: decode token batches into individual agent:token events.
+        // The batch envelope is `{ type: 'agent:token:batch', data: { deltas: AgentTokenData[] } }`.
+        // We expand each delta into a standalone agent:token event so downstream
+        // consumers see the same wire shape they did before batching.
+        if ((event.type as string) === 'agent:token:batch') {
+          const deltas = (event.data as { deltas?: Array<Record<string, unknown>> }).deltas;
+          if (Array.isArray(deltas)) {
+            for (const delta of deltas) {
+              await publishEvent({
+                ...event,
+                type: 'agent:token',
+                data: delta,
+              });
+            }
+          }
+          continue;
+        }
+
         // Publish event
         await publishEvent(event);
 

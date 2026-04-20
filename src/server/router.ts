@@ -23,6 +23,7 @@ import type { AgentService } from '../services/agent.service.js';
 import type { ApiKeyService } from '../services/api-key.service.js';
 import type { CliMonitorService } from '../services/cli-monitor/index.js';
 import type { CodespaceService } from '../services/codespace.service.js';
+import type { DurableStreamsService } from '../services/durable-streams.service.js';
 import type { EventProcessingService } from '../services/event-processing.service.js';
 import type { EventSourceService } from '../services/event-source.service.js';
 import type { EventSubscriptionService } from '../services/event-subscription.service.js';
@@ -31,6 +32,7 @@ import type { GitHubAppService } from '../services/github-app.service.js';
 import type { GitHubTokenService } from '../services/github-token.service.js';
 import type { MarketplaceService } from '../services/marketplace.service.js';
 import type { MemoryService } from '../services/memory/index.js';
+import type { PlanModeService } from '../services/plan-mode.service.js';
 import type { ProjectFolderService } from '../services/project-folder.service.js';
 import { RbacService } from '../services/rbac.service.js';
 import type { SandboxConfigService } from '../services/sandbox-config.service.js';
@@ -44,6 +46,7 @@ import type { TerraformComposeService } from '../services/terraform-compose.serv
 import type { TerraformRegistryService } from '../services/terraform-registry.service.js';
 import type { WorkflowService } from '../services/workflow.service.js';
 import type { Database } from '../types/database.js';
+import { createAdminMetricsRoutes } from './routes/admin-metrics.js';
 import { createAgentsRoutes } from './routes/agents.js';
 import { createApiKeysRoutes } from './routes/api-keys.js';
 import { createAuthRoutes } from './routes/auth.js';
@@ -206,6 +209,10 @@ export interface RouterDependencies {
   memoryService: MemoryService;
   skillTrackingService: import('../services/memory/skill-tracking.service.js').SkillTrackingService;
   dreamService: import('../services/memory/dream.service.js').DreamService;
+  /** F05-13: surfaced on /api/admin/metrics/streams. */
+  durableStreamsService?: DurableStreamsService;
+  /** F05-02: surfaced on /api/admin/metrics/plan-mode. */
+  planModeService?: PlanModeService;
 }
 
 /**
@@ -558,6 +565,17 @@ export function createRouter(deps: RouterDependencies) {
   app.route('/api/codespaces/:id/tags', createProjectTagRoutes({ db: deps.db, rbacService }));
   app.route('/api/tasks/:id/tags', createTaskTagRoutes({ db: deps.db, rbacService }));
   app.route('/api/me', createMeRoutes({ db: deps.db }));
+
+  // F05-02/F05-13: Admin metrics endpoints (admin-only; observability).
+  app.use('/api/admin/metrics', requireRole('admin', rbacService));
+  app.use('/api/admin/metrics/*', requireRole('admin', rbacService));
+  app.route(
+    '/api/admin/metrics',
+    createAdminMetricsRoutes({
+      streamsService: deps.durableStreamsService ?? null,
+      planModeService: deps.planModeService ?? null,
+    })
+  );
 
   // AR-030: In development mode, the error message is exposed to help with debugging.
   // This is acceptable because dev mode is never enabled in production or staging

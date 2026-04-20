@@ -62,9 +62,50 @@ export class PlanModeService {
   /**
    * Counter for stream/publish events that were dropped due to errors in catch blocks.
    * Incremented each time a non-critical publish (stream events, tokens) fails silently.
-   * Use getMetrics() to inspect at runtime.
+   * Use getMetrics() to inspect at runtime. F05-02: now also logs per-increment.
    */
   private droppedEventCount = 0;
+  /** F05-02: per-event-type drop counter for the admin metrics endpoint. */
+  private droppedByEventType = new Map<string, number>();
+  /** F05-02: per-error-code drop counter for the admin metrics endpoint. */
+  private droppedByReason = new Map<string, number>();
+
+  /**
+   * F05-02: structured log + counter bump for a dropped stream publish.
+   * Called from every in-catch publish-failure site so operators have an
+   * actionable signal instead of a silent increment.
+   */
+  private recordDroppedEvent(
+    eventType: string,
+    streamId: string,
+    streamError: unknown,
+    context: Record<string, unknown> = {}
+  ): void {
+    this.droppedEventCount++;
+    this.droppedByEventType.set(eventType, (this.droppedByEventType.get(eventType) ?? 0) + 1);
+    const code = this.extractErrorCode(streamError);
+    this.droppedByReason.set(code, (this.droppedByReason.get(code) ?? 0) + 1);
+    log.warn('plan-mode: stream event publish dropped', {
+      data: {
+        eventType,
+        streamId,
+        errorCode: code,
+        errorMessage: streamError instanceof Error ? streamError.message : String(streamError),
+        ...context,
+      },
+    });
+  }
+
+  private extractErrorCode(streamError: unknown): string {
+    if (streamError && typeof streamError === 'object' && 'code' in streamError) {
+      const code = (streamError as { code: unknown }).code;
+      if (typeof code === 'string' && code.length > 0) return code;
+    }
+    if (streamError instanceof Error && streamError.name !== 'Error') {
+      return streamError.name;
+    }
+    return 'UNKNOWN';
+  }
 
   constructor(
     private db: Database,
@@ -110,9 +151,19 @@ export class PlanModeService {
 
   /**
    * Return runtime metrics for observability.
+   * F05-02: now includes per-event-type and per-reason breakdowns so the
+   * admin endpoint (GET /api/admin/metrics/plan-mode) can surface detail.
    */
-  getMetrics(): { droppedEventCount: number } {
-    return { droppedEventCount: this.droppedEventCount };
+  getMetrics(): {
+    droppedEventCount: number;
+    droppedByEventType: Record<string, number>;
+    droppedByReason: Record<string, number>;
+  } {
+    return {
+      droppedEventCount: this.droppedEventCount,
+      droppedByEventType: Object.fromEntries(this.droppedByEventType),
+      droppedByReason: Object.fromEntries(this.droppedByReason),
+    };
   }
 
   /**
@@ -190,8 +241,9 @@ export class PlanModeService {
         codespaceId: input.codespaceId,
       });
     } catch (streamError) {
-      log.debug('Stream event publish failed', { error: streamError });
-      this.droppedEventCount++;
+      this.recordDroppedEvent('plan:create-stream', streamId, streamError, {
+        taskId: input.taskId,
+      });
     }
 
     // Publish start event
@@ -202,8 +254,9 @@ export class PlanModeService {
         codespaceId: session.codespaceId,
       });
     } catch (streamError) {
-      log.debug('Stream event publish failed', { error: streamError });
-      this.droppedEventCount++;
+      this.recordDroppedEvent('plan:started', streamId, streamError, {
+        sessionId: session.id,
+      });
     }
 
     // Get initial response from Claude
@@ -259,8 +312,10 @@ export class PlanModeService {
         content: responseTurn.content,
       });
     } catch (streamError) {
-      log.debug('Stream event publish failed', { error: streamError });
-      this.droppedEventCount++;
+      this.recordDroppedEvent('plan:turn', `plan:${updatedSession.id}`, streamError, {
+        sessionId: updatedSession.id,
+        turnId: responseTurn.id,
+      });
     }
 
     // Update database
@@ -382,8 +437,9 @@ export class PlanModeService {
               delta,
             })
             .catch((streamError: unknown) => {
-              log.debug('Stream event publish failed', { error: streamError });
-              this.droppedEventCount++;
+              this.recordDroppedEvent('plan:token', `plan:${session.id}`, streamError, {
+                sessionId: session.id,
+              });
             });
         }
       : undefined;
@@ -399,8 +455,9 @@ export class PlanModeService {
           code: response.error.code,
         });
       } catch (streamError) {
-        log.debug('Stream event publish failed', { error: streamError });
-        this.droppedEventCount++;
+        this.recordDroppedEvent('plan:error', `plan:${session.id}`, streamError, {
+          sessionId: session.id,
+        });
       }
       return response;
     }
@@ -449,8 +506,10 @@ export class PlanModeService {
         content: assistantTurn.content,
       });
     } catch (streamError) {
-      log.debug('Stream event publish failed', { error: streamError });
-      this.droppedEventCount++;
+      this.recordDroppedEvent('plan:turn', `plan:${session.id}`, streamError, {
+        sessionId: session.id,
+        turnId: assistantTurn.id,
+      });
     }
 
     return ok(updatedSession);
@@ -528,8 +587,10 @@ export class PlanModeService {
         questions: interaction.questions,
       });
     } catch (streamError) {
-      log.debug('Stream event publish failed', { error: streamError });
-      this.droppedEventCount++;
+      this.recordDroppedEvent('plan:interaction', `plan:${session.id}`, streamError, {
+        sessionId: session.id,
+        interactionId: interaction.id,
+      });
     }
 
     // Publish turn event
@@ -541,8 +602,10 @@ export class PlanModeService {
         content: assistantTurn.content,
       });
     } catch (streamError) {
-      log.debug('Stream event publish failed', { error: streamError });
-      this.droppedEventCount++;
+      this.recordDroppedEvent('plan:turn', `plan:${session.id}`, streamError, {
+        sessionId: session.id,
+        turnId: assistantTurn.id,
+      });
     }
 
     return ok(updatedSession);
@@ -566,8 +629,10 @@ export class PlanModeService {
           code: 'GITHUB_CONFIG_MISSING',
         });
       } catch (streamError) {
-        log.debug('Stream event publish failed', { error: streamError });
-        this.droppedEventCount++;
+        this.recordDroppedEvent('plan:error', `plan:${session.id}`, streamError, {
+          sessionId: session.id,
+          reason: 'GITHUB_CONFIG_MISSING',
+        });
       }
       return this.completeSession(session, streamedContent);
     }
@@ -596,8 +661,10 @@ export class PlanModeService {
           code: 'GITHUB_ISSUE_CREATION_FAILED',
         });
       } catch (streamError) {
-        log.debug('Stream event publish failed', { error: streamError });
-        this.droppedEventCount++;
+        this.recordDroppedEvent('plan:error', `plan:${session.id}`, streamError, {
+          sessionId: session.id,
+          reason: 'GITHUB_ISSUE_CREATION_FAILED',
+        });
       }
       // Complete session but include indication that issue creation failed
       return this.completeSession(session, streamedContent);
@@ -663,8 +730,11 @@ export class PlanModeService {
         content: assistantTurn.content,
       });
     } catch (streamError) {
-      log.debug('Stream event publish failed', { error: streamError });
-      this.droppedEventCount++;
+      this.recordDroppedEvent('plan:turn', `plan:${session.id}`, streamError, {
+        sessionId: session.id,
+        turnId: assistantTurn.id,
+        phase: 'complete',
+      });
     }
 
     // Publish completion event
@@ -675,8 +745,9 @@ export class PlanModeService {
         issueNumber: issueInfo?.issueNumber,
       });
     } catch (streamError) {
-      log.debug('Stream event publish failed', { error: streamError });
-      this.droppedEventCount++;
+      this.recordDroppedEvent('plan:completed', `plan:${session.id}`, streamError, {
+        sessionId: session.id,
+      });
     }
 
     return ok(completedSession);

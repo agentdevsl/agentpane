@@ -85,6 +85,13 @@
       "when": 1776643200000,
       "tag": "0011_add_memory_insight_effectiveness_score",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1776729600000,
+      "tag": "0012_add_event_outbox",
+      "breakpoints": true
     }
   ]
 }

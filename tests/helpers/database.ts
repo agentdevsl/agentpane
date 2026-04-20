@@ -209,6 +209,29 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     }
   }
 
+  // F05-05: event_outbox (migration 0018)
+  try {
+    testSqlite.exec(`
+CREATE TABLE IF NOT EXISTS event_outbox (
+  id TEXT PRIMARY KEY NOT NULL,
+  stream_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  published_at TEXT
+);
+CREATE INDEX IF NOT EXISTS event_outbox_status_idx ON event_outbox(status);
+CREATE INDEX IF NOT EXISTS event_outbox_next_attempt_at_idx ON event_outbox(next_attempt_at);
+CREATE INDEX IF NOT EXISTS event_outbox_status_next_attempt_idx ON event_outbox(status, next_attempt_at);
+`);
+  } catch {
+    // Table may already exist
+  }
+
   return testDb;
 }
 
@@ -259,6 +282,7 @@ export async function clearTestDatabase(): Promise<void> {
       PRAGMA defer_foreign_keys = ON;
       DELETE FROM audit_logs;
       DELETE FROM event_log;
+      DELETE FROM event_outbox;
       DELETE FROM event_subscriptions;
       DELETE FROM event_sources;
       DELETE FROM agent_runs;

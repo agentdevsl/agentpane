@@ -51,5 +51,6 @@ export function createAppRouter(
     memoryService: services.memoryService,
     skillTrackingService: services.skillTrackingService,
     dreamService: services.dreamService,
+    durableStreamsService: services.durableStreamsService,
   });
 }

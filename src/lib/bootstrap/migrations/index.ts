@@ -361,4 +361,27 @@ END;
       `ALTER TABLE tasks ADD COLUMN execution_skill_name TEXT`,
     ],
   },
+
+  // 32. Event outbox for transactional durable-streams publishes (F05-05)
+  {
+    version: 32,
+    name: 'event-outbox',
+    sql: `
+CREATE TABLE IF NOT EXISTS event_outbox (
+  id TEXT PRIMARY KEY NOT NULL,
+  stream_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  published_at TEXT
+);
+CREATE INDEX IF NOT EXISTS event_outbox_status_idx ON event_outbox(status);
+CREATE INDEX IF NOT EXISTS event_outbox_next_attempt_at_idx ON event_outbox(next_attempt_at);
+CREATE INDEX IF NOT EXISTS event_outbox_status_next_attempt_idx ON event_outbox(status, next_attempt_at);
+`,
+  },
 ];

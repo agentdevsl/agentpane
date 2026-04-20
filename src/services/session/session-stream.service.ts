@@ -14,7 +14,7 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { and, eq, gt, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, lt, lte, sql } from 'drizzle-orm';
 import type { NewSessionSummary, SessionSummary } from '../../db/schema';
 import { sessionEvents, sessionSummaries, sessions } from '../../db/schema';
 import type { SessionError } from '../../lib/errors/session-errors.js';
@@ -285,6 +285,9 @@ export class SessionStreamService {
       const limit = options?.limit ?? 100;
       const offset = options?.offset ?? 0;
       const afterEventId = options?.afterEventId;
+      const beforeOffset = options?.beforeOffset;
+      const fromOffset = options?.fromOffset;
+      const toOffset = options?.toOffset;
 
       if (afterEventId) {
         const anchor = await this.db.query.sessionEvents.findFirst({
@@ -306,6 +309,52 @@ export class SessionStreamService {
 
         return ok(
           events.map((e) => ({
+            id: e.id,
+            type: e.type as SessionEventType,
+            timestamp: e.timestamp,
+            data: e.data,
+          }))
+        );
+      }
+
+      // F05-06: contiguous range fetch for client-side gap detection on reconnect.
+      if (
+        typeof fromOffset === 'number' &&
+        typeof toOffset === 'number' &&
+        toOffset >= fromOffset
+      ) {
+        const events = await this.db.query.sessionEvents.findMany({
+          where: and(
+            eq(sessionEvents.sessionId, sessionId),
+            gte(sessionEvents.offset, fromOffset),
+            lte(sessionEvents.offset, toOffset)
+          ),
+          orderBy: [sessionEvents.offset],
+          limit,
+        });
+        return ok(
+          events.map((e) => ({
+            id: e.id,
+            type: e.type as SessionEventType,
+            timestamp: e.timestamp,
+            data: e.data,
+          }))
+        );
+      }
+
+      // F05-04: "load earlier" — strictly before this offset, newest first.
+      if (typeof beforeOffset === 'number') {
+        const events = await this.db.query.sessionEvents.findMany({
+          where: and(
+            eq(sessionEvents.sessionId, sessionId),
+            lt(sessionEvents.offset, beforeOffset)
+          ),
+          orderBy: [desc(sessionEvents.offset)],
+          limit,
+        });
+        // Return in ascending order to match the default semantics.
+        return ok(
+          events.reverse().map((e) => ({
             id: e.id,
             type: e.type as SessionEventType,
             timestamp: e.timestamp,

@@ -320,7 +320,9 @@ describe('Sessions Routes (IT-1250)', () => {
     const body = await res.json();
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe('INVALID_PARAMS');
-    expect(body.error.message).toContain('either');
+    // The exclusivity-violation message must call out the pagination modes.
+    expect(body.error.message).toContain('offset');
+    expect(body.error.message).toContain('afterEventId');
   });
 
   // ─── GET /:id/summary ─────────────────────────────────

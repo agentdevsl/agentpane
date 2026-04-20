@@ -10,6 +10,11 @@ import {
   type StreamPartType,
   streamEventMetadataSchema,
 } from '../lib/streams/envelope.js';
+import {
+  classifyStreamId,
+  expectedStreamIdKindForEventType,
+  type StreamId,
+} from '../lib/streams/stream-id.js';
 import type {
   ClarifyingQuestion,
   ComposeStage,
@@ -507,11 +512,88 @@ export interface StreamEvent<T = unknown> {
  * (which forwards to Caddy/DurableStreamTestServer). Clients subscribe directly to
  * Caddy streams via SSE — no in-process subscriber mechanism is needed.
  */
+/**
+ * Result of a publish that may signal backpressure to the caller.
+ * F05-13: When the p95 publish latency over the recent window exceeds the
+ * threshold, `signalPause` is set so the agent code can throttle.
+ */
+export interface PublishResultMeta {
+  offset: number;
+  /** True if recent publish latency exceeded the backpressure threshold. */
+  signalPause?: boolean;
+}
+
 export class DurableStreamsService {
+  /** F05-13: rolling window of recent publish durations (ms) for backpressure. */
+  private readonly publishLagWindow: Array<{ ts: number; ms: number }> = [];
+  private readonly PUBLISH_LAG_WINDOW_MS = 30_000;
+  private readonly PUBLISH_LAG_MAX_SAMPLES = 500;
+  private readonly PUBLISH_LAG_P95_PAUSE_THRESHOLD_MS = 500;
+
   constructor(
     private server: DurableStreamsServer,
     private db?: Database
   ) {}
+
+  /** F05-13: snapshot the current publish-lag metrics for the admin endpoint. */
+  getPublishLagMetrics(): {
+    sampleCount: number;
+    p50Ms: number;
+    p95Ms: number;
+    maxMs: number;
+    signalPause: boolean;
+  } {
+    const now = Date.now();
+    this.pruneLagWindow(now);
+    if (this.publishLagWindow.length === 0) {
+      return { sampleCount: 0, p50Ms: 0, p95Ms: 0, maxMs: 0, signalPause: false };
+    }
+    const sorted = [...this.publishLagWindow].sort((a, b) => a.ms - b.ms);
+    const p50 = sorted[Math.floor(sorted.length * 0.5)]?.ms ?? 0;
+    const p95 = sorted[Math.floor(sorted.length * 0.95)]?.ms ?? 0;
+    const max = sorted[sorted.length - 1]?.ms ?? 0;
+    return {
+      sampleCount: this.publishLagWindow.length,
+      p50Ms: p50,
+      p95Ms: p95,
+      maxMs: max,
+      signalPause: p95 > this.PUBLISH_LAG_P95_PAUSE_THRESHOLD_MS,
+    };
+  }
+
+  private pruneLagWindow(now: number): void {
+    const cutoff = now - this.PUBLISH_LAG_WINDOW_MS;
+    while (this.publishLagWindow.length > 0 && (this.publishLagWindow[0]?.ts ?? 0) < cutoff) {
+      this.publishLagWindow.shift();
+    }
+    // Hard cap on in-memory samples as a safety net.
+    while (this.publishLagWindow.length > this.PUBLISH_LAG_MAX_SAMPLES) {
+      this.publishLagWindow.shift();
+    }
+  }
+
+  private recordLagSample(ms: number): void {
+    const now = Date.now();
+    this.publishLagWindow.push({ ts: now, ms });
+    this.pruneLagWindow(now);
+  }
+
+  /**
+   * F05-01: validate that a raw stream-ID string matches the expected kind
+   * for the event type. Returns an AppError on mismatch, null on success.
+   */
+  private validateStreamIdKind(streamId: string, type: string): AppError | null {
+    const expected = expectedStreamIdKindForEventType(type);
+    const actual = classifyStreamId(streamId);
+    if (actual !== expected) {
+      return this.createProtocolMismatchError(
+        type,
+        'STREAM_ID_KIND_MISMATCH',
+        `Stream event '${type}' requires a ${expected} stream ID but '${streamId}' is classified as '${actual ?? 'unknown'}'.`
+      );
+    }
+    return null;
+  }
 
   private createProtocolMismatchError(type: string, reason: string, message: string): AppError {
     return createError('STREAM_PROTOCOL_MISMATCH', message, 409, {
@@ -635,7 +717,7 @@ export class DurableStreamsService {
    * await streams.publish(streamId, 'sandbox:ready', { sandboxId, codespaceId, containerId });
    */
   async publish<T extends TypedEventType>(
-    streamId: string,
+    streamId: StreamId | string,
     type: T,
     data: StreamEventMap[T]
   ): Promise<Result<number, AppError>> {
@@ -649,8 +731,20 @@ export class DurableStreamsService {
       );
     }
 
+    // F05-01: validate stream-ID kind matches the event type. We warn rather
+    // than reject on mismatch to avoid breaking existing call sites that are
+    // being migrated; the error path below will still catch the protocol
+    // mismatch via payload metadata if it was generated correctly.
+    const kindMismatch = this.validateStreamIdKind(streamId, type);
+    if (kindMismatch) {
+      log.warn('Stream ID kind mismatch (see F05-01)', {
+        data: { streamId, type, reason: kindMismatch.message },
+      });
+    }
+
+    const startedAt = Date.now();
     try {
-      const timestamp = Date.now();
+      const timestamp = startedAt;
       const payload = this.ensurePayloadMetadata(streamId, type, data, timestamp);
       const metadataResult = requirePayloadStreamMetadata(payload, `Stream event '${type}'`);
       if (!metadataResult.ok) {
@@ -713,8 +807,12 @@ export class DurableStreamsService {
         });
       }
 
+      // F05-13: record publish lag for backpressure metrics.
+      this.recordLagSample(Date.now() - startedAt);
+
       return ok(!isEphemeral && this.db ? offset : memoryOffset);
     } catch (error) {
+      this.recordLagSample(Date.now() - startedAt);
       return err(
         createError(
           'STREAM_PUBLISH_FAILED',
@@ -723,6 +821,21 @@ export class DurableStreamsService {
         )
       );
     }
+  }
+
+  /**
+   * F05-13: publish with backpressure metadata.
+   * Returns the offset and a `signalPause` flag that callers may use to throttle.
+   */
+  async publishWithBackpressure<T extends TypedEventType>(
+    streamId: StreamId | string,
+    type: T,
+    data: StreamEventMap[T]
+  ): Promise<Result<PublishResultMeta, AppError>> {
+    const result = await this.publish(streamId, type, data);
+    if (!result.ok) return result;
+    const metrics = this.getPublishLagMetrics();
+    return ok({ offset: result.value, signalPause: metrics.signalPause });
   }
 
   private extractPayloadMeta(data: unknown): StreamEventMetadata | null {

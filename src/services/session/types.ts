@@ -104,6 +104,12 @@ export type GetEventsBySessionOptions = {
   limit?: number;
   offset?: number;
   afterEventId?: string;
+  /** F05-04: fetch events strictly before this durable offset (for "load earlier"). */
+  beforeOffset?: number;
+  /** F05-06: fetch the contiguous range [fromOffset, toOffset] for gap-fill on reconnect. */
+  fromOffset?: number;
+  /** F05-06: paired with fromOffset — inclusive upper bound. */
+  toOffset?: number;
 };
 
 export type SessionWithPresence = {
