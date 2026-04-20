@@ -194,6 +194,21 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     // Column may already exist
   }
 
+  // F06-09: token rotation columns (migration 0017).
+  for (const stmt of [
+    'ALTER TABLE api_tokens ADD COLUMN rotated_at TEXT',
+    'ALTER TABLE api_keys ADD COLUMN expires_at TEXT',
+    'ALTER TABLE api_keys ADD COLUMN rotated_at TEXT',
+    'ALTER TABLE github_tokens ADD COLUMN expires_at TEXT',
+    'ALTER TABLE github_tokens ADD COLUMN rotated_at TEXT',
+  ]) {
+    try {
+      testSqlite.exec(stmt);
+    } catch {
+      // Column may already exist — idempotent
+    }
+  }
+
   return testDb;
 }
 

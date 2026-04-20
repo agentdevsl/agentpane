@@ -11,6 +11,7 @@
 
 import { createLogger } from '../logging/logger.js';
 import { err, ok, type Result } from '../utils/result.js';
+import { isDevAuthAllowed } from './dev-auth.js';
 
 const authLog = createLogger('AuthMiddleware');
 
@@ -85,10 +86,11 @@ export async function getAuthContext(
   options?: AuthOptions
 ): Promise<Result<AuthContext, AuthError>> {
   // 0. SKIP_AUTH bypass — takes priority over all other auth methods
-  // SECURITY: This bypass is gated on BOTH SKIP_AUTH=true AND NODE_ENV=development.
-  // It MUST NEVER be enabled in production. The double-gate ensures a single misconfigured
-  // env var cannot open auth bypass. If you see the warning below in logs, investigate immediately.
-  if (process.env.SKIP_AUTH === 'true' && process.env.NODE_ENV === 'development') {
+  // SECURITY (F06-05): Routed through `isDevAuthAllowed()` — the single source
+  // of truth for "is dev-mode auth legal in this process". The helper requires
+  // BOTH `SKIP_AUTH=true` AND `NODE_ENV !== 'production'`. In production the
+  // helper returns false unconditionally regardless of SKIP_AUTH.
+  if (isDevAuthAllowed()) {
     authLog.warn(
       'Auth bypass is active (SKIP_AUTH=true). This must only be used in local development.'
     );

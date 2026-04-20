@@ -14,6 +14,9 @@ export const githubTokens = pgTable('github_tokens', {
   teamId: text('team_id').references(() => teams.id, { onDelete: 'set null' }),
   isValid: boolean('is_valid').default(true),
   lastValidatedAt: timestamp('last_validated_at', { mode: 'string' }),
+  // F06-09: rotation-tracking columns. Null = not tracked (legacy rows).
+  expiresAt: timestamp('expires_at', { mode: 'string' }),
+  rotatedAt: timestamp('rotated_at', { mode: 'string' }),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { mode: 'string' })
     .defaultNow()

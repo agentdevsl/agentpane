@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { isDevAuthAllowed } from '../../lib/api/dev-auth.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { ServerConfig } from './types.js';
 
@@ -76,8 +77,24 @@ export function parseServerConfig(): ServerConfig {
     log.warn('CORS_ORIGIN not set - defaulting to http://localhost:3000');
   }
 
+  // F06-05: route the production gate through the shared helper so the
+  // three places that care about dev-auth all agree. The helper looks at
+  // live env vars (not config.skipAuth) because sub-processes spawn with
+  // inherited env and we want the same gate.
   if (config.skipAuth && config.nodeEnv === 'production') {
     log.error('SKIP_AUTH=true cannot be used in production');
+    process.exit(1);
+  }
+  // Parity check: if the helper disagrees with the local opinion, abort.
+  // This catches out-of-band env mutations between config parse and
+  // bootstrap completion.
+  if (
+    config.skipAuth &&
+    !isDevAuthAllowed({ ...process.env, SKIP_AUTH: 'true', NODE_ENV: config.nodeEnv })
+  ) {
+    log.error(
+      'SKIP_AUTH=true but isDevAuthAllowed() returned false — env is in an inconsistent state'
+    );
     process.exit(1);
   }
 

@@ -25,6 +25,7 @@ import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { createLogger } from '../logging/logger';
 import type { AuthContext } from './auth-middleware';
+import { isDevAuthAllowed } from './dev-auth.js';
 
 interface CachedApiToken {
   id: string;
@@ -55,12 +56,15 @@ export function enrichAuthContext(db: Database) {
 
     const rbacAuth: AuthContext = { ...auth };
 
-    // Dev-mode users get owner role automatically
+    // Dev-mode users get owner role automatically.
+    // Defense-in-depth (F06-05): route the gate through `isDevAuthAllowed()`
+    // so bootstrap, auth-middleware, and rbac-middleware all share a single
+    // source of truth. If this layer sees a 'dev' authMethod when the
+    // helper says it shouldn't be allowed, something upstream is
+    // misconfigured — log loudly and refuse.
     if (auth.authMethod === 'dev') {
-      // Dev-mode should be unreachable in production (auth middleware gates on NODE_ENV).
-      // Block here as defense-in-depth in case the auth layer is misconfigured.
-      if (process.env.NODE_ENV !== 'development') {
-        log.error('SECURITY: Dev-mode authentication detected in production', {
+      if (!isDevAuthAllowed()) {
+        log.error('SECURITY: Dev-mode authentication detected with isDevAuthAllowed=false', {
           data: { userId: auth.userId, path: c.req.path },
         });
         return c.json(
