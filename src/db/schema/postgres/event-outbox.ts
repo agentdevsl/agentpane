@@ -22,7 +22,8 @@ export const eventOutbox = pgTable(
     type: text('type').notNull(),
     // Migration 0012 creates this column as JSONB. Drizzle was previously declared as
     // `text` which caused a schema drift (caught by tests/integration/*-schema-drift.test.ts).
-    payload: jsonb('payload').notNull(),
+    // The `$type` annotation gives consumers a typed handle instead of `unknown`.
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
     status: text('status', { enum: ['pending', 'published', 'dead'] })
       .notNull()
       .default('pending'),
