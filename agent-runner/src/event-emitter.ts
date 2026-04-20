@@ -320,8 +320,13 @@ export class EventEmitter {
 
   /**
    * Emit agent:cancelled event (SYNC - critical for cancellation feedback).
+   *
+   * F05-11: flushes any buffered token batch first, mirroring
+   * `complete()` / `error()`. Without the flush, tokens accumulated
+   * mid-turn would be silently dropped when a task is cancelled.
    */
   cancelled(turnCount: number): void {
+    this.flushTokens(); // F05-11: preserve ordering vs batched tokens.
     this.emit('agent:cancelled', { turnCount }, true);
   }
 
