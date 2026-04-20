@@ -13,6 +13,7 @@ import { SANDBOX_DEFAULTS } from '../types.js';
 import { AgentSandboxInstance } from './agent-sandbox-instance.js';
 import type {
   EventEmittingSandboxProvider,
+  RecoverResult,
   Sandbox,
   SandboxProviderEvent,
   SandboxProviderEventListener,
@@ -103,6 +104,18 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     this.enableWarmPool = options.enableWarmPool ?? PROVIDER_DEFAULTS.enableWarmPool;
     this.warmPoolSize = options.warmPoolSize ?? PROVIDER_DEFAULTS.warmPoolSize;
     this.readyTimeoutSeconds = options.readyTimeoutSeconds ?? PROVIDER_DEFAULTS.readyTimeoutSeconds;
+
+    // theme-04 P1-06: NetworkPolicy emission is not yet implemented on the
+    // Kubernetes provider. If an operator has requested hard isolation via
+    // `SANDBOX_DEFAULT_NETWORK_MODE=none`, emit a warning so the gap is not
+    // silent. The follow-up is tracked in the theme-04 spec note.
+    if (process.env.SANDBOX_DEFAULT_NETWORK_MODE === 'none') {
+      log.warn(
+        'SANDBOX_DEFAULT_NETWORK_MODE=none is set but the Kubernetes provider ' +
+          'does not yet emit a default-deny NetworkPolicy. Sandboxes will have ' +
+          'bridge-level network access. See specs/arch_review_april/04-sandbox-providers.md.'
+      );
+    }
 
     // Use injected client or create a new one via the SDK
     this.client =
@@ -220,6 +233,79 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     } finally {
       this.creatingCodespaces.delete(config.codespaceId);
     }
+  }
+
+  /**
+   * Reconcile in-memory state with the cluster on boot.
+   *
+   * theme-04 P1-03: Lists existing Sandbox CRDs in the managed namespace,
+   * re-registers running ones into the in-memory cache, and deletes CRDs that
+   * are in a terminal state (stopped / error) so they don't sit forever.
+   *
+   * Safe to call multiple times; idempotent.
+   */
+  async recover(): Promise<RecoverResult> {
+    let recovered = 0;
+    let removed = 0;
+
+    try {
+      const result = await this.client.listSandboxes({
+        labelSelector: 'agentpane.io/sandbox-id',
+      });
+
+      for (const crd of result.items) {
+        const sandboxId = crd.metadata?.labels?.['agentpane.io/sandbox-id'] ?? '';
+        const codespaceId = crd.metadata?.labels?.['agentpane.io/project-id'] ?? '';
+        const name = crd.metadata?.name ?? '';
+        if (!sandboxId || !codespaceId || !name) continue;
+
+        // Skip if already registered (recover may run twice)
+        if (this.sandboxes.has(sandboxId)) continue;
+
+        const status = this.mapConditionsToStatus(crd);
+        if (status === 'error' || status === 'stopped') {
+          // Tear down orphaned / terminal CRDs
+          try {
+            await this.client.deleteSandbox(name, this.namespace);
+            removed++;
+          } catch (deleteErr) {
+            log.warn('Failed to delete orphaned sandbox during recover', {
+              error: deleteErr instanceof Error ? deleteErr : new Error(String(deleteErr)),
+              data: { sandboxId, name },
+            });
+          }
+          continue;
+        }
+
+        // Re-register live sandboxes
+        const instance = new AgentSandboxInstance(
+          sandboxId,
+          name,
+          codespaceId,
+          this.namespace,
+          this.client
+        );
+        try {
+          await instance.refreshStatus();
+        } catch (refreshErr) {
+          log.warn('refreshStatus failed during recover, skipping sandbox', {
+            error: refreshErr instanceof Error ? refreshErr : new Error(String(refreshErr)),
+            data: { sandboxId },
+          });
+          continue;
+        }
+        this.sandboxes.set(sandboxId, instance);
+        this.codespaceToSandbox.set(codespaceId, sandboxId);
+        recovered++;
+      }
+    } catch (error) {
+      log.warn('Kubernetes sandbox recovery failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+    }
+
+    log.info('Kubernetes sandbox recovery complete', { data: { recovered, removed } });
+    return { recovered, removed };
   }
 
   async validateSandboxes(): Promise<void> {

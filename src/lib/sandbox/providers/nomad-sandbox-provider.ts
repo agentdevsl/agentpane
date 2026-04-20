@@ -18,6 +18,7 @@ import { SANDBOX_DEFAULTS } from '../types.js';
 import { NomadSandboxInstance } from './nomad-sandbox-instance.js';
 import type {
   EventEmittingSandboxProvider,
+  RecoverResult,
   Sandbox,
   SandboxProviderEvent,
   SandboxProviderEventListener,
@@ -111,6 +112,17 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
     this.datacenter = options.datacenter ?? PROVIDER_DEFAULTS.datacenter;
     this.image = options.image ?? SANDBOX_DEFAULTS.image;
     this.readyTimeoutSeconds = options.readyTimeoutSeconds ?? PROVIDER_DEFAULTS.readyTimeoutSeconds;
+
+    // theme-04 P1-06: Network isolation on Nomad (Consul Connect / network
+    // stanza) is not yet wired up. Emit a warning if the operator has opted
+    // into isolation so the gap is not silent.
+    if (process.env.SANDBOX_DEFAULT_NETWORK_MODE === 'none') {
+      log.warn(
+        'SANDBOX_DEFAULT_NETWORK_MODE=none is set but the Nomad provider does ' +
+          'not yet set a network-mode-none stanza. Sandboxes will use the cluster ' +
+          'default network. See specs/arch_review_april/04-sandbox-providers.md.'
+      );
+    }
 
     // Use injected client or create a new one via the SDK
     this.client =
@@ -252,6 +264,93 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
     } finally {
       this.creatingCodespaces.delete(config.codespaceId);
     }
+  }
+
+  /**
+   * Reconcile in-memory state with the Nomad cluster on boot.
+   *
+   * theme-04 P1-03: Lists existing jobs with the agentpane prefix, re-registers
+   * running ones into the in-memory cache, and purges dead jobs that have
+   * sandbox metadata. Safe to call multiple times; idempotent.
+   */
+  async recover(): Promise<RecoverResult> {
+    let recovered = 0;
+    let removed = 0;
+
+    let jobs: Awaited<ReturnType<NomadSandboxClient['listJobs']>> = [];
+    try {
+      jobs = await this.client.listJobs(NOMAD_JOB_PREFIX);
+    } catch (error) {
+      log.warn('Nomad job listing failed during recover', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      return { recovered, removed };
+    }
+
+    for (const job of jobs) {
+      const sandboxId = job.Meta?.[NOMAD_META.SANDBOX_ID];
+      const codespaceId = job.Meta?.[NOMAD_META.PROJECT_ID];
+      const jobName = job.ID;
+      if (!sandboxId || !codespaceId || !jobName) continue;
+      if (this.sandboxes.has(sandboxId)) continue;
+
+      const status = mapNomadJobStatus(job.Status);
+      if (status === 'stopped' || status === 'error') {
+        try {
+          await this.client.stopJob(jobName, true);
+          removed++;
+        } catch (stopErr) {
+          log.warn('Failed to purge orphaned Nomad job during recover', {
+            error: stopErr instanceof Error ? stopErr : new Error(String(stopErr)),
+            data: { sandboxId, jobName },
+          });
+        }
+        continue;
+      }
+
+      // Fetch allocation so we can reconstruct the instance
+      let allocId: string | undefined;
+      try {
+        const allocations = await this.client.getJobAllocations(jobName);
+        const runningAlloc = allocations.find((a) => a.ClientStatus === 'running');
+        allocId = runningAlloc?.ID;
+      } catch (allocErr) {
+        log.warn('Failed to load allocations during recover', {
+          error: allocErr instanceof Error ? allocErr : new Error(String(allocErr)),
+          data: { sandboxId, jobName },
+        });
+        continue;
+      }
+
+      if (!allocId) {
+        continue; // Pending/queued — skip, don't tear down yet
+      }
+
+      const instance = new NomadSandboxInstance(
+        sandboxId,
+        jobName,
+        allocId,
+        codespaceId,
+        this.namespace,
+        this.client
+      );
+      try {
+        await instance.refreshStatus();
+      } catch (refreshErr) {
+        log.warn('refreshStatus failed during recover, skipping sandbox', {
+          error: refreshErr instanceof Error ? refreshErr : new Error(String(refreshErr)),
+          data: { sandboxId },
+        });
+        continue;
+      }
+
+      this.sandboxes.set(sandboxId, instance);
+      this.codespaceToSandbox.set(codespaceId, sandboxId);
+      recovered++;
+    }
+
+    log.info('Nomad sandbox recovery complete', { data: { recovered, removed } });
+    return { recovered, removed };
   }
 
   async validateSandboxes(): Promise<void> {

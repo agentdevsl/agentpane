@@ -161,6 +161,19 @@ async function startControllerAndDefault(
     log.info('Built-in sandbox controller started (no external controller detected)');
   }
 
+  // theme-04 P1-03: reconcile orphaned CRDs from the previous process lifetime
+  // before creating a new default, so we don't accidentally create duplicates.
+  try {
+    const { recovered, removed } = await k8sProvider.recover();
+    if (recovered > 0 || removed > 0) {
+      log.info(`K8s sandbox recovery: ${recovered} recovered, ${removed} orphans removed`);
+    }
+  } catch (recoverErr) {
+    log.warn('K8s sandbox recovery failed (continuing bootstrap)', {
+      error: recoverErr instanceof Error ? recoverErr : new Error(String(recoverErr)),
+    });
+  }
+
   // Create default K8s sandbox pod
   await ensureDefaultSandbox(k8sProvider, 'K8s', db);
 
