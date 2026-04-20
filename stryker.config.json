@@ -14,6 +14,9 @@
     "src/services/rbac-token.service.ts",
     "src/lib/api/auth-middleware.ts",
     "src/lib/api/rbac-middleware.ts",
+    "src/lib/crypto/server-encryption.ts",
+    "src/lib/crypto/token-encryption.ts",
+    "src/services/github-token.service.ts",
     "!src/**/*.test.ts",
     "!src/**/*.spec.ts",
     "!src/**/types.ts"

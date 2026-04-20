@@ -47,14 +47,16 @@ function createMockContainerAgent(overrides: Record<string, unknown> = {}) {
 }
 
 async function enableSandbox(db: ReturnType<typeof getTestDb>) {
-  // Use upsert-style insert to avoid UNIQUE constraint error if leftover from prior test
+  // TEST-SETUP: settings are infrastructure config (no service API for seeding);
+  // direct write is intentional. Upsert pattern avoids UNIQUE collisions when
+  // leftover rows persist across tests (clearTestDatabase does not touch settings).
   try {
     await db.insert(settings).values({
       key: 'sandbox.defaults',
       value: JSON.stringify({ enabled: true, mode: 'shared' }),
     });
   } catch {
-    // Already exists (settings not cleaned by clearTestDatabase) — update instead
+    // Already exists — update instead
     await db
       .update(settings)
       .set({ value: JSON.stringify({ enabled: true, mode: 'shared' }) })
@@ -281,7 +283,11 @@ describe('Bug-Proving Tests: TaskService', () => {
       status: 'running',
     });
 
-    // Create a real session record so FK constraint is satisfied
+    // TEST-SETUP: FK constraint needs a sessions row; the scenario under test
+    // is `stopAgent` behaviour on an already-failing agent, not session
+    // creation itself. Going through SessionService.create() would pull in
+    // codespace/agent machinery we've already set up with explicit fixtures,
+    // so the direct insert is the minimal-surface precondition.
     const testSessionId = 'test-session-stop';
     await db.insert(sessions).values({
       id: testSessionId,
@@ -379,7 +385,11 @@ describe('Bug-Proving Tests: TaskService', () => {
       worktreeId: worktree.id,
       branch: worktree.branch,
     });
-    // Set lastAgentStatus to 'completed' so the approve guard passes
+    // TEST-SETUP: this test targets `approve()` merge-failure handling. The
+    // precondition is a task in waiting_approval with lastAgentStatus='completed';
+    // driving it through the real updateTaskOnAgentComplete() path requires
+    // starting the agent first (full lifecycle harness) — the direct write
+    // keeps the test focused on the merge-failure assertion.
     await db.update(tasks).set({ lastAgentStatus: 'completed' }).where(eq(tasks.id, task.id));
 
     // Mock: merge THROWS (simulating git conflict explosion)
