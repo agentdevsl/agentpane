@@ -243,13 +243,15 @@ describe('ALL_TOOLS', () => {
 });
 
 describe('ALLOW_ALL_TOOLS', () => {
-  it('is an empty array', () => {
-    expect(ALLOW_ALL_TOOLS).toEqual([]);
+  // F06-06: whitelist now defaults to DENY; `['*']` is the opt-in
+  // sentinel. The old empty-array "allow all" semantics are removed.
+  it('is the single-element sentinel ["*"]', () => {
+    expect(ALLOW_ALL_TOOLS).toEqual(['*']);
   });
 });
 
 describe('DEFAULT_AGENT_TOOLS', () => {
-  it('equals ALLOW_ALL_TOOLS (empty array)', () => {
+  it('equals ALLOW_ALL_TOOLS (the ["*"] sentinel, F06-06)', () => {
     expect(DEFAULT_AGENT_TOOLS).toEqual(ALLOW_ALL_TOOLS);
   });
 });

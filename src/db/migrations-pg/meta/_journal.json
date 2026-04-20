@@ -47,7 +47,7 @@
     {
       "idx": 6,
       "version": "7",
-      "when": 1745251200000,
+      "when": 1776211200000,
       "tag": "0006_add_token_rotation_columns",
       "breakpoints": true
     }
