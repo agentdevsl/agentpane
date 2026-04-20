@@ -1155,7 +1155,13 @@ async function runExecutionPhase(): Promise<void> {
     console.error('[agent-runner] Creating SDK session with bypass permissions...');
 
     // Note: executableArgs with --add-dir causes EPIPE errors in SDK 0.2.x
-    // The SDK/CLI handles directory access via cwd and environment
+    // The SDK/CLI handles directory access via cwd and environment.
+    // Load custom agent definitions once — both resume and fresh-session paths
+    // need them so subagent spawning (Agent tool) can resolve `.claude/agents/*.md`
+    // names. Omitting on resume would break subagent support mid-task.
+    const agentDefs = await loadAgentDefinitions(config.cwd);
+    const agentsOpt = Object.keys(agentDefs).length > 0 ? { agents: agentDefs } : {};
+
     if (config.sdkSessionId) {
       // Try to resume existing session — may fail if session state is corrupted or stale
       // (primary container-change detection is in approvePlan; this is defense-in-depth)
@@ -1163,7 +1169,7 @@ async function runExecutionPhase(): Promise<void> {
         session = unstable_v2_resumeSession(config.sdkSessionId, {
           model: config.model,
           env: { ...process.env }, // Teams GA: env passed through for agent swarm support
-          // Note: --add-dir causes EPIPE/exit-code-9; agent defs passed via 'agents' option
+          ...agentsOpt,
           permissionMode: 'bypassPermissions',
           canUseTool, // Track tools even in bypass mode
         });
@@ -1184,15 +1190,11 @@ async function runExecutionPhase(): Promise<void> {
     }
 
     if (!session) {
-      // Load custom agent definitions for subagent support
-      const agentDefs = await loadAgentDefinitions(config.cwd);
-
       // Create new session (either no sdkSessionId provided, or resume failed)
       session = unstable_v2_createSession({
         model: config.model,
         env: { ...process.env }, // Teams GA: env passed through for agent swarm support
-        // Note: --add-dir causes EPIPE/exit-code-9; agent defs passed via 'agents' option
-        ...(Object.keys(agentDefs).length > 0 ? { agents: agentDefs } : {}),
+        ...agentsOpt,
         permissionMode: 'bypassPermissions',
         canUseTool, // Track tools even in bypass mode
       });
