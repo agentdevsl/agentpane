@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { SessionHistory } from '@/app/components/features/session-history';
+import { ErrorBoundary } from '@/app/components/ui/error-boundary';
 import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { apiClient } from '@/lib/api/client';
 
@@ -112,20 +113,22 @@ function SessionsPage(): React.JSX.Element {
   return (
     <LayoutShell breadcrumbs={[{ label: 'Sessions' }]}>
       <div className="flex h-full w-full flex-col">
-        <SessionHistory
-          sessions={filteredSessions}
-          projects={codespaces}
-          selectedProjectId={selectedCodespaceId}
-          onProjectChange={setSelectedCodespaceId}
-          isLoading={isLoading}
-          onOpen={(sessionId) => navigate({ to: '/sessions/$sessionId', params: { sessionId } })}
-          onViewTask={(taskId, codespaceId) =>
-            navigate({
-              to: '/codespaces/$codespaceId/tasks/$taskId',
-              params: { codespaceId, taskId },
-            })
-          }
-        />
+        <ErrorBoundary label="Session history">
+          <SessionHistory
+            sessions={filteredSessions}
+            projects={codespaces}
+            selectedProjectId={selectedCodespaceId}
+            onProjectChange={setSelectedCodespaceId}
+            isLoading={isLoading}
+            onOpen={(sessionId) => navigate({ to: '/sessions/$sessionId', params: { sessionId } })}
+            onViewTask={(taskId, codespaceId) =>
+              navigate({
+                to: '/codespaces/$codespaceId/tasks/$taskId',
+                params: { codespaceId, taskId },
+              })
+            }
+          />
+        </ErrorBoundary>
       </div>
     </LayoutShell>
   );
