@@ -758,7 +758,8 @@ describe('SandboxConfigService', () => {
       if (result.ok) {
         expect(result.value.name).toBe('Default Config');
         expect(result.value.type).toBe('docker');
-        expect(result.value.baseImage).toBe('node:22-slim');
+        // theme-04 P0-01: default baseImage is the digest-pinned SANDBOX_DEFAULTS.image
+        expect(result.value.baseImage).toMatch(/@sha256:[a-f0-9]{64}$/);
         expect(result.value.memoryMb).toBe(4096);
         expect(result.value.cpuCores).toBe(2.0);
         expect(result.value.maxProcesses).toBe(256);

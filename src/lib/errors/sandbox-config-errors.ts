@@ -63,6 +63,21 @@ export const SandboxConfigErrors = {
     'A default sandbox configuration already exists. Remove the default flag from the existing configuration first.',
     409
   ),
+  IMAGE_NOT_DIGEST_PINNED: (image: string) =>
+    createError(
+      'SANDBOX_CONFIG_IMAGE_NOT_DIGEST_PINNED',
+      `Sandbox image must be digest-pinned (format: '<image>@sha256:<64 hex chars>'). ` +
+        `Tag-only references (e.g. ':latest') are not allowed for supply-chain safety. Received: '${image}'`,
+      400,
+      { image }
+    ),
+  QUOTA_EXCEEDED: (field: string, requested: number, ceiling: number) =>
+    createError(
+      'SANDBOX_QUOTA_EXCEEDED',
+      `Sandbox quota exceeded: ${field} requested ${requested} exceeds tenant ceiling ${ceiling}`,
+      403,
+      { field, requested, ceiling }
+    ),
 } as const;
 
 export type SandboxConfigError =
@@ -73,4 +88,6 @@ export type SandboxConfigError =
   | ReturnType<typeof SandboxConfigErrors.INVALID_MEMORY>
   | ReturnType<typeof SandboxConfigErrors.INVALID_CPU>
   | ReturnType<typeof SandboxConfigErrors.INVALID_PROCESSES>
-  | ReturnType<typeof SandboxConfigErrors.INVALID_TIMEOUT>;
+  | ReturnType<typeof SandboxConfigErrors.INVALID_TIMEOUT>
+  | ReturnType<typeof SandboxConfigErrors.IMAGE_NOT_DIGEST_PINNED>
+  | ReturnType<typeof SandboxConfigErrors.QUOTA_EXCEEDED>;

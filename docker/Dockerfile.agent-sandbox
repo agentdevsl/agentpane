@@ -1,15 +1,25 @@
 # Agent Sandbox Dockerfile
 # Extends the terraform-ai-tools base image with the Claude Agent Runner
 #
-# Usage:
-#   docker build -f docker/Dockerfile.agent-sandbox -t srlynch1/agent-sandbox:latest .
-#   docker push srlynch1/agent-sandbox:latest
+# theme-04 P0-01: Runtime references to this image MUST be digest-pinned
+# (`<image>@sha256:<digest>`). Tag-only references (`:latest`, etc.) are
+# rejected by SandboxConfigService. The default image reference lives in
+# `src/lib/sandbox/types.ts` (`SANDBOX_DEFAULTS.image`) and is currently a
+# placeholder digest pending the GHCR publish workflow in theme 11.
+#
+# Usage (build for publishing):
+#   docker build -f docker/Dockerfile.agent-sandbox -t ghcr.io/agentdevsl/agent-sandbox:<version> .
+#   docker push ghcr.io/agentdevsl/agent-sandbox:<version>
+#   # Read the resulting digest and update SANDBOX_DEFAULTS.image:
+#   docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/agentdevsl/agent-sandbox:<version>
 #
 # The image includes:
 # - Base terraform-ai-tools environment (Node.js 22, Terraform, Git, jq)
 # - Claude Agent Runner for SDK execution
 # - ripgrep, fd-find, tree for file operations
 
+# BASE_IMAGE should also be digest-pinned in production builds.
+# Tag-only default is kept here for developer builds where pinning is painful.
 ARG BASE_IMAGE=srlynch1/terraform-ai-tools:latest
 
 FROM ${BASE_IMAGE}

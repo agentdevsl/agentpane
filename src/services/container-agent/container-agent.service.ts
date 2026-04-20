@@ -19,11 +19,15 @@ import { codespaces, tasks } from '../../db/schema';
 import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
+// theme-04 P1-02: AgentCore provider types are imported with `import type` so
+// the concrete module (which pulls in the AWS SDK) is NOT added to the module
+// graph when AgentCore is disabled. The factory (`createAgentCoreProvider`) is
+// loaded via dynamic import inside `setAgentCoreProvider` only when
+// `AGENTCORE_ENABLED=true`.
 import type {
   AgentCoreProviderConfig,
   AgentCoreSandboxProvider,
 } from '../../lib/sandbox/providers/agentcore-sandbox-provider.js';
-import { createAgentCoreProvider } from '../../lib/sandbox/providers/agentcore-sandbox-provider.js';
 import type { SandboxProvider } from '../../lib/sandbox/providers/sandbox-provider.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err } from '../../lib/utils/result.js';
@@ -43,6 +47,17 @@ import type { ContainerAgentDeps, PlanData, StartAgentInput } from './types.js';
 import { WorktreeInitService } from './worktree-init.service.js';
 
 const log = createLogger('ContainerAgentService');
+
+/**
+ * theme-04 P1-02: Feature flag for AgentCore.
+ *
+ * When this returns false (the default), the agentcore-sandbox-provider module
+ * is never imported, so the AWS SDK does not land in the module graph. Set
+ * `AGENTCORE_ENABLED=true` to opt in.
+ */
+function isAgentCoreEnabled(): boolean {
+  return process.env.AGENTCORE_ENABLED === 'true';
+}
 
 export class ContainerAgentService {
   private state: SandboxStateManager;
@@ -156,8 +171,23 @@ export class ContainerAgentService {
 
   /**
    * Configure the AgentCore sandbox provider.
+   *
+   * theme-04 P1-02: This is a no-op unless `AGENTCORE_ENABLED=true` is set in
+   * the environment. The agentcore-sandbox-provider module (which pulls in
+   * the AWS SDK via dynamic import) is loaded lazily — with the feature flag
+   * off, the module never reaches the module graph.
    */
-  setAgentCoreProvider(config: AgentCoreProviderConfig): void {
+  async setAgentCoreProvider(config: AgentCoreProviderConfig): Promise<void> {
+    if (!isAgentCoreEnabled()) {
+      log.warn(
+        'setAgentCoreProvider called but AGENTCORE_ENABLED is not set — AgentCore is disabled',
+        { data: { region: config.region } }
+      );
+      return;
+    }
+    const { createAgentCoreProvider } = await import(
+      '../../lib/sandbox/providers/agentcore-sandbox-provider.js'
+    );
     this.agentCoreProvider = createAgentCoreProvider(config);
     log.info('AgentCore provider configured', {
       data: { region: config.region, runtimeArn: config.runtimeArn },

@@ -140,6 +140,18 @@ export async function initNomadProvider(
         },
       });
       await clearNomadLastError(db);
+      // theme-04 P1-03: reconcile orphaned jobs before creating the default
+      // sandbox so a crash-recovery doesn't leave duplicates.
+      try {
+        const { recovered, removed } = await nomadProvider.recover();
+        if (recovered > 0 || removed > 0) {
+          log.info(`Nomad sandbox recovery: ${recovered} recovered, ${removed} purged`);
+        }
+      } catch (recoverErr) {
+        log.warn('Nomad sandbox recovery failed (continuing bootstrap)', {
+          error: recoverErr instanceof Error ? recoverErr : new Error(String(recoverErr)),
+        });
+      }
       await ensureDefaultSandbox(nomadProvider, 'Nomad', db);
       return nomadProvider;
     }

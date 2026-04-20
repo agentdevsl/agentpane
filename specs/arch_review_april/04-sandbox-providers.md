@@ -148,3 +148,30 @@ The Zod schema (`types.ts:114`) accepts `networkMode`. Only `DockerProvider.crea
 - **P3**: 5 (docs + ignored `networkMode` field on non-Docker providers)
 
 Roadmap context: `specs/roadmap/phase2-sandbox-plugins.md` anticipates additional providers. Any plugin work should first stabilise the `SandboxProvider` contract surfaced in P1-01 — adding a fifth provider on top of today's three-plus-one divergence would compound the maintenance cost.
+
+---
+
+## Resolution (April 2026 — theme-04 PR)
+
+Landed in `theme-04-sandbox` (branch `p0-p1-april`):
+
+| ID | Status | What changed |
+|----|--------|--------------|
+| P0-01 | Resolved | `SANDBOX_DEFAULTS.image` swapped to placeholder `ghcr.io/agentdevsl/agent-sandbox@sha256:0…0`. `SandboxConfigService.validateImage()` rejects tag-only refs. `projectSandboxConfigSchema.image` Zod-refined on the same regex. Dockerfile comment documents the publish-workflow follow-up (theme 11). |
+| P1-01 | Resolved | `SandboxProvider.recover()` promoted to a required member; `RecoverResult` exported. Conformance test in `tests/lib/sandbox/sandbox-theme-04.test.ts` pokes every interface member on each provider. AgentCore is explicitly out of scope for this interface (see P1-02). |
+| P1-02 | Resolved | AgentCore imports gated behind `AGENTCORE_ENABLED=true`. `ContainerAgentService.setAgentCoreProvider` now dynamically imports the provider; with the flag unset, the AWS-SDK-pulling module never enters the module graph. |
+| P1-03 | Resolved | `AgentSandboxProvider.recover()` and `NomadSandboxProvider.recover()` added and wired into `k8s-init.ts` / `nomad-init.ts`. K8s lists Sandbox CRDs by label selector, re-registers running ones, deletes terminal ones. Nomad lists jobs by prefix, re-registers `running`, purges `dead`. |
+| P1-04 | Partial — pre-existing | The DB schema already enforces `sandbox_instances.codespace_id` UNIQUE, which is stricter than the asked-for partial-unique. The in-memory `codespaceToSandbox` gap is now closed by the new K8s/Nomad `recover()` running on bootstrap before any create is accepted. A further refinement (partial unique on `status IN ('creating','running')` to allow history rows) is tracked as follow-up. |
+| P1-05 | Partial (Docker) | `Sandbox.writeFile()` optional method added; `DockerSandbox.writeFile()` implemented via `putArchive` + hand-built USTAR tarball (zero new deps) so credentials never appear in argv. `CredentialsInjector` prefers `writeFile` when present, falls back to the legacy `sh -c` path for providers that haven't implemented it yet. K8s/Nomad implementations are tracked as follow-up. `CLAUDE_OAUTH_TOKEN` env-var removal is also follow-up. |
+| P1-06 | Partial | `getDefaultSandboxNetworkMode()` reads `SANDBOX_DEFAULT_NETWORK_MODE` env; Docker provider honours the default; K8s/Nomad providers emit a warning at construction if operators have opted into `none`, because NetworkPolicy / network stanza generation is not yet implemented. Docker shipped; K8s/Nomad tracked. |
+| P1-07 | Resolved (infrastructure) | `SandboxConfigService.assertQuota()` and the `SandboxQuota` / `QuotaCheckArgs` types exposed. Error code `SANDBOX_QUOTA_EXCEEDED` added. Plumbing from `sandbox.service.create()` to load tenant quota is the UX follow-up. |
+
+**Tests added**: `tests/lib/sandbox/sandbox-theme-04.test.ts` — 20+ tests covering all of the above. `tests/lib/sandbox/sandbox-controller.test.ts` updated to match the digest-pinned default image.
+
+**Follow-up tracked** (kept out of this PR to limit blast radius):
+
+1. Theme 11: publish the real GHCR image and replace the placeholder digest in `SANDBOX_DEFAULTS.image`.
+2. K8s `NetworkPolicy` emission + Nomad Consul Connect stanza.
+3. K8s / Nomad `writeFile` implementation (`kubectl cp` equivalent / Nomad file template) and removal of the `sh -c` fallback in `CredentialsInjector`.
+4. Drop `CLAUDE_OAUTH_TOKEN` from the container env-var path once the credentials file is the only source.
+5. Per-tenant quota enforcement wired into `sandbox.service.create()` once tenant identity is plumbed through.

@@ -5,9 +5,37 @@ import { decryptToken, encryptToken } from '../lib/crypto/server-encryption.js';
 import type { SandboxConfigError } from '../lib/errors/sandbox-config-errors.js';
 import { SandboxConfigErrors } from '../lib/errors/sandbox-config-errors.js';
 import { createLogger } from '../lib/logging/logger.js';
+import { isDigestPinnedImage, SANDBOX_DEFAULTS } from '../lib/sandbox/types.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
+
+/**
+ * Per-tenant sandbox quota enforced by {@link SandboxConfigService.assertQuota}.
+ *
+ * theme-04 P1-07: enforced before a sandbox is created. A config whose resource
+ * limits exceed the supplied tenant ceiling is rejected with
+ * `SANDBOX_QUOTA_EXCEEDED`.
+ */
+export interface SandboxQuota {
+  /** Maximum concurrent sandboxes the tenant may run. */
+  maxSandboxes: number;
+  /** Maximum CPU cores per sandbox. */
+  maxCpuCores: number;
+  /** Maximum memory (MB) per sandbox. */
+  maxMemoryMb: number;
+}
+
+/**
+ * Arguments to {@link SandboxConfigService.assertQuota}.
+ */
+export interface QuotaCheckArgs {
+  /** Active sandbox count for this tenant (at the moment of the check). */
+  activeSandboxes: number;
+  /** Sandbox config being validated. */
+  memoryMb: number;
+  cpuCores: number;
+}
 
 export type CreateSandboxConfigInput = {
   name: string;
@@ -127,6 +155,57 @@ export class SandboxConfigService {
     }
   }
 
+  /**
+   * Validate a sandbox image reference is digest-pinned.
+   *
+   * theme-04 P0-01: tag-only image references (e.g. `:latest`) are rejected
+   * because a compromised tag compromises every tenant.
+   *
+   * Returns `ok(undefined)` when the image is acceptable (unset, or a real
+   * digest). Returns an error when the image is a bare repo or tag-pinned
+   * reference.
+   */
+  validateImage(image: string | undefined | null): Result<void, SandboxConfigError> {
+    if (!image) {
+      return ok(undefined);
+    }
+    if (!isDigestPinnedImage(image)) {
+      return err(SandboxConfigErrors.IMAGE_NOT_DIGEST_PINNED(image));
+    }
+    return ok(undefined);
+  }
+
+  /**
+   * Enforce a per-tenant sandbox quota.
+   *
+   * theme-04 P1-07: prevents a single tenant from consuming the entire
+   * cluster. The caller supplies the tenant's current active-sandbox count
+   * and the config being validated; this method compares against the
+   * supplied ceiling.
+   */
+  assertQuota(quota: SandboxQuota, args: QuotaCheckArgs): Result<void, SandboxConfigError> {
+    if (args.activeSandboxes >= quota.maxSandboxes) {
+      return err(
+        SandboxConfigErrors.QUOTA_EXCEEDED(
+          'maxSandboxes',
+          args.activeSandboxes + 1,
+          quota.maxSandboxes
+        )
+      );
+    }
+    if (args.cpuCores > quota.maxCpuCores) {
+      return err(
+        SandboxConfigErrors.QUOTA_EXCEEDED('maxCpuCores', args.cpuCores, quota.maxCpuCores)
+      );
+    }
+    if (args.memoryMb > quota.maxMemoryMb) {
+      return err(
+        SandboxConfigErrors.QUOTA_EXCEEDED('maxMemoryMb', args.memoryMb, quota.maxMemoryMb)
+      );
+    }
+    return ok(undefined);
+  }
+
   private validateResourceLimits(
     input: Partial<CreateSandboxConfigInput>
   ): Result<void, SandboxConfigError> {
@@ -166,6 +245,14 @@ export class SandboxConfigService {
       return validation;
     }
 
+    // theme-04 P0-01: reject tag-only image references
+    if (input.baseImage !== undefined) {
+      const imageValidation = this.validateImage(input.baseImage);
+      if (!imageValidation.ok) {
+        return imageValidation;
+      }
+    }
+
     // Check for existing config with same name
     const existing = await this.db.query.sandboxConfigs.findFirst({
       where: eq(sandboxConfigs.name, input.name),
@@ -199,7 +286,9 @@ export class SandboxConfigService {
         description: input.description,
         type: input.type ?? 'docker',
         isDefault: input.isDefault ?? false,
-        baseImage: input.baseImage ?? 'node:22-slim',
+        // theme-04 P0-01: default to the digest-pinned sandbox image. Tag-only
+        // refs like `node:22-slim` are rejected by validateImage on overrides.
+        baseImage: input.baseImage ?? SANDBOX_DEFAULTS.image,
         memoryMb: input.memoryMb ?? 4096,
         cpuCores: input.cpuCores ?? 2.0,
         maxProcesses: input.maxProcesses ?? 256,
@@ -275,6 +364,14 @@ export class SandboxConfigService {
     const validation = this.validateResourceLimits(input);
     if (!validation.ok) {
       return validation;
+    }
+
+    // theme-04 P0-01: reject tag-only image references on updates too
+    if (input.baseImage !== undefined) {
+      const imageValidation = this.validateImage(input.baseImage);
+      if (!imageValidation.ok) {
+        return imageValidation;
+      }
     }
 
     // Check if config exists
