@@ -103,10 +103,15 @@ const STAGE_LABELS: Record<string, string> = {
 type BadgeKind = 'running' | 'waiting-approval' | 'last-run' | 'none';
 
 function getCardBadgeKind(task: Task): BadgeKind {
-  // Check last-run status first — if agent has a terminal status, show that even if sessionId persists
-  if (task.lastAgentStatus && task.lastAgentStatus in LAST_RUN_STATUS_CONFIG) return 'last-run';
+  // Column state takes precedence over lastAgentStatus for navigational badges.
+  // A task in waiting_approval carries lastAgentStatus='planning' — checking
+  // last-run first would permanently hide the waiting-approval badge. Likewise
+  // for in_progress where we already clear lastAgentStatus on move (see
+  // TaskService.moveColumn) so a fresh run always takes the 'running' branch.
   if (task.column === 'in_progress' && (task.agentId || task.sessionId)) return 'running';
   if (task.column === 'waiting_approval') return 'waiting-approval';
+  // Terminal/idle columns fall back to the last-run badge when available.
+  if (task.lastAgentStatus && task.lastAgentStatus in LAST_RUN_STATUS_CONFIG) return 'last-run';
   return 'none';
 }
 
