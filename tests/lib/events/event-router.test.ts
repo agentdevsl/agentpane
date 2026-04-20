@@ -76,4 +76,50 @@ describe('EventRouter (F05-03)', () => {
     expect(acquireSseSlot('/api/events').ok).toBe(true);
     expect(acquireSseSlot('/api/events').ok).toBe(false);
   });
+
+  it('does not decrement total when releasing a user with no active slot', () => {
+    setEventRouterOverrides({ perUserCap: 10, globalCap: 10 });
+    // Acquire for user-1 so total=1.
+    expect(acquireSseSlot('/api/events', 'user-1').ok).toBe(true);
+    expect(getEventRouterSnapshot().total).toBe(1);
+
+    // Release for a DIFFERENT user — should be a no-op, not decrement total.
+    releaseSseSlot('/api/events', 'user-ghost');
+    expect(getEventRouterSnapshot().total).toBe(1);
+
+    // Release twice for user-1: first succeeds, second is a no-op.
+    releaseSseSlot('/api/events', 'user-1');
+    expect(getEventRouterSnapshot().total).toBe(0);
+    releaseSseSlot('/api/events', 'user-1');
+    expect(getEventRouterSnapshot().total).toBe(0);
+  });
+
+  it('does not decrement total when releasing an unknown route', () => {
+    setEventRouterOverrides({ perUserCap: 10, globalCap: 10 });
+    expect(acquireSseSlot('/api/events', 'user-1').ok).toBe(true);
+    expect(getEventRouterSnapshot().total).toBe(1);
+
+    // User exists but on a different route — must not decrement total.
+    releaseSseSlot('/api/cli-monitor/stream', 'user-1');
+    expect(getEventRouterSnapshot().total).toBe(1);
+
+    // Correct route + user releases the slot normally.
+    releaseSseSlot('/api/events', 'user-1');
+    expect(getEventRouterSnapshot().total).toBe(0);
+  });
+
+  it('releasing without a prior acquire does not produce negative counts or leak capacity', () => {
+    setEventRouterOverrides({ perUserCap: 1, globalCap: 1 });
+    // Release with no prior acquire — should be harmless.
+    releaseSseSlot('/api/events', 'nobody');
+    expect(getEventRouterSnapshot().total).toBe(0);
+
+    // Cap is still honoured: one slot available, second rejected.
+    expect(acquireSseSlot('/api/events', 'user-1').ok).toBe(true);
+    const second = acquireSseSlot('/api/events', 'user-2');
+    expect(second.ok).toBe(false);
+    if (!second.ok) {
+      expect(second.code).toBe('GLOBAL_CAP_EXCEEDED');
+    }
+  });
 });

@@ -98,17 +98,39 @@ export function acquireSseSlot(route: string, userId?: string | null): AcquireRe
   return { ok: true, total: counters.total, perUser: perUser + 1 };
 }
 
-/** Release an SSE slot. Must be called on connection close. */
+/**
+ * Release an SSE slot. Must be called on connection close.
+ *
+ * Safe to call defensively: if the specified route or user has no active
+ * connections (e.g. release called twice, or called without a matching
+ * acquire), the call is a no-op and `counters.total` is NOT decremented.
+ * This prevents negative counts that would otherwise bleed quota capacity
+ * over time.
+ */
 export function releaseSseSlot(route: string, userId?: string | null): void {
   const user = anonKey(userId);
-  counters.total = Math.max(0, counters.total - 1);
   const prevUser = counters.byUser.get(user) ?? 0;
+  const prevRoute = counters.byRoute.get(route) ?? 0;
+
+  // Guard: only decrement when there is an active slot for BOTH the user
+  // and the route. A missing entry on either side means this release does
+  // not correspond to a live acquire, so we bail out rather than corrupt
+  // the global total.
+  if (prevUser <= 0 || prevRoute <= 0) {
+    log.warn('releaseSseSlot called with no matching active slot — ignoring', {
+      data: { route, userId: user, prevUser, prevRoute, total: counters.total },
+    });
+    return;
+  }
+
+  counters.total = Math.max(0, counters.total - 1);
+
   if (prevUser <= 1) {
     counters.byUser.delete(user);
   } else {
     counters.byUser.set(user, prevUser - 1);
   }
-  const prevRoute = counters.byRoute.get(route) ?? 0;
+
   if (prevRoute <= 1) {
     counters.byRoute.delete(route);
   } else {
