@@ -89,6 +89,8 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
       skillName: body.skillName,
       executionSkillId: body.executionSkillId,
       executionSkillName: body.executionSkillName,
+      approvalMode: body.approvalMode,
+      autoStart: body.autoStart,
     });
 
     if (!result.ok) {
@@ -130,6 +132,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
       skillName: body.skillName,
       executionSkillId: body.executionSkillId,
       executionSkillName: body.executionSkillName,
+      approvalMode: body.approvalMode,
     });
 
     if (!result.ok) {
@@ -326,6 +329,20 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
         500
       );
     }
+  });
+
+  // POST /api/tasks/:id/cancel - Cancel an in-progress task (stop agent + move to backlog)
+  app.post('/:id/cancel', async (c) => {
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
+
+    const result = await taskService.cancelTask(id);
+
+    if (!result.ok) {
+      return errorResponse(result);
+    }
+
+    return json({ ok: true, data: result.value });
   });
 
   // POST /api/tasks/:id/stop-agent - Stop a running container agent for a task

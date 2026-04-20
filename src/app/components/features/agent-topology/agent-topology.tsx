@@ -12,13 +12,15 @@ import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { TopologyDetailPanel } from './detail-panel/topology-detail-panel';
 import { AgentEdge } from './edges/agent-edge';
 import { AgentEdgeMarkers } from './edges/agent-edge-markers';
+import { SkillEdge } from './edges/skill-edge';
 import { TopologyLegend } from './legend/topology-legend';
 import { AgentNode, type AgentNodeData } from './nodes/agent-node';
+import { SkillNode } from './nodes/skill-node';
 import { useTopology } from './topology-context';
 import { layoutTopology } from './topology-layout';
 
-const nodeTypes = { agentNode: AgentNode };
-const edgeTypes = { agentEdge: AgentEdge };
+const nodeTypes = { agentNode: AgentNode, skillNode: SkillNode };
+const edgeTypes = { agentEdge: AgentEdge, skillEdge: SkillEdge };
 const FIT_VIEW_OPTIONS = { padding: 0.3, maxZoom: 1 };
 
 function TopologyInner(): React.JSX.Element {
@@ -33,7 +35,7 @@ function TopologyInner(): React.JSX.Element {
   const graphRef = useRef(state.graph);
   graphRef.current = state.graph;
 
-  // Stable runLayout — reads graph from ref, never recreated
+  // Stable runLayout -- reads graph from ref, never recreated
   const runLayout = useCallback(async () => {
     if (layoutInFlight.current) return;
     layoutInFlight.current = true;
@@ -48,7 +50,7 @@ function TopologyInner(): React.JSX.Element {
     }
   }, []);
 
-  // Structural changes — trigger full ELK relayout
+  // Structural changes -- trigger full ELK relayout
   useWatchEffect(() => {
     if (state.graph.nodes.length === 0) {
       setNodes([]);
@@ -62,7 +64,7 @@ function TopologyInner(): React.JSX.Element {
     }
   }, [state.structureVersion, runLayout, state.graph.nodes.length]);
 
-  // Data-only updates — patch ReactFlow node/edge data without relayout.
+  // Data-only updates -- patch ReactFlow node/edge data without relayout.
   // Only creates new data objects when values actually changed, so React.memo
   // on AgentNode can skip re-renders for untouched nodes.
   // Uses graphRef to read the latest graph data without adding it as a dependency;
@@ -79,7 +81,7 @@ function TopologyInner(): React.JSX.Element {
         const graphNode = nodeById.get(rfNode.id);
         if (!graphNode) return rfNode;
         const d = rfNode.data as AgentNodeData;
-        // Compare each field — only create a new object if something differs
+        // Compare each field -- only create a new object if something differs
         if (
           d.name === graphNode.name &&
           d.role === graphNode.role &&
@@ -89,7 +91,12 @@ function TopologyInner(): React.JSX.Element {
           d.decisions === graphNode.decisions &&
           d.tokens === graphNode.tokens &&
           d.cost === graphNode.cost &&
-          d.turns === graphNode.turns
+          d.turns === graphNode.turns &&
+          d.skillId === graphNode.skillId &&
+          d.skillName === graphNode.skillName &&
+          d.skillCalls === graphNode.skillCalls &&
+          d.agentMeta === graphNode.agentMeta &&
+          d.phase === graphNode.phase
         ) {
           return rfNode;
         }
@@ -107,6 +114,11 @@ function TopologyInner(): React.JSX.Element {
             tokens: graphNode.tokens,
             cost: graphNode.cost,
             turns: graphNode.turns,
+            skillId: graphNode.skillId,
+            skillName: graphNode.skillName,
+            skillCalls: graphNode.skillCalls,
+            agentMeta: graphNode.agentMeta,
+            phase: graphNode.phase,
           },
         };
       });
@@ -247,7 +259,7 @@ function TopologyInner(): React.JSX.Element {
           </div>
         )}
 
-        {/* Legend overlay — hidden for single-node view */}
+        {/* Legend overlay -- hidden for single-node view */}
         {state.graph.nodes.length > 1 && <TopologyLegend />}
       </div>
 

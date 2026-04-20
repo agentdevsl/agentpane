@@ -56,6 +56,13 @@ interface KanbanBoardProps {
   onRunNow?: (taskId: string) => void;
   /** Callback to stop a running agent */
   onStopAgent?: (taskId: string) => void;
+  /**
+   * Callback to cancel an in-progress task (stop agent + move to backlog).
+   * Not currently wired to a UI affordance in this view — users can stop the agent
+   * via {@link onStopAgent} and drag the card back to backlog for the same effect.
+   * Kept in the interface for call-site symmetry with the live-task view.
+   */
+  onCancelTask?: (taskId: string) => void;
   /** Custom header action for backlog column (e.g., AI create button) */
   backlogHeaderAction?: React.ReactNode;
   isLoading?: boolean;
@@ -70,6 +77,7 @@ export function KanbanBoard({
   onAddTask,
   onRunNow,
   onStopAgent,
+  onCancelTask: _onCancelTask,
   backlogHeaderAction,
   isLoading,
 }: KanbanBoardProps): React.JSX.Element {

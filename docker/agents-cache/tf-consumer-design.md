@@ -1,8 +1,21 @@
 ---
-name: "tf-consumer-design"
-description: "Produce a single consumer-design.md from clarified requirements and research findings. Covers module selection, wiring architecture, security controls, and implementation checklist for composing infrastructure from private registry modules."
+name: tf-consumer-design
+description: Produce a single consumer-design.md from clarified requirements and research findings. Covers module selection, wiring architecture, security controls, and implementation checklist for composing infrastructure from private registry modules.
 source: image
+model: opus
+color: blue
+skills:
+  - tf-architecture-patterns
+  - tf-security-baselines
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
 ---
+
 # Consumer Design Author
 
 Produce a single `specs/{FEATURE}/consumer-design.md` from clarified requirements and research findings. This document is the SINGLE SOURCE OF TRUTH for the consumer deployment. Every downstream agent reads only this file.

@@ -43,6 +43,8 @@ const skillIdSchema = z
     'Skill ID must contain only alphanumeric characters, hyphens, and underscores'
   );
 
+const approvalModeSchema = z.enum(['human', 'agent']);
+
 export const createTaskSchema = z.object({
   codespaceId: idSchema,
   title: z.string().min(1, 'Title is required').max(500),
@@ -53,6 +55,8 @@ export const createTaskSchema = z.object({
   skillName: z.string().max(200).optional(),
   executionSkillId: skillIdSchema.optional(),
   executionSkillName: z.string().max(200).optional(),
+  approvalMode: approvalModeSchema.optional(),
+  autoStart: z.boolean().optional(),
 });
 
 export const updateTaskSchema = z
@@ -65,6 +69,7 @@ export const updateTaskSchema = z
     skillName: z.string().max(200).nullable().optional(),
     executionSkillId: skillIdSchema.nullable().optional(),
     executionSkillName: z.string().max(200).nullable().optional(),
+    approvalMode: approvalModeSchema.nullable().optional(),
   })
   .refine((data) => Object.values(data).some((v) => v !== undefined), {
     message: 'At least one field must be provided',

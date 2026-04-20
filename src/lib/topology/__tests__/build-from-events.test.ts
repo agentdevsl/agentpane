@@ -528,7 +528,7 @@ describe('buildTopologyFromEvents', () => {
       expect(graph.nodes).toHaveLength(1);
       const root = defined(graph.nodes[0]);
       expect(root.id).toBe('agent-task-1');
-      expect(root.name).toBe('claude-sonnet-4');
+      expect(root.name).toBe('Fix login bug');
       expect(root.role).toBe('agent');
       expect(root.status).toBe('running');
       expect(root.startedAt).toBe(BASE_TS + 10);
@@ -540,10 +540,10 @@ describe('buildTopologyFromEvents', () => {
       expect(defined(graph.nodes[0]).name).toBe('Fix login bug');
     });
 
-    it('uses "Agent" when both model and taskTitle are missing', () => {
+    it('uses "Orchestrator" when both model and taskTitle are missing', () => {
       const events = [makeEvent('container-agent:started', {})];
       const graph = buildTopologyFromEvents(events, makeContext({ taskTitle: null }));
-      expect(defined(graph.nodes[0]).name).toBe('Agent');
+      expect(defined(graph.nodes[0]).name).toBe('Orchestrator');
     });
 
     it('is ignored if topology nodes already exist', () => {
@@ -756,13 +756,16 @@ describe('buildTopologyFromEvents', () => {
       ];
       const graph = buildTopologyFromEvents(events, makeContext());
 
-      expect(graph.nodes).toHaveLength(3);
-      expect(graph.edges).toHaveLength(2);
+      // orch + test-writer group + coder + tester = 4 nodes
+      // edges: orch→coder, orch→group, group→tester = 3 edges
+      expect(graph.nodes).toHaveLength(4);
+      expect(graph.edges).toHaveLength(3);
 
       const orch = graph.nodes.find((n) => n.id === 'orch-1')!;
       expect(orch.role).toBe('orchestrator');
-      expect(orch.childIds).toEqual(['coder-1', 'tester-1']);
-      expect(orch.status).toBe('running'); // not completed since we didn't send completion
+      const groupNode = graph.nodes.find((n) => n.id.startsWith('agent-type-'))!;
+      expect(orch.childIds).toEqual(['coder-1', groupNode.id]);
+      expect(orch.status).toBe('completed'); // reconciled: all children are done
 
       const coder = graph.nodes.find((n) => n.id === 'coder-1')!;
       expect(coder.status).toBe('completed');
@@ -774,6 +777,624 @@ describe('buildTopologyFromEvents', () => {
       expect(tester.status).toBe('failed');
       expect(tester.agentType).toBe('test-writer');
       expect(tester.completedAt).toBe(BASE_TS + 1200);
+    });
+  });
+
+  // ── Skill fields ──
+
+  describe('skill fields on nodes', () => {
+    it('defaults new fields for spawned nodes without agentType', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Agent',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      const node = defined(graph.nodes[0]);
+      expect(node.type).toBe('agent');
+      expect(node.skillId).toBeNull();
+      expect(node.skillName).toBeNull();
+      expect(node.skillCalls).toEqual([]);
+      expect(node.agentMeta).toBeNull();
+    });
+
+    it('extracts skillId from colon-separated agentType', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Code Reviewer',
+          agentType: 'pr-review-toolkit:code-reviewer',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      const node = defined(graph.nodes[0]);
+      expect(node.skillId).toBe('pr-review-toolkit');
+      expect(node.skillName).toBe('pr-review-toolkit:code-reviewer');
+    });
+
+    it('extracts skillId from dot-separated agentType', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Plan',
+          agentType: 'speckit.plan',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      expect(defined(graph.nodes[0]).skillId).toBe('speckit');
+    });
+
+    it('returns null skillId for SDK built-in agentTypes', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Explorer',
+          agentType: 'Explore',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      expect(defined(graph.nodes[0]).skillId).toBeNull();
+      expect(defined(graph.nodes[0]).skillName).toBeNull();
+    });
+
+    it('resolves agentMeta from knownAgents by exact name match', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Reviewer',
+          agentType: 'code-reviewer',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, {
+        ...makeContext(),
+        knownAgents: [
+          {
+            name: 'code-reviewer',
+            model: 'claude-sonnet-4',
+            color: 'blue',
+            skills: ['lint'],
+            tools: ['Bash'],
+          },
+        ],
+      });
+      const node = defined(graph.nodes[0]);
+      expect(node.agentMeta).toEqual({
+        model: 'claude-sonnet-4',
+        color: 'blue',
+        skills: ['lint'],
+        tools: ['Bash'],
+      });
+    });
+
+    it('resolves agentMeta from knownAgents by suffix match', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Reviewer',
+          agentType: 'pr-review-toolkit:code-reviewer',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, {
+        ...makeContext(),
+        knownAgents: [{ name: 'code-reviewer', model: 'opus', color: 'purple' }],
+      });
+      expect(defined(graph.nodes[0]).agentMeta?.model).toBe('opus');
+    });
+
+    it('returns null agentMeta when no knownAgents match', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Agent',
+          agentType: 'unknown-agent',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, {
+        ...makeContext(),
+        knownAgents: [{ name: 'other-agent' }],
+      });
+      expect(defined(graph.nodes[0]).agentMeta).toBeNull();
+    });
+
+    it('defaults new fields in fallback node', () => {
+      const graph = buildTopologyFromEvents([], makeContext());
+      const root = defined(graph.nodes[0]);
+      expect(root.type).toBe('agent');
+      expect(root.skillId).toBeNull();
+      expect(root.skillName).toBeNull();
+      expect(root.skillCalls).toEqual([]);
+      expect(root.agentMeta).toBeNull();
+    });
+  });
+
+  // ── Skill tool call accumulation ──
+
+  describe('skill calls from tool:start events', () => {
+    it('accumulates Skill tool calls on the root node', () => {
+      const events = [
+        makeEvent('container-agent:started', { taskId: 'task-1' }),
+        makeEvent('tool:start', { tool: 'Skill', input: { skill: 'commit' } }),
+        makeEvent('tool:start', { tool: 'Skill', input: { skill: 'review-pr' } }),
+        makeEvent('tool:start', { tool: 'Bash', input: { command: 'ls' } }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      const root = defined(graph.nodes[0]);
+      expect(root.skillCalls).toEqual(['commit', 'review-pr']);
+    });
+
+    it('deduplicates repeated skill calls', () => {
+      const events = [
+        makeEvent('container-agent:started', { taskId: 'task-1' }),
+        makeEvent('tool:start', { tool: 'Skill', input: { skill: 'commit' } }),
+        makeEvent('tool:start', { tool: 'Skill', input: { skill: 'commit' } }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      expect(defined(graph.nodes[0]).skillCalls).toEqual(['commit']);
+    });
+
+    it('ignores tool:start events without Skill tool name', () => {
+      const events = [
+        makeEvent('container-agent:started', { taskId: 'task-1' }),
+        makeEvent('tool:start', { tool: 'Bash', input: { command: 'ls' } }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      expect(defined(graph.nodes[0]).skillCalls).toEqual([]);
+    });
+
+    it('accumulates skill calls in fallback node', () => {
+      const events = [makeEvent('tool:start', { tool: 'Skill', input: { skill: 'deploy' } })];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      expect(defined(graph.nodes[0]).skillCalls).toEqual(['deploy']);
+    });
+  });
+
+  // ── Synthetic skill nodes ──
+
+  describe('synthetic skill nodes', () => {
+    it('creates skill nodes from agentMeta.skills', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Reviewer',
+          agentType: 'code-reviewer',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, {
+        ...makeContext(),
+        knownAgents: [{ name: 'code-reviewer', skills: ['lint-rules', 'security-scan'] }],
+      });
+      // 1 agent + 2 skill nodes
+      expect(graph.nodes).toHaveLength(3);
+      const skillNodes = graph.nodes.filter((n) => n.type === 'skill');
+      expect(skillNodes).toHaveLength(2);
+      expect(skillNodes.map((n) => n.name).sort()).toEqual(['lint-rules', 'security-scan']);
+      // 2 edges from agent -> skills
+      const skillEdges = graph.edges.filter((e) => e.targetId.startsWith('skill-'));
+      expect(skillEdges).toHaveLength(2);
+    });
+
+    it('deduplicates skill nodes across multiple agents', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'agent-1',
+          name: 'Agent 1',
+          agentType: 'reviewer-a',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'agent-2',
+          name: 'Agent 2',
+          agentType: 'reviewer-b',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, {
+        ...makeContext(),
+        knownAgents: [
+          { name: 'reviewer-a', skills: ['shared-skill', 'unique-a'] },
+          { name: 'reviewer-b', skills: ['shared-skill', 'unique-b'] },
+        ],
+      });
+      // 2 agents + 3 unique skill nodes
+      expect(graph.nodes).toHaveLength(5);
+      const skillNodes = graph.nodes.filter((n) => n.type === 'skill');
+      expect(skillNodes).toHaveLength(3);
+      // shared-skill should have 2 edges (from both agents)
+      const sharedEdges = graph.edges.filter((e) => e.targetId === 'skill-shared-skill');
+      expect(sharedEdges).toHaveLength(2);
+    });
+
+    it('skill nodes have correct default properties', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Agent',
+          agentType: 'my-agent',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, {
+        ...makeContext(),
+        knownAgents: [{ name: 'my-agent', skills: ['test-skill'] }],
+      });
+      const skillNode = graph.nodes.find((n) => n.type === 'skill');
+      expect(skillNode).toBeDefined();
+      expect(skillNode!.id).toBe('skill-test-skill');
+      expect(skillNode!.role).toBe('skill');
+      expect(skillNode!.status).toBe('completed');
+      expect(skillNode!.progress).toBe(100);
+      expect(skillNode!.skillId).toBe('test-skill');
+      expect(skillNode!.skillName).toBe('test-skill');
+    });
+  });
+
+  // ── Agent-type grouping ──
+
+  describe('agent-type grouping', () => {
+    it('creates a group parent when 2+ agents share the same agentType under one parent', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'orch',
+          name: 'Orchestrator',
+          role: 'orchestrator',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r1',
+          name: 'Research DynamoDB tables',
+          role: 'researcher',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r2',
+          name: 'Research DynamoDB GSI',
+          role: 'researcher',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+
+      // Should have: orch, group node, r1, r2 = 4 nodes
+      expect(graph.nodes).toHaveLength(4);
+
+      const groupNode = graph.nodes.find((n) => n.id.startsWith('agent-type-'));
+      expect(groupNode).toBeDefined();
+      expect(groupNode!.name).toBe('tf-module-research');
+      expect(groupNode!.role).toBe('tf-module-research');
+      expect(groupNode!.agentType).toBe('tf-module-research');
+      expect(groupNode!.parentId).toBe('orch');
+      expect(groupNode!.childIds).toEqual(['r1', 'r2']);
+
+      // r1 and r2 should be children of the group node, not the orchestrator
+      const r1 = graph.nodes.find((n) => n.id === 'r1');
+      const r2 = graph.nodes.find((n) => n.id === 'r2');
+      expect(r1!.parentId).toBe(groupNode!.id);
+      expect(r2!.parentId).toBe(groupNode!.id);
+
+      // Orchestrator should have the group node as child, not r1/r2 directly
+      const orch = graph.nodes.find((n) => n.id === 'orch');
+      expect(orch!.childIds).toContain(groupNode!.id);
+      expect(orch!.childIds).not.toContain('r1');
+      expect(orch!.childIds).not.toContain('r2');
+    });
+
+    it('creates separate group parents for different agentTypes', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'orch',
+          name: 'Orchestrator',
+          role: 'orchestrator',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r1',
+          name: 'Research A',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'd1',
+          name: 'Design A',
+          agentType: 'tf-module-design',
+          parentId: 'orch',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r2',
+          name: 'Research B',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'd2',
+          name: 'Design B',
+          agentType: 'tf-module-design',
+          parentId: 'orch',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+
+      // orch + 2 group nodes + 4 agents = 7
+      expect(graph.nodes).toHaveLength(7);
+
+      const groupNodes = graph.nodes.filter((n) => n.id.startsWith('agent-type-'));
+      expect(groupNodes).toHaveLength(2);
+
+      const researchGroup = groupNodes.find((n) => n.name === 'tf-module-research');
+      const designGroup = groupNodes.find((n) => n.name === 'tf-module-design');
+      expect(researchGroup!.childIds).toEqual(['r1', 'r2']);
+      expect(designGroup!.childIds).toEqual(['d1', 'd2']);
+    });
+
+    it('does not group agents with agentType "general-purpose"', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'orch',
+          name: 'Orchestrator',
+          role: 'orchestrator',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'g1',
+          name: 'GP Agent 1',
+          agentType: 'general-purpose',
+          parentId: 'orch',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'g2',
+          name: 'GP Agent 2',
+          agentType: 'general-purpose',
+          parentId: 'orch',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+
+      // No group node should be created — just orch + g1 + g2
+      expect(graph.nodes).toHaveLength(3);
+      expect(graph.nodes.find((n) => n.id.startsWith('agent-type-'))).toBeUndefined();
+
+      const orch = graph.nodes.find((n) => n.id === 'orch');
+      expect(orch!.childIds).toEqual(['g1', 'g2']);
+    });
+
+    it('does not group agents with null agentType', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'orch',
+          name: 'Orchestrator',
+          role: 'orchestrator',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'a1',
+          name: 'Agent 1',
+          parentId: 'orch',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'a2',
+          name: 'Agent 2',
+          parentId: 'orch',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+
+      // No group node — just orch + a1 + a2
+      expect(graph.nodes).toHaveLength(3);
+      expect(graph.nodes.find((n) => n.id.startsWith('agent-type-'))).toBeUndefined();
+    });
+
+    it('creates group node even for a single agent of a type', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'orch',
+          name: 'Orchestrator',
+          role: 'orchestrator',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r1',
+          name: 'Research A',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+
+      // Group node created eagerly: orch + group + r1 = 3
+      expect(graph.nodes).toHaveLength(3);
+      const groupNode = graph.nodes.find((n) => n.id.startsWith('agent-type-'));
+      expect(groupNode).toBeDefined();
+      expect(groupNode!.childIds).toEqual(['r1']);
+      expect(graph.nodes.find((n) => n.id === 'r1')!.parentId).toBe(groupNode!.id);
+    });
+
+    it('handles 3+ agents of the same type under one parent', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'orch',
+          name: 'Orchestrator',
+          role: 'orchestrator',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r1',
+          name: 'Research 1',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r2',
+          name: 'Research 2',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r3',
+          name: 'Research 3',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+
+      // orch + group + r1 + r2 + r3 = 5
+      expect(graph.nodes).toHaveLength(5);
+
+      const groupNode = graph.nodes.find((n) => n.id.startsWith('agent-type-'));
+      expect(groupNode).toBeDefined();
+      expect(groupNode!.childIds).toEqual(['r1', 'r2', 'r3']);
+
+      // All three should be children of the group
+      for (const id of ['r1', 'r2', 'r3']) {
+        expect(graph.nodes.find((n) => n.id === id)!.parentId).toBe(groupNode!.id);
+      }
+    });
+
+    it('creates correct edges for group hierarchy', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'orch',
+          name: 'Orchestrator',
+          role: 'orchestrator',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r1',
+          name: 'Research 1',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r2',
+          name: 'Research 2',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+
+      const groupNode = graph.nodes.find((n) => n.id.startsWith('agent-type-'))!;
+
+      // Should have edge: orch → group, group → r1, group → r2
+      expect(graph.edges).toHaveLength(3);
+      expect(
+        graph.edges.find((e) => e.sourceId === 'orch' && e.targetId === groupNode.id)
+      ).toBeDefined();
+      expect(
+        graph.edges.find((e) => e.sourceId === groupNode.id && e.targetId === 'r1')
+      ).toBeDefined();
+      expect(
+        graph.edges.find((e) => e.sourceId === groupNode.id && e.targetId === 'r2')
+      ).toBeDefined();
+
+      // Should NOT have direct orch → r1 or orch → r2 edges
+      expect(graph.edges.find((e) => e.sourceId === 'orch' && e.targetId === 'r1')).toBeUndefined();
+      expect(graph.edges.find((e) => e.sourceId === 'orch' && e.targetId === 'r2')).toBeUndefined();
+    });
+
+    it('resolves agentMeta on group nodes from knownAgents', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'orch',
+          name: 'Orchestrator',
+          role: 'orchestrator',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r1',
+          name: 'Research 1',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r2',
+          name: 'Research 2',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, {
+        ...makeContext(),
+        knownAgents: [{ name: 'tf-module-research', model: 'claude-sonnet-4', color: 'green' }],
+      });
+
+      const groupNode = graph.nodes.find((n) => n.id.startsWith('agent-type-'))!;
+      expect(groupNode.agentMeta).toEqual({
+        model: 'claude-sonnet-4',
+        color: 'green',
+        skills: undefined,
+        tools: undefined,
+      });
+    });
+
+    it('group node status reconciles when all children complete', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'orch',
+          name: 'Orchestrator',
+          role: 'orchestrator',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r1',
+          name: 'Research 1',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r2',
+          name: 'Research 2',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+        makeEvent('topology:agent_completed', {
+          agentId: 'r1',
+          status: 'completed',
+        }),
+        makeEvent('topology:agent_completed', {
+          agentId: 'r2',
+          status: 'completed',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+
+      const groupNode = graph.nodes.find((n) => n.id.startsWith('agent-type-'))!;
+      // Group should be reconciled to completed since all children are done
+      expect(groupNode.status).toBe('completed');
+      expect(groupNode.progress).toBe(100);
+    });
+
+    it('mixes grouped and ungrouped children under the same parent', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'orch',
+          name: 'Orchestrator',
+          role: 'orchestrator',
+        }),
+        // Two research agents (will be grouped)
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r1',
+          name: 'Research 1',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'r2',
+          name: 'Research 2',
+          agentType: 'tf-module-research',
+          parentId: 'orch',
+        }),
+        // One general-purpose agent (not grouped)
+        makeEvent('topology:agent_spawned', {
+          agentId: 'gp1',
+          name: 'General Agent',
+          agentType: 'general-purpose',
+          parentId: 'orch',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+
+      // orch + group + r1 + r2 + gp1 = 5
+      expect(graph.nodes).toHaveLength(5);
+
+      const orch = graph.nodes.find((n) => n.id === 'orch')!;
+      const groupNode = graph.nodes.find((n) => n.id.startsWith('agent-type-'))!;
+
+      // Orchestrator should have the group node and gp1 as direct children
+      expect(orch.childIds).toContain(groupNode.id);
+      expect(orch.childIds).toContain('gp1');
+      expect(orch.childIds).not.toContain('r1');
+      expect(orch.childIds).not.toContain('r2');
     });
   });
 

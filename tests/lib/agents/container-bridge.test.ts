@@ -252,7 +252,7 @@ describe('createContainerBridge', () => {
 
       await bridge.processStream(stream);
 
-      expect(onComplete).toHaveBeenCalledWith('completed', 5);
+      expect(onComplete).toHaveBeenCalledWith('completed', 5, undefined);
     });
 
     it('calls onComplete with turn_limit status', async () => {
@@ -273,7 +273,7 @@ describe('createContainerBridge', () => {
 
       await bridge.processStream(stream);
 
-      expect(onComplete).toHaveBeenCalledWith('turn_limit', 50);
+      expect(onComplete).toHaveBeenCalledWith('turn_limit', 50, undefined);
     });
 
     it('does not call onComplete for invalid completion data', async () => {

@@ -1,4 +1,4 @@
-import { Circle, Copy, X } from '@phosphor-icons/react';
+import { Circle, Copy, Robot, User, X } from '@phosphor-icons/react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { cva } from 'class-variance-authority';
 import { useState } from 'react';
@@ -225,7 +225,7 @@ export function TaskHeader({
       {/* Title - larger, bolder */}
       <h2 className="text-xl font-bold tracking-tight text-fg leading-tight pr-8">{task.title}</h2>
 
-      {/* Controls row: Priority and Mode */}
+      {/* Controls row: Priority and Approval Mode */}
       <div className="flex items-end justify-between gap-6 pt-1">
         {/* Priority selector - segmented control style */}
         <div className="flex flex-col gap-2">
@@ -251,6 +251,30 @@ export function TaskHeader({
             ))}
           </div>
         </div>
+
+        {/* Approval mode indicator */}
+        {task.approvalMode && (
+          <div className="flex flex-col gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-fg-subtle">
+              Approval
+            </span>
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider',
+                task.approvalMode === 'human'
+                  ? 'bg-done-muted text-done border border-done/20'
+                  : 'bg-attention-muted text-attention border border-attention/20'
+              )}
+            >
+              {task.approvalMode === 'human' ? (
+                <User className="h-3.5 w-3.5" weight="bold" />
+              ) : (
+                <Robot className="h-3.5 w-3.5" weight="bold" />
+              )}
+              {task.approvalMode === 'human' ? 'Human' : 'Auto'}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

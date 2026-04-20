@@ -42,6 +42,8 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'retention.eventLogDays',
   'agent.maxRuntimeMs',
   'sandbox.env',
+  'approval.mode',
+  'approval.reviewModel',
 ]);
 
 const SENSITIVE_FIELDS: Record<string, { secretKey: string; flagKey: string }> = {

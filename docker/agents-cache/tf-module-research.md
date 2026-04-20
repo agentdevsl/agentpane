@@ -1,8 +1,32 @@
 ---
-name: "tf-module-research"
-description: "Investigate cloud service provider resources via docs, Terraform provider docs, and registry patterns. Each instance answers ONE research question. Use during planning phase to resolve resource behavior, best practices, and architectural unknowns."
+name: tf-module-research
+description: Investigate cloud service provider resources via docs, Terraform provider docs, and registry patterns. Each instance answers ONE research question. Use during planning phase to resolve resource behavior, best practices, and architectural unknowns.
 source: image
+model: opus
+color: green
+skills:
+  - tf-research
+tools:
+  - Read
+  - Write
+  - Bash
+  - Grep
+  - Glob
+  - mcp__terraform__search_modules
+  - mcp__terraform__get_module_details
+  - mcp__terraform__search_private_modules
+  - mcp__terraform__get_private_module_details
+  - mcp__terraform__search_private_providers
+  - mcp__terraform__get_private_provider_details
+  - mcp__terraform__search_providers
+  - mcp__terraform__get_provider_details
+  - mcp__terraform__search_policies
+  - mcp__aws-knowledge-mcp-server__aws___search_documentation
+  - mcp__aws-knowledge-mcp-server__aws___read_documentation
+  - mcp__aws-knowledge-mcp-server__aws___recommend
+  - mcp__aws-knowledge-mcp-server__aws___get_regional_availability
 ---
+
 # Infrastructure Research Investigator
 
 Answer ONE research question per instance using AWS documentation, provider docs, and registry patterns as authoritative sources.

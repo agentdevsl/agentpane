@@ -56,6 +56,31 @@ export async function resetStaleAgents(db: Database): Promise<void> {
 }
 
 /**
+ * Reset tasks stuck in the transient 'agent_reviewing' status back to 'planning'.
+ * After a server restart, any in-flight Anthropic review request has aborted; the
+ * plan is still in the DB but the task row is stuck in 'agent_reviewing' which the
+ * UI hides behind a transient badge and which getPendingPlan's recovery branch
+ * (matches only 'planning') will not surface. Reset to 'planning' so the human
+ * approval UI can pick up where the automated review left off.
+ */
+export async function resetStaleAgentReviewing(db: Database): Promise<void> {
+  try {
+    const result = await db
+      .update(schemaTables.tasks)
+      .set({ lastAgentStatus: 'planning' })
+      .where(eq(schemaTables.tasks.lastAgentStatus, 'agent_reviewing'));
+    const changes = getChangedCount(result);
+    if (changes > 0) {
+      log.info(`Reset ${changes} task(s) stuck in agent_reviewing back to planning`);
+    }
+  } catch (error) {
+    log.error('Failed to reset stale agent_reviewing tasks', {
+      error: error instanceof Error ? error : new Error(String(error)),
+    });
+  }
+}
+
+/**
  * Recover tasks stuck in 'in_progress' with a non-null agentId.
  * Moves them back to 'backlog' and clears stale references.
  * Uses direct DB update to avoid triggering agent auto-start.
@@ -143,6 +168,13 @@ export async function runRecovery(db: Database): Promise<{ errors: Error[] }> {
     const err = e instanceof Error ? e : new Error(String(e));
     errors.push(err);
     log.error('Failed to reset stale agents', { error: err });
+  }
+  try {
+    await resetStaleAgentReviewing(db);
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    errors.push(err);
+    log.error('Failed to reset stale agent_reviewing tasks', { error: err });
   }
   try {
     await recoverOrphanedTasks(db);

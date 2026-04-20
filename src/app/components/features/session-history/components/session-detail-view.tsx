@@ -89,6 +89,8 @@ export function SessionDetailView({
               ? 'in_progress'
               : null,
         lastAgentStatus: null,
+        skillId: session.skillId ?? null,
+        skillName: session.skillName ?? null,
       });
     }
 
@@ -99,7 +101,12 @@ export function SessionDetailView({
           id: session.agentId ?? session.id,
           name: session.agentName ?? session.title ?? 'Agent',
           role: 'orchestrator',
+          type: 'agent' as const,
           agentType: null,
+          skillId: null,
+          skillName: null,
+          skillCalls: [],
+          agentMeta: null,
           status: mapSessionStatusToTopologyStatus({
             status: session.status,
             closedAt: session.closedAt ?? null,
@@ -129,8 +136,8 @@ export function SessionDetailView({
       taskId: session.taskId ?? '',
       taskName: session.taskTitle ?? session.title ?? '',
       taskPriority: 'normal',
-      skillId: null,
-      skillName: null,
+      skillId: session.skillId ?? null,
+      skillName: session.skillName ?? null,
     };
   }, [
     session?.id,

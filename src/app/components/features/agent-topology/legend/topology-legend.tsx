@@ -1,3 +1,4 @@
+import { Lightning } from '@phosphor-icons/react';
 import { getRoleConfig } from '../nodes/agent-node-types';
 
 const LEGEND_ITEMS: Array<{ role: string; label: string }> = [
@@ -22,6 +23,15 @@ export function TopologyLegend() {
           <span className="text-[10px] text-fg-muted">{label}</span>
         </div>
       ))}
+      {/* Skill node legend entry */}
+      <div className="flex items-center gap-1.5">
+        <Lightning
+          className="h-2.5 w-2.5"
+          weight="fill"
+          style={{ color: 'var(--accent-default, #388bfd)' }}
+        />
+        <span className="text-[10px] text-fg-muted">Skill</span>
+      </div>
     </div>
   );
 }

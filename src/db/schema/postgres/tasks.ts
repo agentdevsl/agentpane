@@ -9,6 +9,17 @@ export interface StoredPlanOptions extends ExitPlanModeOptions {
   planningSandboxId?: string;
 }
 
+/** Stored shape of agent review result (matches AgentReviewResult in container-agent/types) */
+interface AgentReviewResultRecord {
+  verdict: 'approve' | 'flag_for_review';
+  reasoning: string;
+  concerns?: string[];
+  confidence: number;
+  model: string;
+  durationMs: number;
+  reviewedAt: string;
+}
+
 import type { TaskColumn, TaskPriority } from '../shared/enums';
 import { agents } from './agents';
 
@@ -64,8 +75,14 @@ export const tasks = pgTable(
       .$onUpdate(() => new Date().toISOString()),
     startedAt: timestamp('started_at', { mode: 'string' }),
     completedAt: timestamp('completed_at', { mode: 'string' }),
+    /** Approval mode override for this task: 'human' (default) or 'agent' (auto-review) */
+    approvalMode: text('approval_mode').$type<'human' | 'agent'>(),
+    /** Agent review result when approvalMode is 'agent' */
+    agentReviewResult: jsonb('agent_review_result').$type<AgentReviewResultRecord>(),
+    /** Timestamp when agent review completed */
+    agentReviewedAt: timestamp('agent_reviewed_at', { mode: 'string' }),
     lastAgentStatus: text('last_agent_status').$type<
-      'completed' | 'cancelled' | 'error' | 'turn_limit' | 'planning'
+      'completed' | 'cancelled' | 'error' | 'turn_limit' | 'planning' | 'agent_reviewing'
     >(),
   },
   (table) => [

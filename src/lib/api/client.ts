@@ -461,6 +461,8 @@ export const apiClient = {
       skillName?: string | null;
       executionSkillId?: string | null;
       executionSkillName?: string | null;
+      approvalMode?: 'human' | 'agent';
+      autoStart?: boolean;
     }) =>
       apiServerFetch<{
         taskId: string;
@@ -490,10 +492,24 @@ export const apiClient = {
       }),
 
     /**
-     * Delete a task
+     * Cancel an in-progress task (stop agent + move to backlog)
+     */
+    cancel: (id: string) =>
+      apiServerFetch<unknown>(`/api/tasks/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+
+    /**
+     * Stop a running agent for a task (without moving the task)
+     */
+    stopAgent: (id: string) =>
+      apiServerFetch<{ stopped: boolean }>(`/api/tasks/${encodeURIComponent(id)}/stop-agent`, {
+        method: 'POST',
+      }),
+
+    /**
+     * Delete a task (stops agent if running)
      */
     delete: (id: string) =>
-      apiServerFetch<{ ok: boolean }>(`/api/tasks/${id}`, { method: 'DELETE' }),
+      apiServerFetch<{ ok: boolean }>(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
     /**
      * Move a task to a different column

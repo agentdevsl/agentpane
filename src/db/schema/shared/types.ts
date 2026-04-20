@@ -12,6 +12,8 @@ export type CodespaceConfig = {
   temperature?: number;
   envVars?: Record<string, string>;
   sandbox?: CodespaceSandboxConfig | null;
+  /** Default approval mode for tasks: 'human' (manual) or 'agent' (auto-review) */
+  approvalMode?: 'human' | 'agent';
 };
 
 export type AgentConfig = {

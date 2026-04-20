@@ -43,6 +43,20 @@
       "when": 1743897600000,
       "tag": "0014_add_task_execution_skill_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1743984000000,
+      "tag": "0015_add_skill_execution_duration_api_ms",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1744070400000,
+      "tag": "0016_add_agent_approval_columns",
+      "breakpoints": true
     }
   ]
 }

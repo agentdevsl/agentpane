@@ -1,13 +1,13 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
+  ArrowsClockwise,
   BookOpen,
   CheckCircle,
   Circle,
-  ClockCounterClockwise,
   DotsSixVertical,
   Lightning,
-  Plus,
+  Robot,
   Spinner,
   Square,
   User,
@@ -78,6 +78,11 @@ const LAST_RUN_STATUS_CONFIG: Record<
     label: 'Plan ready',
     className: 'bg-[var(--secondary-muted)] text-[var(--secondary-fg)]',
   },
+  agent_reviewing: {
+    icon: <ArrowsClockwise className="h-3 w-3 animate-spin" weight="bold" />,
+    label: 'Agent reviewing',
+    className: 'bg-[var(--attention-muted)] text-[var(--attention-fg)]',
+  },
 };
 
 /** Stage labels for status display */
@@ -98,8 +103,14 @@ const STAGE_LABELS: Record<string, string> = {
 type BadgeKind = 'running' | 'waiting-approval' | 'last-run' | 'none';
 
 function getCardBadgeKind(task: Task): BadgeKind {
+  // Column state takes precedence over lastAgentStatus for navigational badges.
+  // A task in waiting_approval carries lastAgentStatus='planning' — checking
+  // last-run first would permanently hide the waiting-approval badge. Likewise
+  // for in_progress where we already clear lastAgentStatus on move (see
+  // TaskService.moveColumn) so a fresh run always takes the 'running' branch.
   if (task.column === 'in_progress' && (task.agentId || task.sessionId)) return 'running';
   if (task.column === 'waiting_approval') return 'waiting-approval';
+  // Terminal/idle columns fall back to the last-run badge when available.
   if (task.lastAgentStatus && task.lastAgentStatus in LAST_RUN_STATUS_CONFIG) return 'last-run';
   return 'none';
 }
@@ -245,13 +256,33 @@ export function KanbanCard({
         </div>
       </div>
 
-      {/* Skill badge */}
-      {task.skillName && (
-        <div className="mt-2 flex" data-testid="task-skill-badge">
-          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-subtle)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent-fg)]">
-            <BookOpen className="h-3 w-3" weight="bold" />
-            {task.skillName}
-          </span>
+      {/* Skill + approval mode badges */}
+      {(task.skillName || task.approvalMode) && (
+        <div className="mt-2 flex flex-wrap gap-1.5" data-testid="task-skill-badge">
+          {task.skillName && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-subtle)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent-fg)]">
+              <BookOpen className="h-3 w-3" weight="bold" />
+              {task.skillName}
+            </span>
+          )}
+          {task.approvalMode && (
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
+                task.approvalMode === 'human'
+                  ? 'bg-[var(--done-subtle)] text-[var(--done-fg)]'
+                  : 'bg-[var(--attention-subtle)] text-[var(--attention-fg)]'
+              )}
+              data-testid="task-approval-mode"
+            >
+              {task.approvalMode === 'human' ? (
+                <User className="h-3 w-3" weight="bold" />
+              ) : (
+                <Robot className="h-3 w-3" weight="bold" />
+              )}
+              {task.approvalMode === 'human' ? 'Human' : 'Auto'}
+            </span>
+          )}
         </div>
       )}
 
@@ -261,34 +292,22 @@ export function KanbanCard({
           <span className="font-mono text-xs text-[var(--fg-muted)]" data-testid="task-id">
             {formatTaskId(task.id)}
           </span>
-          {(
-            [
-              {
-                icon: Plus,
-                date: task.createdAt,
-                label: 'Created',
-                testId: 'task-created-at',
-                weight: 'bold' as const,
-              },
-              {
-                icon: ClockCounterClockwise,
-                date: task.updatedAt,
-                label: 'Updated',
-                testId: 'task-updated-at',
-                weight: 'regular' as const,
-              },
-            ] as const
-          ).map(({ icon: Icon, date, label, testId, weight }) => (
+          <span
+            className="inline-flex items-center gap-0.5 text-[11px] text-[var(--fg-subtle)]"
+            title={`Created: ${new Date(task.createdAt).toLocaleString()}`}
+            data-testid="task-created-at"
+          >
+            Created {formatRelativeTime(task.createdAt)}
+          </span>
+          {task.updatedAt !== task.createdAt && (
             <span
-              key={testId}
               className="inline-flex items-center gap-0.5 text-[11px] text-[var(--fg-muted)]"
-              title={`${label}: ${new Date(date).toLocaleString()}`}
-              data-testid={testId}
+              title={`Updated: ${new Date(task.updatedAt).toLocaleString()}`}
+              data-testid="task-updated-at"
             >
-              <Icon className="h-2.5 w-2.5" weight={weight} />
-              {formatRelativeTime(date)}
+              Updated {formatRelativeTime(task.updatedAt)}
             </span>
-          ))}
+          )}
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -323,9 +342,11 @@ export function KanbanCard({
                     <Circle weight="fill" className="h-1.5 w-1.5 animate-pulse" />
                   )}
                   <span>
-                    {agentStatus?.currentStage
-                      ? (STAGE_LABELS[agentStatus.currentStage] ?? agentStatus.currentStage)
-                      : 'Running'}
+                    {agentStatus?.statusMessage
+                      ? agentStatus.statusMessage
+                      : agentStatus?.currentStage
+                        ? (STAGE_LABELS[agentStatus.currentStage] ?? agentStatus.currentStage)
+                        : 'Running'}
                   </span>
                 </div>
               );
@@ -391,7 +412,13 @@ export function KanbanCard({
           data-testid="agent-running-status"
         >
           <Spinner className="h-3 w-3 animate-spin" />
-          <span className="flex-1 truncate">Processing...</span>
+          <span className="flex-1 truncate">
+            {agentStatus?.statusMessage
+              ? agentStatus.statusMessage
+              : agentStatus?.currentStage
+                ? (STAGE_LABELS[agentStatus.currentStage] ?? 'Processing...')
+                : 'Processing...'}
+          </span>
           {onStop && (
             <button
               type="button"

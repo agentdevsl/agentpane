@@ -4,7 +4,10 @@ import {
   CheckCircle,
   GitBranch,
   Lightning,
+  Square,
+  Trash,
   WarningCircle,
+  X,
 } from '@phosphor-icons/react';
 import React, { Suspense, useMemo, useState } from 'react';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
@@ -50,15 +53,28 @@ interface LiveTaskViewTask {
   sessionId?: string | null;
   lastAgentStatus?: string | null;
   labels?: string[] | null;
+  approvalMode?: 'human' | 'agent' | null;
   branch?: string | null;
   skillId?: string | null;
   skillName?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 }
 
 interface LiveTaskViewProps {
   tasks: LiveTaskViewTask[];
   codespaceId: string;
   onTaskMove?: (taskId: string, column: string, position: number) => void;
+  /** Open task detail / approval dialog */
+  onTaskClick?: (task: LiveTaskViewTask) => void;
+  /** Approve a waiting_approval task */
+  onApproveTask?: (taskId: string) => void;
+  /** Delete a task */
+  onDeleteTask?: (taskId: string) => void;
+  /** Stop a running agent */
+  onStopAgent?: (taskId: string) => void;
+  /** Cancel an in-progress task (stop + move to backlog) */
+  onCancelTask?: (taskId: string) => void;
 }
 
 // =============================================================================
@@ -73,6 +89,11 @@ export function LiveTaskView({
   tasks,
   codespaceId: _codespaceId,
   onTaskMove,
+  onTaskClick: _onTaskClick,
+  onApproveTask,
+  onDeleteTask,
+  onStopAgent,
+  onCancelTask,
 }: LiveTaskViewProps): React.JSX.Element {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -181,6 +202,59 @@ export function LiveTaskView({
                     {selectedTask.branch}
                   </span>
                 )}
+
+                {/* Task actions */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Approve — only for waiting_approval */}
+                  {selectedTask.column === 'waiting_approval' && onApproveTask && (
+                    <button
+                      type="button"
+                      onClick={() => onApproveTask(selectedTask.id)}
+                      className="flex items-center gap-1 rounded-md bg-success/10 border border-success/20 px-2.5 py-1 text-[11px] font-medium text-success transition-all duration-150 hover:bg-success/20"
+                    >
+                      <CheckCircle size={12} weight="fill" />
+                      Approve
+                    </button>
+                  )}
+                  {/* Stop agent — only for in_progress with running agent */}
+                  {selectedTask.column === 'in_progress' &&
+                    (selectedTask.agentId || selectedTask.sessionId) &&
+                    onStopAgent && (
+                      <button
+                        type="button"
+                        onClick={() => onStopAgent(selectedTask.id)}
+                        className="flex items-center gap-1 rounded-md border border-border bg-surface-subtle px-2.5 py-1 text-[11px] font-medium text-fg-muted transition-all duration-150 hover:bg-surface-emphasis hover:text-fg"
+                        title="Stop agent"
+                      >
+                        <Square size={12} weight="fill" />
+                        Stop
+                      </button>
+                    )}
+                  {/* Cancel — only for in_progress */}
+                  {selectedTask.column === 'in_progress' && onCancelTask && (
+                    <button
+                      type="button"
+                      onClick={() => onCancelTask(selectedTask.id)}
+                      className="flex items-center gap-1 rounded-md border border-border bg-surface-subtle px-2.5 py-1 text-[11px] font-medium text-fg-muted transition-all duration-150 hover:bg-surface-emphasis hover:text-fg"
+                      title="Cancel task"
+                    >
+                      <X size={12} weight="bold" />
+                      Cancel
+                    </button>
+                  )}
+                  {/* Delete — always available */}
+                  {onDeleteTask && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteTask(selectedTask.id)}
+                      className="flex items-center gap-1 rounded-md border border-danger/20 px-2.5 py-1 text-[11px] font-medium text-danger transition-all duration-150 hover:bg-danger/10"
+                      title="Delete task"
+                    >
+                      <Trash size={12} />
+                      Delete
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Status pipeline */}

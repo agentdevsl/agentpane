@@ -499,7 +499,7 @@ export class AgentCoreBridgeService {
    */
   async handleAgentCoreComplete(
     taskId: string,
-    status: 'completed' | 'turn_limit' | 'cancelled',
+    status: 'completed' | 'turn_limit' | 'cancelled' | 'error',
     turnCount: number
   ): Promise<void> {
     log.info('AgentCore agent completion', { data: { taskId, status, turnCount } });

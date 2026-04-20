@@ -18,6 +18,8 @@
  * - AGENT_CWD: Optional. Working directory (default: /workspace).
  * - AGENT_STOP_FILE: Optional. Sentinel file path for cancellation.
  * - AGENT_HAS_SKILL: Optional. Set to 'true' when a skill is assigned — uses acceptEdits during planning.
+ * - AGENT_SKILL_ID: Optional. The skill ID assigned to the task.
+ * - AGENT_SKILL_NAME: Optional. The display name of the assigned skill.
  * - AGENT_ALLOWED_TOOLS: Optional. JSON array of tool names to allow through the permission layer.
  *
  * The OAuth token is written to ~/.claude/.credentials.json before starting the SDK.
@@ -41,8 +43,79 @@ import {
   extractFileChange as sharedExtractFileChange,
   getAssistantText as sharedGetAssistantText,
 } from './shared-session.js';
+import { buildEnrichedFields, createTrackingState, optionalSkillCalls } from './skill-tracking.js';
 
 const VALID_TOPOLOGY_STATUSES = new Set(['completed', 'failed', 'stopped']);
+
+/**
+ * Load agent definitions from .claude/agents/*.md files.
+ * Parses YAML frontmatter to create SDK AgentDefinition records.
+ * Returns a Record<string, AgentDefinition> keyed by agent name.
+ */
+async function loadAgentDefinitions(
+  cwd: string
+): Promise<
+  Record<string, { description: string; tools?: string[]; prompt: string; model?: string }>
+> {
+  const agentsDir = join(cwd, '.claude', 'agents');
+  const agents: Record<
+    string,
+    { description: string; tools?: string[]; prompt: string; model?: string }
+  > = {};
+
+  try {
+    const { readdir } = await import('node:fs/promises');
+    const files = await readdir(agentsDir);
+    for (const file of files) {
+      if (!file.endsWith('.md')) continue;
+      try {
+        const content = await readFile(join(agentsDir, file), 'utf-8');
+        // Parse YAML frontmatter between --- delimiters
+        const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)/);
+        if (!match) continue;
+
+        const frontmatter = match[1];
+        const body = match[2]?.trim() ?? '';
+
+        // Simple YAML parsing for key fields. Strip surrounding quotes so
+        // `name: "my-agent"` is read as `my-agent`, matching how the SDK supplies
+        // subagent_type values.
+        const unquote = (v: string | undefined): string | undefined =>
+          v?.replace(/^['"]|['"]$/g, '').trim();
+        const name = unquote(frontmatter.match(/^name:\s*(.+)$/m)?.[1]?.trim());
+        const description = unquote(frontmatter.match(/^description:\s*(.+)$/m)?.[1]?.trim());
+        const model = unquote(frontmatter.match(/^model:\s*(.+)$/m)?.[1]?.trim());
+
+        // Parse tools array
+        const toolsMatch = frontmatter.match(/^tools:\n((?:\s+-\s+.+\n?)*)/m);
+        const tools = toolsMatch
+          ? toolsMatch[1]
+              .split('\n')
+              .map((l) => unquote(l.replace(/^\s+-\s+/, '').trim()))
+              .filter((v): v is string => Boolean(v))
+          : undefined;
+
+        if (!name || !description) continue;
+
+        agents[name] = {
+          description,
+          tools,
+          prompt: body || description,
+          ...(model && model !== 'inherit' ? { model } : {}),
+        };
+      } catch {
+        // Skip individual file parse errors
+      }
+    }
+    console.error(
+      `[agent-runner] Loaded ${Object.keys(agents).length} agent definitions from ${agentsDir}`
+    );
+  } catch {
+    console.error(`[agent-runner] No .claude/agents/ directory found at ${agentsDir}`);
+  }
+
+  return agents;
+}
 
 /** Normalize SDK status to a value the client Zod schema accepts */
 function normalizeTopologyStatus(raw: unknown): 'completed' | 'failed' | 'stopped' {
@@ -57,15 +130,21 @@ function normalizeTopologyStatus(raw: unknown): 'completed' | 'failed' | 'stoppe
  * Map SDK task_type to a visual role category (icon/color only).
  * Canonical source: src/lib/topology/map-agent-role.ts — keep in sync.
  * Duplicated here due to agent-runner build boundary (separate package).
+ *
+ * Uses suffix after last separator to avoid false matches in toolkit prefixes
+ * (e.g., "pr-review-toolkit:pr-test-analyzer" should be tester, not reviewer).
  */
 function mapAgentRole(agentType?: string): string {
   if (!agentType) return 'agent';
   const t = agentType.toLowerCase();
-  if (t.includes('plan')) return 'planner';
-  if (t.includes('review') || t.includes('analyz')) return 'reviewer';
-  if (t.includes('test') || t.includes('verif')) return 'tester';
-  if (t.includes('scan') || t.includes('security') || t.includes('hunter')) return 'scanner';
-  if (t.includes('deploy')) return 'deployer';
+  // Use suffix after last separator to avoid false matches in toolkit prefixes
+  const sep = t.lastIndexOf(':');
+  const m = sep >= 0 ? t.slice(sep + 1) : t.includes('.') ? t.slice(t.lastIndexOf('.') + 1) : t;
+  if (m.includes('plan')) return 'planner';
+  if (m.includes('test') || m.includes('verif')) return 'tester';
+  if (m.includes('scan') || m.includes('security') || m.includes('hunter')) return 'scanner';
+  if (m.includes('review') || m.includes('analyz')) return 'reviewer';
+  if (m.includes('deploy')) return 'deployer';
   return 'agent';
 }
 
@@ -84,6 +163,8 @@ function deriveAgentName(agentType?: string, description?: string): string {
 interface TopologyTracker {
   taskToNodeId: Map<string, string>;
   rootEmitted: boolean;
+  /** Queue of subagent_type values from Agent tool calls, consumed by task_started events */
+  pendingSubagentTypes: string[];
 }
 
 /** Handle SDK system messages for subagent lifecycle */
@@ -99,8 +180,15 @@ function handleTopologySystemMsg(
   if (subtype === 'task_started') {
     const sdkTaskId = msg.task_id as string;
     const description = msg.description as string | undefined;
-    const taskType = msg.task_type as string | undefined;
+    const rawTaskType = msg.task_type as string | undefined;
     if (!sdkTaskId) return;
+
+    // The SDK reports task_type: "local_agent" for Agent tool calls.
+    // Substitute with the real subagent_type captured from the canUseTool callback.
+    const taskType =
+      rawTaskType === 'local_agent' && tracker.pendingSubagentTypes.length > 0
+        ? tracker.pendingSubagentTypes.shift()
+        : rawTaskType;
 
     // Emit root orchestrator on first subagent
     if (!tracker.rootEmitted) {
@@ -164,20 +252,6 @@ function handleTopologySystemMsg(
   }
 }
 
-// SC-023: FILE_MODIFY_TOOLS and extractFileChange are now in shared-session.ts
-
-/** Detect file-modifying tools and emit file_changed event */
-function emitFileChangeIfApplicable(
-  toolName: string,
-  input: unknown,
-  events: ReturnType<typeof createEventEmitter>
-): void {
-  const fileChange = sharedExtractFileChange(toolName, (input as Record<string, unknown>) ?? {});
-  if (fileChange) {
-    events.fileChanged(fileChange);
-  }
-}
-
 // Phase type
 type AgentPhase = 'plan' | 'execute';
 
@@ -193,6 +267,8 @@ const config = {
   model: process.env.AGENT_MODEL ?? 'claude-opus-4-5-20251101',
   cwd: process.env.AGENT_CWD ?? '/workspace',
   stopFile: process.env.AGENT_STOP_FILE,
+  skillId: process.env.AGENT_SKILL_ID,
+  skillName: process.env.AGENT_SKILL_NAME,
 };
 
 // Global error handlers - catch EPIPE and other unhandled errors
@@ -393,8 +469,6 @@ async function shouldStop(): Promise<boolean> {
   }
 }
 
-// SC-023: ExitPlanModeOptions and ExitPlanModeInput are now imported from shared-session.ts
-
 /**
  * Run the agent in planning mode.
  * The agent explores the codebase and creates a plan.
@@ -407,6 +481,8 @@ async function runPlanningPhase(): Promise<void> {
   events.started({
     model: config.model,
     maxTurns: config.maxTurns,
+    ...(config.skillId ? { skillId: config.skillId } : {}),
+    ...(config.skillName ? { skillName: config.skillName } : {}),
   });
 
   console.error('[agent-runner] Starting PLANNING phase...');
@@ -421,8 +497,12 @@ async function runPlanningPhase(): Promise<void> {
   let exitPlanModeTimestamp: number | undefined;
   const EXIT_PLAN_MODE_TIMEOUT_MS = 60_000;
 
-  // Track active tool executions for emitting toolResult events
-  const activeTools = new Map<string, { toolName: string; startTime: number }>();
+  // Shared tracking state for skill calls, file changes, and token usage
+  const tracking = createTrackingState();
+  const { activeTools, skillCalls } = tracking;
+
+  /** Build enriched fields for complete events */
+  const enrichedFields = () => buildEnrichedFields(tracking, config);
 
   // Helper to emit tool result for a completed tool
   const emitToolResult = (toolId: string, isError = false, result = '') => {
@@ -436,6 +516,16 @@ async function runPlanningPhase(): Promise<void> {
         isError,
         durationMs,
       });
+
+      // Accumulate Skill tool calls for metrics
+      if (tool.skillName) {
+        skillCalls.push({
+          skillName: tool.skillName,
+          durationMs,
+          isError,
+        });
+      }
+
       activeTools.delete(toolId);
     }
   };
@@ -458,7 +548,35 @@ async function runPlanningPhase(): Promise<void> {
       console.error(`[agent-runner] canUseTool: ${toolName}`);
 
       // Track tool start
-      activeTools.set(options.toolUseID, { toolName, startTime: Date.now() });
+      const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
+        toolName,
+        startTime: Date.now(),
+      };
+
+      // Enrich Skill tool calls with the skill name for downstream tracking
+      if (toolName === 'Skill') {
+        const skillInput = input as Record<string, unknown> | undefined;
+        const sName = typeof skillInput?.skill === 'string' ? skillInput.skill : undefined;
+        if (sName) {
+          toolEntry.skillName = sName;
+        } else {
+          console.error(
+            `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${options.toolUseID})`
+          );
+        }
+      }
+
+      // Capture subagent_type from Agent tool calls for topology grouping
+      if (toolName === 'Agent') {
+        const agentInput = input as Record<string, unknown> | undefined;
+        const subagentType =
+          typeof agentInput?.subagent_type === 'string' ? agentInput.subagent_type : null;
+        if (subagentType) {
+          topology.pendingSubagentTypes.push(subagentType);
+        }
+      }
+
+      activeTools.set(options.toolUseID, toolEntry);
 
       // Emit tool start event for all tools
       events.toolStart({
@@ -467,8 +585,19 @@ async function runPlanningPhase(): Promise<void> {
         input: (input as Record<string, unknown>) ?? {},
       });
 
-      // Detect file-modifying tools and emit file_changed event
-      emitFileChangeIfApplicable(toolName, input, events);
+      // Detect file-modifying tools and emit file_changed event + accumulate
+      {
+        const fileChange = sharedExtractFileChange(
+          toolName,
+          (input as Record<string, unknown>) ?? {}
+        );
+        if (fileChange) {
+          events.fileChanged(fileChange);
+          tracking.fileChangeSet.add(fileChange.path);
+          if (fileChange.additions) tracking.totalLinesAdded += fileChange.additions;
+          if (fileChange.deletions) tracking.totalLinesRemoved += fileChange.deletions;
+        }
+      }
 
       // Capture ExitPlanMode options when the tool is called
       if (toolName === 'ExitPlanMode') {
@@ -518,10 +647,16 @@ async function runPlanningPhase(): Promise<void> {
         allowedTools.push(tool);
       }
     }
+    // Load custom agent definitions from .claude/agents/ for SDK subagent support
+    const agentDefs = await loadAgentDefinitions(config.cwd);
+
     session = unstable_v2_createSession({
       model: config.model,
       env: { ...process.env }, // Teams GA: env passed through for agent swarm support
-      allowedTools,
+      // Note: --add-dir causes EPIPE/exit-code-9; agent defs passed via 'agents' option
+      // In bypassPermissions mode, don't restrict tools — allow all including Agent
+      ...(planPermissionMode !== 'bypassPermissions' ? { allowedTools } : {}),
+      ...(Object.keys(agentDefs).length > 0 ? { agents: agentDefs } : {}),
       permissionMode: planPermissionMode,
       canUseTool, // Use official SDK callback for tool interception
     });
@@ -547,7 +682,11 @@ async function runPlanningPhase(): Promise<void> {
 
   // Topology tracker for subagent lifecycle events during planning
   // Skills can spawn subagents via the Agent tool when AGENT_HAS_SKILL=true
-  const topology: TopologyTracker = { taskToNodeId: new Map(), rootEmitted: false };
+  const topology: TopologyTracker = {
+    taskToNodeId: new Map(),
+    rootEmitted: false,
+    pendingSubagentTypes: [],
+  };
   const rootAgentId = `agent-${config.taskId}`;
 
   try {
@@ -582,6 +721,7 @@ async function runPlanningPhase(): Promise<void> {
             turnCount: turn,
             sdkSessionId: sdkSessionId ?? '',
             allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+            skillCalls: optionalSkillCalls(skillCalls),
           });
           return;
         }
@@ -643,12 +783,15 @@ async function runPlanningPhase(): Promise<void> {
                 turnCount: turn,
                 sdkSessionId: sdkSessionId ?? '',
                 allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+                skillCalls: optionalSkillCalls(skillCalls),
               });
             } else {
               events.complete({
                 status: 'turn_limit',
                 turnCount: turn,
                 result: `Turn limit reached (${config.maxTurns}) during planning.`,
+                skillCalls: optionalSkillCalls(skillCalls),
+                ...enrichedFields(),
               });
             }
             return;
@@ -699,11 +842,14 @@ async function runPlanningPhase(): Promise<void> {
         const toolSummary = msg as {
           summary: string;
           preceding_tool_use_ids: string[];
+          is_error?: boolean;
         };
 
         console.error(
           `[agent-runner] Tool summary: ids=${toolSummary.preceding_tool_use_ids.join(',')}`
         );
+
+        const summaryIsError = toolSummary.is_error === true;
 
         // Emit tool results for each preceding tool using tracked activeTools
         for (const toolId of toolSummary.preceding_tool_use_ids) {
@@ -715,9 +861,18 @@ async function runPlanningPhase(): Promise<void> {
               toolName: startInfo.toolName,
               toolId,
               result: toolSummary.summary ?? '',
-              isError: false,
+              isError: summaryIsError,
               durationMs,
             });
+
+            // Accumulate Skill tool calls for metrics
+            if (startInfo.skillName) {
+              skillCalls.push({
+                skillName: startInfo.skillName,
+                durationMs,
+                isError: summaryIsError,
+              });
+            }
 
             // ExitPlanMode tool completed — do NOT close session here.
             // The stream will naturally flow to a 'result' message, which is the safe exit point.
@@ -735,6 +890,22 @@ async function runPlanningPhase(): Promise<void> {
       if (msg.type === 'assistant') {
         // Assistant message means all previous tools have completed
         emitAllToolResults();
+
+        // Note: subagent_type is captured in the canUseTool callback (see ~line 566).
+        // The assistant-message content is not re-scanned to avoid a double-push into
+        // topology.pendingSubagentTypes, which would misalign subsequent local_agent
+        // substitutions.
+
+        // Accumulate token usage from assistant messages
+        const assistantMsg = msg as {
+          message?: { usage?: { input_tokens?: number; output_tokens?: number } };
+        };
+        if (assistantMsg.message?.usage) {
+          if (typeof assistantMsg.message.usage.input_tokens === 'number')
+            tracking.totalInputTokens += assistantMsg.message.usage.input_tokens;
+          if (typeof assistantMsg.message.usage.output_tokens === 'number')
+            tracking.totalOutputTokens += assistantMsg.message.usage.output_tokens;
+        }
 
         // ExitPlanMode was detected — do NOT close session here.
         // Continue consuming messages until the stream naturally yields 'result'.
@@ -757,6 +928,18 @@ async function runPlanningPhase(): Promise<void> {
       if (msg.type === 'result') {
         // Emit results for any remaining active tools
         emitAllToolResults();
+
+        // Extract final token usage from result message
+        const resultUsage = (msg as { usage?: { input_tokens?: number; output_tokens?: number } })
+          .usage;
+        if (resultUsage) {
+          // Result usage is cumulative — use it as the authoritative total if available
+          if (typeof resultUsage.input_tokens === 'number')
+            tracking.totalInputTokens = resultUsage.input_tokens;
+          if (typeof resultUsage.output_tokens === 'number')
+            tracking.totalOutputTokens = resultUsage.output_tokens;
+        }
+
         session.close(); // Clean close — stream is done, iterator complete
 
         // If ExitPlanMode was called, emit plan_ready
@@ -771,6 +954,7 @@ async function runPlanningPhase(): Promise<void> {
             turnCount: turn,
             sdkSessionId: sdkSessionId ?? '',
             allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+            skillCalls: optionalSkillCalls(skillCalls),
           });
         } else {
           // No plan was created - treat as completion
@@ -778,6 +962,8 @@ async function runPlanningPhase(): Promise<void> {
             status: 'completed',
             turnCount: turn,
             result: accumulatedText || 'Planning completed without explicit plan',
+            skillCalls: optionalSkillCalls(skillCalls),
+            ...enrichedFields(),
           });
         }
         return;
@@ -799,12 +985,15 @@ async function runPlanningPhase(): Promise<void> {
         turnCount: turn,
         sdkSessionId: sdkSessionId ?? '',
         allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+        skillCalls: optionalSkillCalls(skillCalls),
       });
     } else {
       events.complete({
         status: 'completed',
         turnCount: turn,
         result: 'Planning completed',
+        skillCalls: optionalSkillCalls(skillCalls),
+        ...enrichedFields(),
       });
     }
   } catch (error) {
@@ -835,10 +1024,16 @@ async function runExecutionPhase(): Promise<void> {
   events.started({
     model: config.model,
     maxTurns: config.maxTurns,
+    ...(config.skillId ? { skillId: config.skillId } : {}),
+    ...(config.skillName ? { skillName: config.skillName } : {}),
   });
 
   // Topology tracker for subagent lifecycle events
-  const topology: TopologyTracker = { taskToNodeId: new Map(), rootEmitted: true };
+  const topology: TopologyTracker = {
+    taskToNodeId: new Map(),
+    rootEmitted: true,
+    pendingSubagentTypes: [],
+  };
   const rootAgentId = `agent-${config.taskId}`;
 
   // Always emit root agent node in topology
@@ -854,8 +1049,12 @@ async function runExecutionPhase(): Promise<void> {
     console.error(`[agent-runner] Resuming SDK session: ${config.sdkSessionId}`);
   }
 
-  // Track active tool executions for emitting toolResult events
-  const activeTools = new Map<string, { toolName: string; startTime: number }>();
+  // Shared tracking state for skill calls, file changes, and token usage
+  const tracking = createTrackingState();
+  const { activeTools, skillCalls } = tracking;
+
+  /** Build enriched fields for complete events */
+  const enrichedFields = () => buildEnrichedFields(tracking, config);
 
   // Helper to emit tool result for a completed tool
   const emitToolResult = (toolId: string, isError = false, result = '') => {
@@ -869,6 +1068,16 @@ async function runExecutionPhase(): Promise<void> {
         isError,
         durationMs,
       });
+
+      // Accumulate Skill tool calls for metrics
+      if (tool.skillName) {
+        skillCalls.push({
+          skillName: tool.skillName,
+          durationMs,
+          isError,
+        });
+      }
+
       activeTools.delete(toolId);
     }
   };
@@ -883,7 +1092,36 @@ async function runExecutionPhase(): Promise<void> {
   // canUseTool callback to track tool executions (even in bypass mode)
   const canUseTool: CanUseTool = async (toolName, input, options) => {
     // Track tool start
-    activeTools.set(options.toolUseID, { toolName, startTime: Date.now() });
+    const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
+      toolName,
+      startTime: Date.now(),
+    };
+
+    // Enrich Skill tool calls with the skill name for downstream tracking
+    if (toolName === 'Skill') {
+      const skillInput = input as Record<string, unknown> | undefined;
+      const sName = typeof skillInput?.skill === 'string' ? skillInput.skill : undefined;
+      if (sName) {
+        toolEntry.skillName = sName;
+      } else {
+        console.error(
+          `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${options.toolUseID})`
+        );
+      }
+    }
+
+    // Capture subagent_type from Agent tool calls for topology grouping.
+    // The SDK reports task_type: "local_agent" — we substitute with the real name.
+    if (toolName === 'Agent') {
+      const agentInput = input as Record<string, unknown> | undefined;
+      const subagentType =
+        typeof agentInput?.subagent_type === 'string' ? agentInput.subagent_type : null;
+      if (subagentType) {
+        topology.pendingSubagentTypes.push(subagentType);
+      }
+    }
+
+    activeTools.set(options.toolUseID, toolEntry);
 
     // Emit tool start event
     events.toolStart({
@@ -892,8 +1130,19 @@ async function runExecutionPhase(): Promise<void> {
       input: (input as Record<string, unknown>) ?? {},
     });
 
-    // Detect file-modifying tools and emit file_changed event
-    emitFileChangeIfApplicable(toolName, input, events);
+    // Detect file-modifying tools and emit file_changed event + accumulate
+    {
+      const fileChange = sharedExtractFileChange(
+        toolName,
+        (input as Record<string, unknown>) ?? {}
+      );
+      if (fileChange) {
+        events.fileChanged(fileChange);
+        tracking.fileChangeSet.add(fileChange.path);
+        if (fileChange.additions) tracking.totalLinesAdded += fileChange.additions;
+        if (fileChange.deletions) tracking.totalLinesRemoved += fileChange.deletions;
+      }
+    }
 
     // Allow all tools in execution mode
     return { behavior: 'allow' as const, toolUseID: options.toolUseID };
@@ -906,7 +1155,13 @@ async function runExecutionPhase(): Promise<void> {
     console.error('[agent-runner] Creating SDK session with bypass permissions...');
 
     // Note: executableArgs with --add-dir causes EPIPE errors in SDK 0.2.x
-    // The SDK/CLI handles directory access via cwd and environment
+    // The SDK/CLI handles directory access via cwd and environment.
+    // Load custom agent definitions once — both resume and fresh-session paths
+    // need them so subagent spawning (Agent tool) can resolve `.claude/agents/*.md`
+    // names. Omitting on resume would break subagent support mid-task.
+    const agentDefs = await loadAgentDefinitions(config.cwd);
+    const agentsOpt = Object.keys(agentDefs).length > 0 ? { agents: agentDefs } : {};
+
     if (config.sdkSessionId) {
       // Try to resume existing session — may fail if session state is corrupted or stale
       // (primary container-change detection is in approvePlan; this is defense-in-depth)
@@ -914,6 +1169,7 @@ async function runExecutionPhase(): Promise<void> {
         session = unstable_v2_resumeSession(config.sdkSessionId, {
           model: config.model,
           env: { ...process.env }, // Teams GA: env passed through for agent swarm support
+          ...agentsOpt,
           permissionMode: 'bypassPermissions',
           canUseTool, // Track tools even in bypass mode
         });
@@ -938,6 +1194,7 @@ async function runExecutionPhase(): Promise<void> {
       session = unstable_v2_createSession({
         model: config.model,
         env: { ...process.env }, // Teams GA: env passed through for agent swarm support
+        ...agentsOpt,
         permissionMode: 'bypassPermissions',
         canUseTool, // Track tools even in bypass mode
       });
@@ -1010,6 +1267,8 @@ async function runExecutionPhase(): Promise<void> {
               status: 'turn_limit',
               turnCount: turn,
               result: `Turn limit reached (${config.maxTurns}). Task may need manual completion.`,
+              skillCalls: optionalSkillCalls(skillCalls),
+              ...enrichedFields(),
             });
             session.close();
             return;
@@ -1080,11 +1339,14 @@ async function runExecutionPhase(): Promise<void> {
         const toolSummary = msg as {
           summary: string;
           preceding_tool_use_ids: string[];
+          is_error?: boolean;
         };
 
         console.error(
           `[agent-runner] Tool summary: ids=${toolSummary.preceding_tool_use_ids.join(',')}`
         );
+
+        const summaryIsError = toolSummary.is_error === true;
 
         for (const toolId of toolSummary.preceding_tool_use_ids) {
           const startInfo = activeTools.get(toolId);
@@ -1095,9 +1357,18 @@ async function runExecutionPhase(): Promise<void> {
               toolName: startInfo.toolName,
               toolId,
               result: toolSummary.summary ?? '',
-              isError: false,
+              isError: summaryIsError,
               durationMs,
             });
+
+            // Accumulate Skill tool calls for metrics
+            if (startInfo.skillName) {
+              skillCalls.push({
+                skillName: startInfo.skillName,
+                durationMs,
+                isError: summaryIsError,
+              });
+            }
           }
         }
       }
@@ -1106,6 +1377,21 @@ async function runExecutionPhase(): Promise<void> {
       if (msg.type === 'assistant') {
         // Assistant message means all previous tools have completed
         emitAllToolResults();
+
+        // Note: subagent_type is captured in the canUseTool callback (see ~line 1126).
+        // The assistant-message content is not re-scanned to avoid a double-push into
+        // topology.pendingSubagentTypes.
+
+        // Accumulate token usage from assistant messages
+        const assistantMsg = msg as {
+          message?: { usage?: { input_tokens?: number; output_tokens?: number } };
+        };
+        if (assistantMsg.message?.usage) {
+          if (typeof assistantMsg.message.usage.input_tokens === 'number')
+            tracking.totalInputTokens += assistantMsg.message.usage.input_tokens;
+          if (typeof assistantMsg.message.usage.output_tokens === 'number')
+            tracking.totalOutputTokens += assistantMsg.message.usage.output_tokens;
+        }
 
         const text = getAssistantText(msg);
         if (text) {
@@ -1121,22 +1407,45 @@ async function runExecutionPhase(): Promise<void> {
       if (msg.type === 'result') {
         // Emit results for any remaining active tools
         emitAllToolResults();
-        const result = msg as { text?: string; subtype?: string; is_error?: boolean };
+        const result = msg as {
+          text?: string;
+          subtype?: string;
+          is_error?: boolean;
+          usage?: { input_tokens?: number; output_tokens?: number };
+        };
         console.error(
           `[agent-runner] Result: subtype=${result.subtype}, is_error=${result.is_error}`
         );
 
+        // Extract final token usage from result message
+        if (result.usage) {
+          if (typeof result.usage.input_tokens === 'number')
+            tracking.totalInputTokens = result.usage.input_tokens;
+          if (typeof result.usage.output_tokens === 'number')
+            tracking.totalOutputTokens = result.usage.output_tokens;
+        }
+
         if (result.is_error) {
+          const errorText = result.text ?? 'Task ended with error';
+          console.error(`[agent-runner] SDK error result: ${errorText}`);
+          // Emit a single terminal event. The host maps status:'error' to the
+          // error-handling path (agent:error semantics) and does not need a separate
+          // agent:error event. Emitting both caused a race between handleAgentError
+          // and handleAgentComplete.
           events.complete({
-            status: 'turn_limit',
+            status: 'error',
             turnCount: turn,
-            result: result.text ?? 'Task ended with error',
+            result: errorText,
+            skillCalls: optionalSkillCalls(skillCalls),
+            ...enrichedFields(),
           });
         } else {
           events.complete({
             status: 'completed',
             turnCount: turn,
             result: result.text ?? (accumulatedText || 'Task completed'),
+            skillCalls: optionalSkillCalls(skillCalls),
+            ...enrichedFields(),
           });
         }
         session.close();
@@ -1154,6 +1463,8 @@ async function runExecutionPhase(): Promise<void> {
       status: 'completed',
       turnCount: turn,
       result: accumulatedText || 'Task completed',
+      skillCalls: optionalSkillCalls(skillCalls),
+      ...enrichedFields(),
     });
   } catch (error) {
     // Emit results for any remaining active tools before reporting error

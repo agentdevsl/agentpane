@@ -906,6 +906,24 @@ export function ProjectSettings({
           </div>
 
           <div>
+            <FieldLabel htmlFor="approval-mode">Plan Approval Mode</FieldLabel>
+            <Select
+              value={config.approvalMode ?? 'human'}
+              onValueChange={(value) =>
+                setConfig((prev) => ({ ...prev, approvalMode: value as 'human' | 'agent' }))
+              }
+            >
+              <SelectTrigger id="approval-mode">
+                <SelectValue placeholder="Select approval mode" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="human">Human Review</SelectItem>
+                <SelectItem value="agent">Agent Auto-Review</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
             <FieldLabel htmlFor="default-branch">
               <GitBranch className="inline h-4 w-4 mr-1.5 text-fg-muted" />
               Default Branch

@@ -17,6 +17,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import { softInvariant } from '../../lib/utils/invariant.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
+import type { AgentReviewService } from './agent-review.service.js';
 import type { SandboxStateManager } from './sandbox-state.js';
 import type { ContainerAgentDeps, PlanData, StartAgentInput, TaskPlanRow } from './types.js';
 import type { WorktreeInitService } from './worktree-init.service.js';
@@ -29,7 +30,8 @@ export class PlanApprovalService {
     private state: SandboxStateManager,
     private worktreeInit: WorktreeInitService,
     private startAgentFn: (input: StartAgentInput) => Promise<Result<void, SandboxError>>,
-    private isAgentCoreProvider: () => boolean
+    private isAgentCoreProvider: () => boolean,
+    private agentReview?: AgentReviewService
   ) {}
 
   /**
@@ -179,6 +181,34 @@ export class PlanApprovalService {
         remainingAgents: this.state.totalRunningAgentCount,
       },
     });
+
+    // Check if agent review is configured for this task
+    if (this.agentReview) {
+      const approvalMode = await this.agentReview.resolveApprovalMode(taskId);
+      if (approvalMode === 'agent') {
+        log.info('Agent approval mode enabled — starting automated review', { data: { taskId } });
+        const pendingPlan = this.state.getPendingPlan(taskId);
+        if (pendingPlan) {
+          this.agentReview.reviewPlan(taskId, pendingPlan).catch((reviewErr) => {
+            log.error('Agent review failed, falling back to human approval', {
+              data: {
+                taskId,
+                error: reviewErr instanceof Error ? reviewErr.message : String(reviewErr),
+              },
+            });
+            // Safety net: ensure task is not stuck in 'agent_reviewing' status
+            this.agentReview?.resetToPlanning(taskId).catch((resetErr) => {
+              log.error('Failed to reset task status after review failure', {
+                data: {
+                  taskId,
+                  error: resetErr instanceof Error ? resetErr.message : String(resetErr),
+                },
+              });
+            });
+          });
+        }
+      }
+    }
   }
 
   /**

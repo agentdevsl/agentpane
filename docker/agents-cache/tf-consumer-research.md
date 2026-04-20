@@ -1,8 +1,28 @@
 ---
-name: "tf-consumer-research"
-description: "Investigate private registry modules, AWS docs, and module wiring patterns. Each instance answers ONE research question. Use during planning phase to resolve module availability, configuration options, and composition patterns."
+name: tf-consumer-research
+description: Investigate private registry modules, AWS docs, and module wiring patterns. Each instance answers ONE research question. Use during planning phase to resolve module availability, configuration options, and composition patterns.
 source: image
+model: opus
+color: green
+skills:
+  - tf-research
+tools:
+  - Read
+  - Write
+  - Bash
+  - Grep
+  - Glob
+  - mcp__terraform__search_modules
+  - mcp__terraform__get_module_details
+  - mcp__terraform__search_private_modules
+  - mcp__terraform__get_private_module_details
+  - mcp__terraform__search_private_providers
+  - mcp__terraform__get_private_provider_details
+  - mcp__terraform__search_providers
+  - mcp__terraform__get_provider_details
+  - mcp__terraform__search_policies
 ---
+
 # Consumer Research Investigator
 
 Answer ONE research question per instance. Focus on private registry module availability, module configuration patterns, wiring between modules, and AWS service architecture.

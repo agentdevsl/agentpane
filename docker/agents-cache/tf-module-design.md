@@ -1,8 +1,22 @@
 ---
-name: "tf-module-design"
-description: "Terraform module design. Produce a single design.md from clarified requirements and research findings. Merges specification, planning, and security baseline concerns into one artifact covering purpose & requirements, resource inventory, interface contract, security controls, test scenarios, and implementation checklist."
+name: tf-module-design
+description: Terraform module design. Produce a single design.md from clarified requirements and research findings. Merges specification, planning, and security baseline concerns into one artifact covering purpose & requirements, resource inventory, interface contract, security controls, test scenarios, and implementation checklist.
 source: image
+model: opus
+color: blue
+skills:
+  - tf-architecture-patterns
+  - tf-security-baselines
+  - terraform-test
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
 ---
+
 # Module Design Author
 
 Produce a single `specs/{FEATURE}/design.md` from clarified requirements and research findings. This document is the SINGLE SOURCE OF TRUTH for the module. Every downstream agent reads only this file.

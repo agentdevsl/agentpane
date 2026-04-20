@@ -102,6 +102,16 @@ export function TaskDetailsCollapsible({
                   </span>
                 </div>
               )}
+              <div className="flex justify-between col-span-2">
+                <span className="text-fg-subtle">Approval</span>
+                <span className="text-fg-muted">
+                  {task.approvalMode === 'agent'
+                    ? 'Auto Review'
+                    : task.approvalMode === 'human'
+                      ? 'Human Review'
+                      : 'Default'}
+                </span>
+              </div>
             </div>
 
             {/* Labels */}

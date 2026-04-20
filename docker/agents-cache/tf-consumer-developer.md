@@ -1,8 +1,26 @@
 ---
-name: "tf-consumer-developer"
-description: "Execute individual implementation checklist items from consumer-design.md with Terraform consumer code. Composes infrastructure from private registry modules following the consumer constitution."
+name: tf-consumer-developer
+description: Execute individual implementation checklist items from consumer-design.md with Terraform consumer code. Composes infrastructure from private registry modules following the consumer constitution.
 source: image
+model: opus
+color: orange
+skills:
+  - terraform-style-guide
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+  - mcp__terraform__search_modules
+  - mcp__terraform__search_private_modules
+  - mcp__terraform__search_providers
+  - mcp__terraform__get_provider_details
+  - mcp__aws-knowledge-mcp-server__aws___search_documentation
+  - mcp__aws-knowledge-mcp-server__aws___read_documentation
 ---
+
 # Consumer Task Executor
 
 Execute implementation checklist items from `specs/{FEATURE}/consumer-design.md` Section 5 (Implementation Checklist), producing Terraform consumer code that composes infrastructure from private registry modules.

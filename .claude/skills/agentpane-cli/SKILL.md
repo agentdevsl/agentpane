@@ -42,7 +42,7 @@ export AP_ADDRESS="http://localhost:3001"
 |----------|-------------|---------|
 | `AP_API_TOKEN` | API authentication token | (required) |
 | `AP_ADDRESS` | AgentPane API base URL | `http://localhost:3001` |
-| `AP_CODESPACE` | Default codespace ID (avoids `-codespace` on every command) | (none) |
+| `AP_CODESPACE` | Default codespace ID or name (avoids `-codespace` on every command) | (none) |
 
 ### Global Flags
 
@@ -52,7 +52,7 @@ These flags override the corresponding environment variables:
 |------|-------------|
 | `-token <string>` | API token (overrides `AP_API_TOKEN`) |
 | `-address <string>` | API base URL (overrides `AP_ADDRESS`) |
-| `-codespace <string>` | Codespace ID (overrides `AP_CODESPACE`) |
+| `-codespace <string>` | Codespace ID or name (overrides `AP_CODESPACE`) |
 | `-json` | Output in JSON format instead of human-readable tables |
 
 ### Precedence
@@ -133,7 +133,7 @@ Tasks represent units of work that agents execute. Tasks move through columns on
 #### List tasks
 
 ```bash
-agentpane task list -codespace <codespace-id>
+agentpane task list -codespace <name-or-id>
 ```
 
 With the `AP_CODESPACE` env var set:
@@ -145,17 +145,29 @@ agentpane task list
 #### Create a task
 
 ```bash
-agentpane task create -codespace <codespace-id> -title "Fix login bug" -priority high
+agentpane task create -codespace <name-or-id> -title "Fix login bug" -priority high
 ```
 
 With a skill assigned (skill ID is the directory name under `.claude/skills/`):
 
 ```bash
-agentpane task create -codespace <codespace-id> -title "Deploy infrastructure" -skill terraform-stacks -skill-name "Terraform Stacks"
+agentpane task create -codespace <name-or-id> -title "Deploy infrastructure" -skill terraform-stacks -skill-name "Terraform Stacks"
 ```
 
 ```bash
-agentpane task create -codespace <codespace-id> -title "Refactor auth module" -priority medium
+agentpane task create -codespace <name-or-id> -title "Refactor auth module" -priority medium
+```
+
+With auto-start (creates and immediately starts the agent):
+
+```bash
+agentpane task create -codespace <name-or-id> -title "Build VPC module" -skill tf-module-e2e -auto-start
+```
+
+With agent approval (plans are auto-reviewed instead of waiting for human):
+
+```bash
+agentpane task create -codespace <name-or-id> -title "Build S3 module" -skill tf-module-e2e -auto-start -approval-mode agent
 ```
 
 #### Show task details
@@ -223,7 +235,7 @@ Agents are Claude-powered workers that execute tasks. Each agent runs in its own
 #### List agents
 
 ```bash
-agentpane agent list -codespace <codespace-id>
+agentpane agent list -codespace <name-or-id>
 ```
 
 #### Start an agent on a task
@@ -245,13 +257,13 @@ Sessions track the event stream for an agent's execution. Each agent run creates
 #### List sessions
 
 ```bash
-agentpane session list -codespace <codespace-id>
+agentpane session list -codespace <name-or-id>
 ```
 
 Filter by status:
 
 ```bash
-agentpane session list -codespace <codespace-id> -status active
+agentpane session list -codespace <name-or-id> -status active
 ```
 
 #### Show session details
@@ -287,7 +299,7 @@ Worktrees are isolated git working directories created for each agent. They allo
 #### List worktrees
 
 ```bash
-agentpane worktree list -codespace <codespace-id>
+agentpane worktree list -codespace <name-or-id>
 ```
 
 #### View worktree diff
@@ -325,13 +337,13 @@ Convenience commands for checking git status of codespaces.
 #### Repository status
 
 ```bash
-agentpane git status -codespace <codespace-id>
+agentpane git status -codespace <name-or-id>
 ```
 
 #### List branches
 
 ```bash
-agentpane git branches -codespace <codespace-id>
+agentpane git branches -codespace <name-or-id>
 ```
 
 ## Common Workflows

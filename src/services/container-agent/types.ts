@@ -120,6 +120,31 @@ export interface ContainerAgentDeps {
   skillTrackingService?: import('../memory/skill-tracking.service.js').SkillTrackingService | null;
 }
 
+/**
+ * Enriched completion metrics from the agent-runner.
+ * Shared between container-bridge (production) and shared-helpers (consumption).
+ */
+export interface AgentCompleteMetrics {
+  skillId?: string;
+  skillName?: string;
+  usage?: { inputTokens?: number; outputTokens?: number };
+  fileChanges?: { filesModified: number; linesAdded: number; linesRemoved: number };
+}
+
+/**
+ * Result of an automated agent review of a plan.
+ * Stored on the task record for UI display and audit trail.
+ */
+export interface AgentReviewResult {
+  verdict: 'approve' | 'flag_for_review';
+  reasoning: string;
+  concerns?: string[];
+  confidence: number;
+  model: string;
+  durationMs: number;
+  reviewedAt: string;
+}
+
 /** TTL for pending plans in milliseconds (1 hour) */
 export const PENDING_PLAN_TTL_MS = 60 * 60 * 1000;
 

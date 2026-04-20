@@ -24,6 +24,8 @@ export type CachedSkill = {
   description?: string;
   tags?: string[];
   content: string;
+  /** Skill ID to chain to on plan approval (e.g., tf-module-implement) */
+  executionSkill?: string;
 };
 
 export type CachedCommand = {
@@ -36,6 +38,10 @@ export type CachedAgent = {
   name: string;
   description?: string;
   content: string;
+  model?: string;
+  color?: string;
+  skills?: string[];
+  tools?: string[];
 };
 
 export const templates = pgTable('templates', {

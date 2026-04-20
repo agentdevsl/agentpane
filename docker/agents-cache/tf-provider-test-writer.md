@@ -1,8 +1,20 @@
 ---
-name: "tf-provider-test-writer"
-description: "Terraform provider test writer. Write Go acceptance test stubs from provider-design-{resource}.md. Converts Section 5 test scenarios into test functions and config functions with t.Skip("not implemented") for TDD workflow. Reads Sections 2 and 5 of the design document."
+name: tf-provider-test-writer
+description: Terraform provider test writer. Write Go acceptance test stubs from provider-design-{resource}.md. Converts Section 5 test scenarios into test functions and config functions with t.Skip("not implemented") for TDD workflow. Reads Sections 2 and 5 of the design document.
 source: image
+model: opus
+color: yellow
+skills:
+  - provider-test-patterns
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
 ---
+
 # Provider Test Writer
 
 Convert `provider-design-{resource}.md` §5 (Test Scenarios) into Go acceptance test stubs. All test functions use `t.Skip("not implemented")` and MUST compile via `go test -c`. This agent writes tests only — helpers, `exports_test.go`, and `sweep_test.go` are the developer agent's responsibility.

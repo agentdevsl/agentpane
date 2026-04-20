@@ -18,6 +18,20 @@ export function mapAgentRole(agentType?: string): string {
 }
 
 /**
+ * Extract the skill namespace prefix from an agentType string.
+ * - Colon-separated: `pr-review-toolkit:code-reviewer` -> `pr-review-toolkit`
+ * - Dot-separated: `speckit.plan` -> `speckit`
+ * - Bare SDK built-ins (`Explore`, `Plan`, `general-purpose`) -> `null`
+ */
+export function extractSkillNamespace(agentType: string): string | null {
+  const colonIdx = agentType.indexOf(':');
+  if (colonIdx > 0) return agentType.slice(0, colonIdx);
+  const dotIdx = agentType.indexOf('.');
+  if (dotIdx > 0) return agentType.slice(0, dotIdx);
+  return null;
+}
+
+/**
  * Use the SDK description as the node name. Falls back to agentType, then "Agent".
  */
 export function deriveAgentName(agentType?: string, description?: string): string {

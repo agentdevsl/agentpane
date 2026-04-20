@@ -6,7 +6,8 @@ import type {
   TopologyAgentProgressEvent,
   TopologyAgentSpawnedEvent,
 } from '@/services/durable-streams.service.js';
-import type { TopologyEdge, TopologyGraph, TopologyNode } from './types.js';
+import { extractSkillNamespace } from './map-agent-role.js';
+import type { TopologyAgentMeta, TopologyEdge, TopologyGraph, TopologyNode } from './types.js';
 import { deriveContainerAgentNodeId } from './utils.js';
 
 /** Average cost per token used for topology cost estimates */
@@ -75,6 +76,13 @@ interface ContainerPlanReadyEvent {
   data: unknown;
 }
 
+interface ToolStartEvent {
+  id: string;
+  type: 'tool:start';
+  timestamp: number;
+  data: { tool: string; input?: { skill?: string } };
+}
+
 /**
  * Base event shape accepted by the topology builder.
  * Specific event interfaces above narrow `data` for known event types.
@@ -99,7 +107,17 @@ type KnownTopologyEvent =
   | ContainerCompleteEvent
   | ContainerToolStartEvent
   | ContainerMessageEvent
-  | ContainerPlanReadyEvent;
+  | ContainerPlanReadyEvent
+  | ToolStartEvent;
+
+/** Known agent entry from CachedAgent frontmatter for resolving agentMeta */
+export interface KnownAgent {
+  name: string;
+  model?: string;
+  color?: string;
+  skills?: string[];
+  tools?: string[];
+}
 
 /**
  * Context about the task/session, used to derive the root node
@@ -114,6 +132,8 @@ export interface TopologyBuildContext {
   lastAgentStatus?: AgentStatus | null;
   skillId?: string | null;
   skillName?: string | null;
+  /** Known agents from template's CachedAgent frontmatter for resolving agentMeta */
+  knownAgents?: KnownAgent[];
 }
 
 /**
@@ -124,6 +144,56 @@ export function extractSessionEvents(
   payload: TopologyEvent[] | { data: TopologyEvent[] }
 ): TopologyEvent[] {
   return Array.isArray(payload) ? payload : payload.data;
+}
+
+/** Resolve agentMeta from knownAgents by matching agentType name */
+function resolveAgentMeta(
+  agentType: string | null,
+  knownAgents?: KnownAgent[]
+): TopologyAgentMeta | null {
+  if (!agentType || !knownAgents || knownAgents.length === 0) return null;
+  // Try exact match first
+  const match = knownAgents.find((a) => a.name === agentType);
+  if (match) {
+    return {
+      model: match.model,
+      color: match.color,
+      skills: match.skills,
+      tools: match.tools,
+    };
+  }
+  // Try matching just the suffix after the namespace separator (colon or dot)
+  const colonIdx = agentType.lastIndexOf(':');
+  const dotIdx = agentType.lastIndexOf('.');
+  const sep = Math.max(colonIdx, dotIdx);
+  if (sep > 0) {
+    const suffix = agentType.slice(sep + 1);
+    const suffixMatch = knownAgents.find((a) => a.name === suffix);
+    if (suffixMatch) {
+      return {
+        model: suffixMatch.model,
+        color: suffixMatch.color,
+        skills: suffixMatch.skills,
+        tools: suffixMatch.tools,
+      };
+    }
+  }
+  return null;
+}
+
+/** Default new-field values for TopologyNode */
+function defaultNodeFields(): Pick<
+  TopologyNode,
+  'type' | 'skillId' | 'skillName' | 'skillCalls' | 'agentMeta' | 'phase'
+> {
+  return {
+    type: 'agent',
+    skillId: null,
+    skillName: null,
+    skillCalls: [],
+    agentMeta: null,
+    phase: undefined,
+  };
 }
 
 /**
@@ -138,6 +208,7 @@ export function extractSessionEvents(
  * - `container-agent:tool:start` -- increments turn/token counts on root node
  * - `container-agent:message` -- increments message count on root node
  * - `container-agent:plan_ready` -- sets root node to verifying status
+ * - `tool:start` -- when tool === 'Skill', accumulates skill calls on the root node
  *
  * When no events produce any nodes, a fallback root node is derived from
  * the task/session context.
@@ -151,6 +222,22 @@ export function buildTopologyFromEvents(
 ): TopologyGraph {
   const nodes = new Map<string, TopologyNode>();
   const edges: TopologyEdge[] = [];
+  /** Accumulated skill tool calls for the root node (deduped after the loop) */
+  const rootSkillCalls = new Set<string>();
+  /** Track plan_ready to detect phase transitions */
+  let seenPlanReady = false;
+  /** Maps planning root agentId → execution node ID for child routing */
+  const executionPhaseRoots = new Map<string, string>();
+  /**
+   * Maps `${parentId}::${agentType}` → synthetic group node ID.
+   * When multiple agents share the same agentType under the same parent,
+   * a synthetic intermediate node is created so the topology shows:
+   *   parent → agentType-group → [agent1, agent2, ...]
+   */
+  const agentTypeGroupNodes = new Map<string, string>();
+  /** Track agentType counts per parent to know when to create group nodes.
+   *  Key: `${parentId}::${agentType}`, Value: array of agent IDs */
+  // agentTypeGroupNodes tracks which agent-type group parent nodes exist
 
   for (const rawEvent of events) {
     // Cast to the known discriminated union so TypeScript narrows `data`
@@ -158,12 +245,77 @@ export function buildTopologyFromEvents(
     const event = rawEvent as KnownTopologyEvent;
     if (event.type === 'topology:agent_spawned') {
       const d = event.data;
+      const existing = nodes.get(d.agentId);
+
+      // Phase transition: if the root agent is re-spawned after plan_ready,
+      // create a separate execution phase node so both phases are visible.
+      if (
+        existing &&
+        seenPlanReady &&
+        (existing.childIds.length > 0 || existing.tokens > 0 || existing.status !== 'running')
+      ) {
+        const execNodeId = `${d.agentId}:execution`;
+        if (!nodes.has(execNodeId)) {
+          // Mark planning root as completed (plan phase done)
+          existing.status = 'completed';
+          existing.progress = 100;
+          existing.name = `${existing.name} (Planning)`;
+
+          // Create execution phase node
+          const execNode: TopologyNode = {
+            id: execNodeId,
+            name: d.name || 'Execution',
+            role: existing.role || 'agent',
+            ...defaultNodeFields(),
+            agentType: null,
+            phase: 'executing',
+            status: 'running',
+            parentId: existing.id,
+            childIds: [],
+            progress: 0,
+            tokens: 0,
+            cost: 0,
+            turns: 0,
+            messages: 0,
+            startedAt: d.timestamp ?? event.timestamp,
+            completedAt: null,
+            verified: false,
+            verificationScore: 0,
+            decisions: [],
+          };
+          nodes.set(execNodeId, execNode);
+          existing.childIds.push(execNodeId);
+          edges.push({
+            id: `${existing.id}->${execNodeId}`,
+            sourceId: existing.id,
+            targetId: execNodeId,
+          });
+          executionPhaseRoots.set(d.agentId, execNodeId);
+        }
+        continue;
+      }
+
+      // Skip true duplicates (same node, no phase transition)
+      if (
+        existing &&
+        (existing.tokens > 0 || existing.status !== 'running' || existing.childIds.length > 0)
+      ) {
+        continue;
+      }
       const roleStr = d.role ?? '';
+      const agentType = d.agentType ?? null;
+      const skillNs = agentType ? extractSkillNamespace(agentType) : null;
+      const agentMeta = resolveAgentMeta(agentType, context.knownAgents);
       const node: TopologyNode = {
         id: d.agentId,
         name: d.name,
         role: roleStr || 'agent',
-        agentType: d.agentType ?? null,
+        ...defaultNodeFields(),
+        agentType,
+        phase: seenPlanReady ? 'executing' : 'planning',
+        skillId: skillNs,
+        skillName: skillNs ? agentType : null,
+        agentMeta,
         status: 'running',
         parentId: d.parentId ?? null,
         childIds: [],
@@ -180,13 +332,84 @@ export function buildTopologyFromEvents(
       };
       nodes.set(d.agentId, node);
       if (d.parentId) {
-        edges.push({
-          id: `${d.parentId}->${d.agentId}`,
-          sourceId: d.parentId,
-          targetId: d.agentId,
-        });
-        const parent = nodes.get(d.parentId);
-        if (parent) parent.childIds.push(d.agentId);
+        // Route execution-phase children to the execution root node
+        const effectiveParentId =
+          seenPlanReady && executionPhaseRoots.has(d.parentId)
+            ? (executionPhaseRoots.get(d.parentId) ?? d.parentId)
+            : d.parentId;
+
+        // --- Agent-type grouping ---
+        // When multiple agents share the same dedicated agentType under the
+        // same parent, insert a synthetic group parent node so the topology
+        // renders a hierarchy: parent → group → [agent1, agent2, ...]
+        const isGroupableType =
+          agentType && agentType !== 'general-purpose' && agentType !== 'local_agent';
+        const groupKey = isGroupableType ? `${effectiveParentId}::${agentType}` : null;
+
+        if (groupKey) {
+          // Get or create the agent-type parent node
+          let groupNodeId = agentTypeGroupNodes.get(groupKey);
+          if (!groupNodeId) {
+            // First agent of this type — create the group parent node immediately
+            groupNodeId = `agent-type-${effectiveParentId}-${agentType}`;
+            const groupMeta = resolveAgentMeta(agentType, context.knownAgents);
+            const typeName = agentType as string;
+            const groupNode: TopologyNode = {
+              id: groupNodeId,
+              name: typeName,
+              role: typeName,
+              ...defaultNodeFields(),
+              agentType,
+              agentMeta: groupMeta,
+              status: 'running',
+              parentId: effectiveParentId,
+              childIds: [],
+              progress: 0,
+              tokens: 0,
+              cost: 0,
+              turns: 0,
+              messages: 0,
+              startedAt: d.timestamp ?? event.timestamp,
+              completedAt: null,
+              verified: false,
+              verificationScore: 0,
+              decisions: [],
+            };
+            nodes.set(groupNodeId, groupNode);
+            agentTypeGroupNodes.set(groupKey, groupNodeId);
+
+            // Connect parent → group
+            const parentNode = nodes.get(effectiveParentId);
+            if (parentNode) {
+              parentNode.childIds.push(groupNodeId);
+            }
+            edges.push({
+              id: `${effectiveParentId}->${groupNodeId}`,
+              sourceId: effectiveParentId,
+              targetId: groupNodeId,
+            });
+          }
+
+          // Connect agent to its type group parent
+          const groupNode = nodes.get(groupNodeId);
+          node.parentId = groupNodeId;
+          if (groupNode) groupNode.childIds.push(d.agentId);
+          edges.push({
+            id: `${groupNodeId}->${d.agentId}`,
+            sourceId: groupNodeId,
+            targetId: d.agentId,
+          });
+        } else {
+          // No groupable agentType — connect directly to parent
+          node.parentId = effectiveParentId;
+          edges.push({
+            id: `${effectiveParentId}->${d.agentId}`,
+            sourceId: effectiveParentId,
+            targetId: d.agentId,
+          });
+          const parent = nodes.get(effectiveParentId);
+          if (parent) parent.childIds.push(d.agentId);
+        }
       }
     } else if (event.type === 'container-agent:started' && nodes.size === 0) {
       const d = event.data;
@@ -197,9 +420,11 @@ export function buildTopologyFromEvents(
       });
       nodes.set(agentId, {
         id: agentId,
-        name: d.model ?? context.taskTitle ?? 'Agent',
+        name: context.taskTitle ?? 'Orchestrator',
         role: 'agent',
+        ...defaultNodeFields(),
         agentType: null,
+        phase: 'planning',
         status: 'running',
         parentId: null,
         childIds: [],
@@ -215,13 +440,16 @@ export function buildTopologyFromEvents(
         decisions: [],
       });
     } else if (event.type === 'container-agent:complete') {
-      const firstNode = nodes.values().next().value;
-      if (firstNode) {
-        const d = event.data;
-        firstNode.status =
-          d.status === 'completed' ? 'completed' : d.status === 'cancelled' ? 'stopped' : 'failed';
-        firstNode.completedAt = event.timestamp;
-        if (d.status === 'completed') firstNode.progress = 100;
+      const d = event.data;
+      const completeStatus =
+        d.status === 'completed' ? 'completed' : d.status === 'cancelled' ? 'stopped' : 'failed';
+      // If there's an execution phase node, complete that; otherwise complete the root
+      const execNodeId = executionPhaseRoots.values().next().value;
+      const targetNode = execNodeId ? nodes.get(execNodeId) : nodes.values().next().value;
+      if (targetNode) {
+        targetNode.status = completeStatus;
+        targetNode.completedAt = event.timestamp;
+        if (completeStatus === 'completed') targetNode.progress = 100;
       }
     } else if (event.type === 'topology:agent_progress') {
       const d = event.data;
@@ -257,11 +485,26 @@ export function buildTopologyFromEvents(
       const firstNode = nodes.values().next().value;
       if (firstNode) firstNode.messages += 1;
     } else if (event.type === 'container-agent:plan_ready') {
+      seenPlanReady = true;
       const firstNode = nodes.values().next().value;
       if (firstNode) {
         firstNode.status = 'verifying';
         firstNode.progress = 80;
+        firstNode.phase = 'reviewing';
       }
+    } else if (event.type === 'tool:start') {
+      const d = event.data;
+      if (d.tool === 'Skill' && d.input?.skill) {
+        rootSkillCalls.add(d.input.skill);
+      }
+    }
+  }
+
+  // Assign accumulated skill calls to the root node (first node)
+  if (rootSkillCalls.size > 0) {
+    const firstNode = nodes.values().next().value;
+    if (firstNode) {
+      firstNode.skillCalls = Array.from(rootSkillCalls);
     }
   }
 
@@ -292,11 +535,21 @@ export function buildTopologyFromEvents(
       fallbackStatus = 'queued';
     }
 
+    const fallbackPhase: TopologyNode['phase'] = isCompleted
+      ? 'executing'
+      : isPlanReady
+        ? 'reviewing'
+        : isRunning
+          ? 'planning'
+          : undefined;
+
     const rootNode: TopologyNode = {
       id: agentId,
       name: context.taskTitle ?? 'Agent',
       role: 'agent',
+      ...defaultNodeFields(),
       agentType: null,
+      phase: fallbackPhase,
       status: fallbackStatus,
       parentId: null,
       childIds: [],
@@ -312,12 +565,219 @@ export function buildTopologyFromEvents(
       verified: isCompleted,
       verificationScore: isCompleted ? 1 : 0,
       decisions: [],
+      skillCalls: Array.from(rootSkillCalls),
     };
     nodes.set(agentId, rootNode);
   }
 
+  // --- Reconcile stale "running" nodes ---
+  // After processing all events, some nodes may still show "running" because:
+  // 1. topology:agent_completed event was never emitted/stored
+  // 2. A duplicate topology:agent_spawned reset a node after it was completed
+  // 3. The container-agent:complete only updates firstNode, not topology nodes
+
+  // Strategy 1: If we saw a container-agent:complete event, the overall agent
+  // session is done — mark all remaining "running" nodes as completed.
+  const sawContainerComplete = events.some((e) => e.type === 'container-agent:complete');
+
+  // Strategy 2: Context-based — task has left in_progress or has terminal status.
+  const terminalStatuses: Record<string, TopologyNode['status']> = {
+    completed: 'completed',
+    cancelled: 'stopped',
+    error: 'failed',
+    turn_limit: 'failed',
+    planning: 'completed',
+  };
+  const resolvedTerminal = context.lastAgentStatus
+    ? terminalStatuses[context.lastAgentStatus]
+    : undefined;
+  const taskIsTerminal =
+    resolvedTerminal ||
+    (context.taskColumn && context.taskColumn !== 'in_progress' && context.taskColumn !== 'queued');
+
+  // Strategy 3: If ALL child nodes of a parent are completed/failed/stopped,
+  // the parent should not be "running" either.
+  const allChildrenDone = (node: TopologyNode): boolean => {
+    if (node.childIds.length === 0) return false;
+    return node.childIds.every((childId) => {
+      const child = nodes.get(childId);
+      return child && child.status !== 'running' && child.status !== 'queued';
+    });
+  };
+
+  if (sawContainerComplete || taskIsTerminal) {
+    const finalStatus = resolvedTerminal ?? 'completed';
+    for (const node of nodes.values()) {
+      if (node.status === 'running') {
+        node.status = finalStatus;
+        if (finalStatus === 'completed') node.progress = 100;
+      }
+    }
+  } else {
+    // Even without a global terminal signal, reconcile parents whose children all finished.
+    // Iterate until convergence since group nodes may need to be reconciled before their
+    // parents can be (e.g. orch → group → agent, group must complete before orch can).
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const node of nodes.values()) {
+        if (node.status === 'running' && allChildrenDone(node)) {
+          node.status = 'completed';
+          node.progress = 100;
+          changed = true;
+        }
+      }
+    }
+  }
+
+  // --- Group concurrent siblings ---
+  // Detect batches of siblings that share a parent and were spawned close together.
+  // Uses event order (spawn sequence) rather than timestamps since timestamps may be null.
+  const spawnOrder: string[] = []; // agentIds in spawn order
+  for (const rawEvent of events) {
+    const ev = rawEvent as KnownTopologyEvent;
+    if (ev.type === 'topology:agent_spawned' && ev.data.parentId) {
+      spawnOrder.push(ev.data.agentId);
+    }
+  }
+
+  // Group consecutive siblings that share the same parent.
+  // Skip nodes that are already children of agent-type group parents —
+  // those are already grouped hierarchically and shouldn't also be in
+  // compound horizontal groups (conflicting layout mechanisms).
+  const agentTypeGroupNodeIds = new Set(agentTypeGroupNodes.values());
+  let groupIndex = 0;
+  let i = 0;
+  while (i < spawnOrder.length) {
+    const spawnId = spawnOrder[i] as string;
+    const nodeA = nodes.get(spawnId);
+    if (!nodeA?.parentId || agentTypeGroupNodeIds.has(nodeA.parentId)) {
+      i++;
+      continue;
+    }
+
+    // Collect consecutive siblings with the same parent
+    const batch: string[] = [spawnId];
+    let j = i + 1;
+    while (j < spawnOrder.length) {
+      const nextId = spawnOrder[j] as string;
+      const nodeB = nodes.get(nextId);
+      if (!nodeB || nodeB.parentId !== nodeA.parentId) break;
+      batch.push(nextId);
+      j++;
+    }
+
+    // Only group batches of 2+ siblings
+    if (batch.length >= 2) {
+      const groupId = `group-${groupIndex++}`;
+      for (const agentId of batch) {
+        const node = nodes.get(agentId);
+        if (node) node.group = groupId;
+      }
+    }
+
+    i = j;
+  }
+
+  // --- Synthetic skill nodes ---
+  // For each agent node with agentMeta?.skills, create shared skill dependency nodes
+  const skillNodeMap = new Map<string, TopologyNode>();
+  const allNodes = Array.from(nodes.values());
+
+  for (const agentNode of allNodes) {
+    const skills = agentNode.agentMeta?.skills;
+    if (!skills || skills.length === 0) continue;
+
+    for (const skillName of skills) {
+      const skillNodeId = `skill-${skillName}`;
+      if (!skillNodeMap.has(skillNodeId)) {
+        const skillNode: TopologyNode = {
+          id: skillNodeId,
+          name: skillName,
+          role: 'skill',
+          type: 'skill',
+          agentType: null,
+          skillId: skillName,
+          skillName,
+          skillCalls: [],
+          agentMeta: null,
+          status: 'completed',
+          parentId: null,
+          childIds: [],
+          progress: 100,
+          tokens: 0,
+          cost: 0,
+          turns: 0,
+          messages: 0,
+          startedAt: null,
+          completedAt: null,
+          verified: false,
+          verificationScore: 0,
+          decisions: [],
+        };
+        skillNodeMap.set(skillNodeId, skillNode);
+      }
+      // Add edge from agent -> skill
+      const edgeId = `${agentNode.id}->skill-${skillName}`;
+      // Avoid duplicate edges
+      if (!edges.some((e) => e.id === edgeId)) {
+        edges.push({
+          id: edgeId,
+          sourceId: agentNode.id,
+          targetId: skillNodeId,
+        });
+      }
+    }
+  }
+
+  // --- Task-level skill injection node ---
+  // When the task has a skill assigned (context.skillId), show it as
+  // an injected skill node connected to the root agent.
+  const rootNode = allNodes[0];
+  if (context.skillId && rootNode) {
+    const injectionNodeId = `skill-inject-${context.skillId}`;
+    if (!skillNodeMap.has(injectionNodeId)) {
+      const injectionNode: TopologyNode = {
+        id: injectionNodeId,
+        name: context.skillName ?? context.skillId,
+        role: 'skill',
+        type: 'skill',
+        agentType: null,
+        skillId: context.skillId,
+        skillName: context.skillName ?? context.skillId,
+        skillCalls: [],
+        agentMeta: null,
+        status: 'completed',
+        parentId: rootNode.id,
+        childIds: [],
+        progress: 100,
+        tokens: 0,
+        cost: 0,
+        turns: 0,
+        messages: 0,
+        startedAt: rootNode.startedAt,
+        completedAt: rootNode.startedAt,
+        verified: false,
+        verificationScore: 0,
+        decisions: [],
+      };
+      skillNodeMap.set(injectionNodeId, injectionNode);
+      const edgeId = `skill-inject->${rootNode.id}`;
+      if (!edges.some((e) => e.id === edgeId)) {
+        edges.push({
+          id: edgeId,
+          sourceId: injectionNodeId,
+          targetId: rootNode.id,
+        });
+      }
+    }
+  }
+
+  // Merge skill nodes into the main node list
+  const finalNodes = [...allNodes, ...skillNodeMap.values()];
+
   return {
-    nodes: Array.from(nodes.values()),
+    nodes: finalNodes,
     edges,
     taskId: context.taskId ?? '',
     taskName: context.taskTitle ?? '',

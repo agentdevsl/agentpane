@@ -33,6 +33,10 @@ interface KanbanBoardProps {
   onNewTask?: (column: TaskColumn) => void;
   /** Callback to run a task immediately (moves to in_progress and triggers agent) */
   onRunNow?: (taskId: string) => void;
+  /** Callback to stop a running agent */
+  onStopAgent?: (taskId: string) => void;
+  /** Callback to cancel an in-progress task (stop agent + move to backlog) */
+  onCancelTask?: (taskId: string) => void;
   /** Custom header action for backlog column (e.g., AI create button) */
   backlogHeaderAction?: React.ReactNode;
   /** Loading state */
@@ -82,6 +86,8 @@ export function KanbanBoard({
   onTaskClick,
   onNewTask,
   onRunNow,
+  onStopAgent,
+  onCancelTask,
   backlogHeaderAction,
   isLoading: _isLoading,
 }: KanbanBoardProps): React.JSX.Element {
@@ -282,18 +288,30 @@ export function KanbanBoard({
               onAddTask={() => handleAddTask(columnId)}
               headerAction={columnId === 'backlog' ? backlogHeaderAction : undefined}
             >
-              {columnTasks.map((task) => (
-                <KanbanCard
-                  key={task.id}
-                  task={task}
-                  isSelected={selectedIds.has(task.id)}
-                  isDragging={activeId === task.id}
-                  onSelect={(multi) => handleCardSelect(task.id, multi)}
-                  onOpen={() => handleCardOpen(task)}
-                  onRunNow={onRunNow ? () => onRunNow(task.id) : undefined}
-                  agentStatus={task.sessionId ? agentStatuses.get(task.sessionId) : undefined}
-                />
-              ))}
+              {columnTasks.map((task) => {
+                const isInProgress = task.column === 'in_progress';
+                const hasAgent = Boolean(task.agentId) || Boolean(task.sessionId);
+                return (
+                  <KanbanCard
+                    key={task.id}
+                    task={task}
+                    isSelected={selectedIds.has(task.id)}
+                    isDragging={activeId === task.id}
+                    onSelect={(multi) => handleCardSelect(task.id, multi)}
+                    onOpen={() => handleCardOpen(task)}
+                    onRunNow={onRunNow ? () => onRunNow(task.id) : undefined}
+                    onStop={
+                      isInProgress && hasAgent && onStopAgent
+                        ? () => onStopAgent(task.id)
+                        : undefined
+                    }
+                    onCancel={
+                      isInProgress && onCancelTask ? () => onCancelTask(task.id) : undefined
+                    }
+                    agentStatus={task.sessionId ? agentStatuses.get(task.sessionId) : undefined}
+                  />
+                );
+              })}
             </KanbanColumn>
           );
         })}

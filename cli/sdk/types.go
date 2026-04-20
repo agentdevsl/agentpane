@@ -89,6 +89,7 @@ type Task struct {
 	Branch          *string  `json:"branch,omitempty"`
 	Plan            *string  `json:"plan,omitempty"`
 	LastAgentStatus *string  `json:"lastAgentStatus,omitempty"`
+	ApprovalMode    *string  `json:"approvalMode,omitempty"`
 	CreatedAt       string   `json:"createdAt"`
 	UpdatedAt       string   `json:"updatedAt"`
 }
@@ -243,6 +244,8 @@ type TaskCreateOptions struct {
 	SkillName          *string  `json:"skillName,omitempty"`
 	ExecutionSkillID   *string  `json:"executionSkillId,omitempty"`
 	ExecutionSkillName *string  `json:"executionSkillName,omitempty"`
+	AutoStart          *bool    `json:"autoStart,omitempty"`
+	ApprovalMode       *string  `json:"approvalMode,omitempty"`
 }
 
 // TaskUpdateOptions specifies the parameters for updating a task.

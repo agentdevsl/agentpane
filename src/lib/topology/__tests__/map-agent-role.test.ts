@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveAgentName, mapAgentRole } from '../map-agent-role.js';
+import { deriveAgentName, extractSkillNamespace, mapAgentRole } from '../map-agent-role.js';
 
 describe('mapAgentRole', () => {
   it('maps planner from agentType containing "plan"', () => {
@@ -55,6 +55,38 @@ describe('mapAgentRole', () => {
   it('is case insensitive', () => {
     expect(mapAgentRole('PLAN')).toBe('planner');
     expect(mapAgentRole('Review')).toBe('reviewer');
+  });
+});
+
+describe('extractSkillNamespace', () => {
+  it('extracts prefix from colon-separated types', () => {
+    expect(extractSkillNamespace('pr-review-toolkit:code-reviewer')).toBe('pr-review-toolkit');
+  });
+
+  it('extracts prefix from dot-separated types', () => {
+    expect(extractSkillNamespace('speckit.plan')).toBe('speckit');
+  });
+
+  it('returns null for bare SDK built-ins', () => {
+    expect(extractSkillNamespace('Explore')).toBeNull();
+    expect(extractSkillNamespace('Plan')).toBeNull();
+    expect(extractSkillNamespace('general-purpose')).toBeNull();
+  });
+
+  it('prefers colon over dot when both present', () => {
+    expect(extractSkillNamespace('toolkit:agent.sub')).toBe('toolkit');
+  });
+
+  it('handles single character prefix', () => {
+    expect(extractSkillNamespace('a:runner')).toBe('a');
+  });
+
+  it('returns null for colon at position 0', () => {
+    expect(extractSkillNamespace(':runner')).toBeNull();
+  });
+
+  it('returns null for dot at position 0', () => {
+    expect(extractSkillNamespace('.plan')).toBeNull();
   });
 });
 

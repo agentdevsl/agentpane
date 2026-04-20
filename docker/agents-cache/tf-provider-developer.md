@@ -1,8 +1,24 @@
 ---
-name: "tf-provider-developer"
-description: "Terraform provider developer. Execute individual implementation checklist items from provider-design-{resource}.md with Go provider code. Item context from specs/{FEATURE}/provider-design-{resource}.md."
+name: tf-provider-developer
+description: Terraform provider developer. Execute individual implementation checklist items from provider-design-{resource}.md with Go provider code. Item context from specs/{FEATURE}/provider-design-{resource}.md.
 source: image
+model: opus
+color: orange
+skills:
+  - provider-resources
+  - provider-actions
+  - provider-test-patterns
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+  - WebSearch
+  - WebFetch
 ---
+
 # Provider Task Executor
 
 Execute implementation checklist items from `specs/{FEATURE}/provider-design-{resource}.md` Section 6, producing Go provider code using the Plugin Framework.

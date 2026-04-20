@@ -52,12 +52,21 @@ export interface PlanReadyData {
   teammateCount?: number;
 }
 
+import type { AgentCompleteMetrics } from '../../services/container-agent/types.js';
+
+/** Enriched completion data forwarded from the agent-runner's complete event. */
+export type CompleteEventMetrics = AgentCompleteMetrics;
+
 export interface ContainerBridgeOptions {
   taskId: string;
   sessionId: string;
   codespaceId: string;
   streams: DurableStreamsService;
-  onComplete?: (status: 'completed' | 'turn_limit' | 'cancelled', turnCount: number) => void;
+  onComplete?: (
+    status: 'completed' | 'turn_limit' | 'cancelled' | 'error',
+    turnCount: number,
+    metrics?: CompleteEventMetrics
+  ) => void;
   onError?: (error: string, turnCount: number) => void;
   onPlanReady?: (data: PlanReadyData) => void;
 }
@@ -194,8 +203,12 @@ export function createContainerBridge(options: ContainerBridgeOptions): Containe
    */
   function handleComplete(event: ContainerAgentEvent): void {
     const data = event.data as {
-      status: 'completed' | 'turn_limit' | 'cancelled';
+      status: 'completed' | 'turn_limit' | 'cancelled' | 'error';
       turnCount: number;
+      skillId?: string;
+      skillName?: string;
+      usage?: { inputTokens?: number; outputTokens?: number };
+      fileChanges?: { filesModified: number; linesAdded: number; linesRemoved: number };
     };
 
     if (!data || typeof data.turnCount !== 'number') {
@@ -206,7 +219,7 @@ export function createContainerBridge(options: ContainerBridgeOptions): Containe
       return;
     }
 
-    if (!['completed', 'turn_limit', 'cancelled'].includes(data.status)) {
+    if (!['completed', 'turn_limit', 'cancelled', 'error'].includes(data.status)) {
       infoLog('handleComplete', 'Invalid completion status', {
         taskId,
         status: data.status,
@@ -223,7 +236,17 @@ export function createContainerBridge(options: ContainerBridgeOptions): Containe
     });
 
     if (onComplete) {
-      onComplete(data.status, data.turnCount);
+      // Forward enriched metrics from agent-runner complete event
+      const metrics: CompleteEventMetrics = {};
+      if (data.skillId) metrics.skillId = data.skillId;
+      if (data.skillName) metrics.skillName = data.skillName;
+      if (data.usage) metrics.usage = data.usage;
+      if (data.fileChanges) metrics.fileChanges = data.fileChanges;
+      onComplete(
+        data.status,
+        data.turnCount,
+        Object.keys(metrics).length > 0 ? metrics : undefined
+      );
     }
   }
 

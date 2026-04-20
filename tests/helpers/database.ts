@@ -161,6 +161,23 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     // Column may already exist
   }
 
+  // Add agent approval mode columns to tasks (migration 0016)
+  try {
+    testSqlite.exec('ALTER TABLE tasks ADD COLUMN approval_mode TEXT');
+  } catch {
+    // Column may already exist
+  }
+  try {
+    testSqlite.exec('ALTER TABLE tasks ADD COLUMN agent_review_result TEXT');
+  } catch {
+    // Column may already exist
+  }
+  try {
+    testSqlite.exec('ALTER TABLE tasks ADD COLUMN agent_reviewed_at TEXT');
+  } catch {
+    // Column may already exist
+  }
+
   // GitHub App columns (migration 23)
   try {
     testSqlite.exec(

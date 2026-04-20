@@ -180,15 +180,46 @@ export class AgentExecutionService {
     sessionId: string;
     status: 'completed' | 'error' | 'turn_limit' | 'paused' | 'planning';
     turnCount: number;
-    metrics?: { totalCostUsd?: number; durationMs?: number; numTurns?: number };
+    phase?: 'planning' | 'execution';
+    metrics?: {
+      totalCostUsd?: number;
+      durationMs?: number;
+      durationApiMs?: number;
+      numTurns?: number;
+      inputTokens?: number;
+      outputTokens?: number;
+    };
+    fileChanges?: { filesModified: number; linesAdded: number | null; linesRemoved: number | null };
     errorMessage?: string;
   }): Promise<void> {
     if (!this.skillTrackingService) return;
     const taskForSkill = await this.db.query.tasks.findFirst({
       where: eq(tasks.id, params.taskId),
-      columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
+      columns: {
+        skillId: true,
+        skillName: true,
+        executionSkillId: true,
+        executionSkillName: true,
+        codespaceId: true,
+        startedAt: true,
+      },
     });
-    if (!taskForSkill?.skillId) return;
+    // Allow recording when either skillId or executionSkillId (for execution phase) is present
+    if (!taskForSkill?.skillId && !(params.phase === 'execution' && taskForSkill?.executionSkillId))
+      return;
+
+    // When phase is 'execution' and an executionSkillId exists that differs
+    // from the planning skillId, record under the execution skill instead.
+    let skillId = taskForSkill.skillId;
+    let skillName = taskForSkill.skillName ?? null;
+    if (
+      params.phase === 'execution' &&
+      taskForSkill.executionSkillId &&
+      taskForSkill.executionSkillId !== taskForSkill.skillId
+    ) {
+      skillId = taskForSkill.executionSkillId;
+      skillName = taskForSkill.executionSkillName ?? null;
+    }
 
     const insightIdsUsed = params.insightIds ?? null;
 
@@ -197,11 +228,12 @@ export class AgentExecutionService {
       taskId: params.taskId,
       agentRunId: params.agentRunId,
       sessionId: params.sessionId,
-      skillId: taskForSkill.skillId,
-      skillName: taskForSkill.skillName ?? null,
+      skillId,
+      skillName,
       status: params.status,
       turnCount: params.turnCount,
       metrics: params.metrics,
+      fileChanges: params.fileChanges,
       errorMessage: params.errorMessage,
       startedAt: taskForSkill.startedAt,
       insightIdsUsed,
@@ -232,8 +264,12 @@ export class AgentExecutionService {
     metrics?: {
       totalCostUsd?: number;
       durationMs?: number;
+      durationApiMs?: number;
       numTurns?: number;
+      inputTokens?: number;
+      outputTokens?: number;
     };
+    fileChanges?: { filesModified: number; linesAdded: number | null; linesRemoved: number | null };
     errorMessage?: string;
     startedAt?: string | null;
     insightIdsUsed?: string[] | null;
@@ -271,10 +307,17 @@ export class AgentExecutionService {
         sessionId: params.sessionId,
         status: trackingStatus,
         turnsUsed: params.metrics?.numTurns ?? params.turnCount,
-        tokensUsed: null,
+        tokensUsed:
+          params.metrics?.inputTokens != null || params.metrics?.outputTokens != null
+            ? (params.metrics.inputTokens ?? 0) + (params.metrics.outputTokens ?? 0)
+            : null,
         durationMs: params.metrics?.durationMs ?? null,
+        durationApiMs: params.metrics?.durationApiMs ?? null,
         costUsd: params.metrics?.totalCostUsd ?? null,
         errorMessage: params.errorMessage ?? null,
+        filesModified: params.fileChanges?.filesModified ?? null,
+        linesAdded: params.fileChanges?.linesAdded ?? null,
+        linesRemoved: params.fileChanges?.linesRemoved ?? null,
         insightIdsUsed: params.insightIdsUsed ?? null,
         startedAt: params.startedAt ?? null,
         completedAt: now,
@@ -554,7 +597,8 @@ export class AgentExecutionService {
         signal: controller.signal,
       },
       agentRun?.id ?? createId(),
-      task.id
+      task.id,
+      { skillId: task.skillId, skillName: task.skillName }
     );
 
     const updatedAgent = await this.db.query.agents.findFirst({
@@ -601,7 +645,8 @@ export class AgentExecutionService {
       signal?: AbortSignal;
     },
     runId: string,
-    taskId: string
+    taskId: string,
+    skillContext?: { skillId?: string | null; skillName?: string | null }
   ): Promise<void> {
     // Abort signal handling is managed by stream-handler.ts which publishes agent:stopped
 
@@ -646,6 +691,8 @@ export class AgentExecutionService {
         cwd: options.cwd,
         signal: options.signal,
         maxRuntimeMs,
+        skillId: skillContext?.skillId,
+        skillName: skillContext?.skillName,
         sessionService: this.sessionService,
         onMessage,
       });
@@ -742,9 +789,10 @@ export class AgentExecutionService {
         status: result.status,
         turnCount: result.turnCount,
         metrics: result.metrics,
+        fileChanges: result.fileChanges,
         errorMessage: result.error,
       }).catch((err) => {
-        log.warn('Failed to record skill execution', {
+        log.error('Failed to record skill execution', {
           error: err instanceof Error ? err.message : String(err),
         });
       });
@@ -802,7 +850,7 @@ export class AgentExecutionService {
         turnCount: 0,
         errorMessage: errMsg,
       }).catch((err) => {
-        log.warn('Failed to record skill execution', {
+        log.error('Failed to record skill execution', {
           error: err instanceof Error ? err.message : String(err),
         });
       });
@@ -1006,7 +1054,12 @@ export class AgentExecutionService {
     agentId: string,
     sessionId: string,
     prompt: string,
-    task: { id: string; worktreeId: string | null },
+    task: {
+      id: string;
+      worktreeId: string | null;
+      skillId?: string | null;
+      skillName?: string | null;
+    },
     signal: AbortSignal
   ): Promise<void> {
     // Abort signal handling is managed by stream-handler.ts which publishes agent:stopped
@@ -1118,6 +1171,8 @@ export class AgentExecutionService {
         cwd,
         signal,
         maxRuntimeMs,
+        skillId: task.skillId,
+        skillName: task.skillName,
         sessionService: this.sessionService,
         onMessage: this.buildOnMessageCallback(memoryRef, this.memoryService),
       });
@@ -1199,12 +1254,14 @@ export class AgentExecutionService {
         agentId,
         insightIds: execInsightIds,
         sessionId,
+        phase: 'execution',
         status: result.status,
         turnCount: result.turnCount,
         metrics: result.metrics,
+        fileChanges: result.fileChanges,
         errorMessage: result.error,
       }).catch((err) => {
-        log.warn('Failed to record skill execution', {
+        log.error('Failed to record skill execution', {
           error: err instanceof Error ? err.message : String(err),
         });
       });
@@ -1261,11 +1318,12 @@ export class AgentExecutionService {
         agentRunId: runId,
         agentId,
         sessionId,
+        phase: 'execution',
         status: 'error',
         turnCount: 0,
         errorMessage: errMsg,
       }).catch((err) => {
-        log.warn('Failed to record skill execution', {
+        log.error('Failed to record skill execution', {
           error: err instanceof Error ? err.message : String(err),
         });
       });

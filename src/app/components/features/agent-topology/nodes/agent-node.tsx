@@ -1,14 +1,39 @@
 import { Handle, type NodeProps, Position } from '@xyflow/react';
 import { memo } from 'react';
-import type { TopologyNode } from '@/lib/topology/types';
+import type { TopologyAgentMeta, TopologyNode } from '@/lib/topology/types';
 import { DECISION_TYPE_CONFIG, getRoleConfig, STATUS_COLORS } from './agent-node-types';
 
 export type AgentNodeData = Pick<
   TopologyNode,
-  'name' | 'role' | 'agentType' | 'status' | 'progress' | 'decisions' | 'tokens' | 'cost' | 'turns'
+  | 'name'
+  | 'role'
+  | 'agentType'
+  | 'status'
+  | 'progress'
+  | 'decisions'
+  | 'tokens'
+  | 'cost'
+  | 'turns'
+  | 'skillId'
+  | 'skillName'
+  | 'skillCalls'
+  | 'phase'
 > & {
+  agentMeta: TopologyAgentMeta | null;
   nodeIndex: number;
   [key: string]: unknown;
+};
+
+/** Map agent frontmatter color names to CSS hex values */
+const COLOR_NAME_MAP: Record<string, string> = {
+  blue: '#388BFD',
+  orange: '#FCA572',
+  purple: '#A78BFA',
+  green: '#34D399',
+  red: '#F87171',
+  yellow: '#FFD866',
+  cyan: '#67E8F9',
+  pink: '#F472B6',
 };
 
 const RADIUS = 28;
@@ -26,10 +51,23 @@ function formatTokens(n: number): string {
 }
 
 function AgentNodeComponent({ data, selected }: NodeProps) {
-  const { name, role, status, progress, decisions, tokens, cost, turns, agentType } =
-    data as AgentNodeData;
+  const {
+    name,
+    role,
+    status,
+    progress,
+    decisions,
+    tokens,
+    cost,
+    turns,
+    agentType,
+    agentMeta,
+    phase,
+  } = data as AgentNodeData;
   const roleConfig = getRoleConfig(role);
-  const roleColor = roleConfig.color;
+  const roleColor = agentMeta?.color
+    ? (COLOR_NAME_MAP[agentMeta.color] ?? roleConfig.color)
+    : roleConfig.color;
   const statusColor = STATUS_COLORS[status];
   const pct = Math.min(1, Math.max(0, progress / 100));
   const isRunning = status === 'running';
@@ -174,7 +212,11 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
           fill="var(--fg-muted)"
           style={{ pointerEvents: 'none' }}
         >
-          {agentType ? `${agentType} · ` : ''}
+          {phase
+            ? `${phase} · `
+            : agentType && agentType !== 'local_agent'
+              ? `${agentType} · `
+              : ''}
           {status} &middot; {progress}%
         </text>
 
@@ -242,7 +284,12 @@ function areAgentNodePropsEqual(prev: NodeProps, next: NodeProps): boolean {
     prevData.decisions === nextData.decisions &&
     prevData.tokens === nextData.tokens &&
     prevData.cost === nextData.cost &&
-    prevData.turns === nextData.turns
+    prevData.turns === nextData.turns &&
+    prevData.skillId === nextData.skillId &&
+    prevData.skillName === nextData.skillName &&
+    prevData.skillCalls === nextData.skillCalls &&
+    prevData.agentMeta === nextData.agentMeta &&
+    prevData.phase === nextData.phase
   );
 }
 

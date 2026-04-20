@@ -267,6 +267,8 @@ export function SessionHistory({
             filesModified: summary?.filesModified ?? previousDetail?.filesModified ?? 0,
             linesAdded: summary?.linesAdded ?? previousDetail?.linesAdded ?? 0,
             linesRemoved: summary?.linesRemoved ?? previousDetail?.linesRemoved ?? 0,
+            skillId: previousDetail?.skillId ?? null,
+            skillName: previousDetail?.skillName ?? null,
             testsRun: previousDetail?.testsRun ?? 0,
             testsPassed: previousDetail?.testsPassed ?? 0,
             costUsd:

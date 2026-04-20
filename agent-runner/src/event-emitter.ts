@@ -39,6 +39,8 @@ export interface AgentEvent {
 export interface AgentStartedData {
   model: string;
   maxTurns: number;
+  skillId?: string;
+  skillName?: string;
 }
 
 export interface AgentTokenData {
@@ -70,10 +72,25 @@ export interface AgentMessageData {
   content: string;
 }
 
+/**
+ * Matching type exists in src/lib/agents/stream-handler.ts (canonical).
+ * Keep in sync — build boundary prevents shared import.
+ */
+export interface SkillCallRecord {
+  skillName: string;
+  durationMs: number;
+  isError: boolean;
+}
+
 export interface AgentCompleteData {
-  status: 'completed' | 'turn_limit' | 'cancelled';
+  status: 'completed' | 'turn_limit' | 'cancelled' | 'error';
   turnCount: number;
   result?: string;
+  skillCalls?: SkillCallRecord[];
+  skillId?: string;
+  skillName?: string;
+  usage?: { inputTokens?: number; outputTokens?: number };
+  fileChanges?: { filesModified: number; linesAdded: number; linesRemoved: number };
 }
 
 export interface AgentErrorData {
@@ -132,6 +149,7 @@ export interface AgentPlanReadyData {
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
   launchSwarm?: boolean;
   teammateCount?: number;
+  skillCalls?: SkillCallRecord[];
 }
 
 // File descriptor for stdout (used for synchronous writes)

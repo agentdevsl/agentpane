@@ -5,9 +5,11 @@
 package command
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/agentdevsl/agentpane/cli/internal/logging"
@@ -95,6 +97,49 @@ func (m *Meta) CodespaceID() string {
 		return env
 	}
 	return ""
+}
+
+// ResolveCodespaceID resolves the codespace value to an ID.
+// If the value looks like a CUID (lowercase alphanumeric, 20+ chars), it's returned as-is.
+// Otherwise it's treated as a name and resolved via the API.
+func (m *Meta) ResolveCodespaceID(client *sdk.Client) (string, error) {
+	raw := m.CodespaceID()
+	if raw == "" {
+		return "", fmt.Errorf("-codespace is required (or set AP_CODESPACE)")
+	}
+
+	// If it looks like a CUID, use it directly
+	if looksLikeCUID(raw) {
+		return raw, nil
+	}
+
+	// Resolve by name
+	codespaces, err := client.Codespaces.List(context.Background())
+	if err != nil {
+		return "", fmt.Errorf("failed to list codespaces for name resolution: %w", err)
+	}
+
+	nameLower := strings.ToLower(raw)
+	for _, cs := range codespaces {
+		if strings.ToLower(cs.Name) == nameLower {
+			return cs.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("codespace %q not found", raw)
+}
+
+// looksLikeCUID returns true if the string looks like a CUID (20+ lowercase alphanumeric chars).
+func looksLikeCUID(s string) bool {
+	if len(s) < 20 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+			return false
+		}
+	}
+	return true
 }
 
 // JSONOutput returns true if the -json flag was set.
