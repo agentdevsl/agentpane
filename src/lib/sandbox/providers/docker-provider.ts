@@ -13,7 +13,7 @@ import type {
   SandboxStatus,
   TmuxSession,
 } from '../types.js';
-import { SANDBOX_DEFAULTS } from '../types.js';
+import { getDefaultSandboxNetworkMode, SANDBOX_DEFAULTS } from '../types.js';
 import type {
   EventEmittingSandboxProvider,
   ExecStreamOptions,
@@ -24,6 +24,56 @@ import type {
 } from './sandbox-provider.js';
 
 const log = createLogger('DockerProvider');
+
+/**
+ * Build a minimal POSIX USTAR archive containing a single regular file.
+ *
+ * theme-04 P1-05: Used by `DockerSandbox.writeFile` to upload files (notably
+ * credentials) via `putArchive` instead of a shell exec, so the content never
+ * lands in any argv.
+ *
+ * The USTAR format is fixed 512-byte blocks: 1 header + N data blocks (padded
+ * with zeros) + 2 trailing zero blocks. See `man tar(5)` or
+ * https://www.gnu.org/software/tar/manual/html_node/Standard.html.
+ */
+function buildSingleFileTar(name: string, content: Buffer, mode: number): Buffer {
+  if (name.length > 100) {
+    // USTAR short-name field is 100 bytes; we could split into name/prefix but
+    // no sandbox path needs it. Fail loud rather than silently truncating.
+    throw new Error(`writeFile: name too long for USTAR short-name (${name.length} > 100)`);
+  }
+
+  const header = Buffer.alloc(512);
+  header.write(name, 0, 100, 'utf8');
+  header.write(mode.toString(8).padStart(7, '0') + '\0', 100, 8, 'ascii'); // mode
+  header.write('0000000\0', 108, 8, 'ascii'); // uid (0)
+  header.write('0000000\0', 116, 8, 'ascii'); // gid (0)
+  header.write(content.length.toString(8).padStart(11, '0') + '\0', 124, 12, 'ascii'); // size
+  header.write(
+    Math.floor(Date.now() / 1000)
+      .toString(8)
+      .padStart(11, '0') + '\0',
+    136,
+    12,
+    'ascii'
+  ); // mtime
+  header.write('        ', 148, 8, 'ascii'); // checksum placeholder (8 spaces)
+  header.write('0', 156, 1, 'ascii'); // typeflag = '0' (normal file)
+  header.write('ustar\0', 257, 6, 'ascii'); // magic
+  header.write('00', 263, 2, 'ascii'); // version
+
+  // Compute checksum: unsigned sum of all header bytes (with placeholder)
+  let checksum = 0;
+  for (let i = 0; i < 512; i++) checksum += header[i] ?? 0;
+  header.write(checksum.toString(8).padStart(6, '0') + '\0 ', 148, 8, 'ascii');
+
+  // Data blocks, padded to 512-byte boundary
+  const padLen = (512 - (content.length % 512)) % 512;
+  const pad = Buffer.alloc(padLen);
+  const trailer = Buffer.alloc(1024); // two zero blocks
+
+  return Buffer.concat([header, content, pad, trailer]);
+}
 
 /**
  * Docker-based sandbox implementation
@@ -268,6 +318,35 @@ class DockerSandbox implements Sandbox {
   private shellEscape(str: string): string {
     // Replace single quotes with: end quote, escaped quote, start quote
     return `'${str.replace(/'/g, "'\\''")}'`;
+  }
+
+  /**
+   * Write a file inside the container via `docker putArchive`.
+   *
+   * theme-04 P1-05: Uploads a POSIX tarball containing just this one file so
+   * the contents never appear in any exec argv (not visible to `ps`,
+   * proc entries, or Docker audit logs). This is the preferred path for
+   * credential injection; the old `sh -c` + base64 path leaked the encoded
+   * token via argv.
+   */
+  async writeFile(filePath: string, content: string | Buffer, mode = 0o600): Promise<void> {
+    this.touch();
+    const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
+
+    // Compute parent directory and filename. `putArchive` requires the target
+    // directory to exist inside the container.
+    const lastSlash = filePath.lastIndexOf('/');
+    const dir = lastSlash >= 0 ? filePath.slice(0, lastSlash) : '.';
+    const name = lastSlash >= 0 ? filePath.slice(lastSlash + 1) : filePath;
+    if (!name) {
+      throw SandboxErrors.EXEC_FAILED('writeFile', `invalid path: ${filePath}`);
+    }
+
+    // Build a minimal USTAR archive with a single regular-file entry. Using
+    // `tar-stream` would be cleaner but we want zero new dependencies.
+    const archive = buildSingleFileTar(name, buf, mode);
+
+    await this.container.putArchive(archive, { path: dir });
   }
 
   /**
@@ -564,8 +643,11 @@ export class DockerProvider implements EventEmittingSandboxProvider {
           Binds: binds,
           Memory: config.memoryMb * 1024 * 1024,
           NanoCpus: config.cpuCores * 1e9,
-          // SC-006: Use configured networkMode, default to 'bridge'
-          NetworkMode: config.networkMode ?? 'bridge',
+          // theme-04 P1-06: When the caller does not specify a network mode,
+          // honour the operator-wide default (`SANDBOX_DEFAULT_NETWORK_MODE`).
+          // When the env var is unset this falls back to the historical
+          // `bridge` for backwards compatibility.
+          NetworkMode: config.networkMode ?? getDefaultSandboxNetworkMode(),
           AutoRemove: false,
           // SC-C1: Drop all Linux capabilities by default, add back only what's needed
           CapDrop: ['ALL'],

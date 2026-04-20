@@ -68,34 +68,55 @@ export class CredentialsInjector {
         );
       }
 
-      // Write credentials file using base64 to prevent command injection
       const credentialsJson = JSON.stringify(creds, null, 2);
       const containerPath = getContainerCredentialsPath();
 
-      // Base64 encode to safely pass through shell without injection risk
-      const encoded = Buffer.from(credentialsJson).toString('base64');
-      const writeResult = await sandbox.exec('sh', [
-        '-c',
-        `echo "${encoded}" | base64 -d > ${containerPath}`,
-      ]);
+      // theme-04 P1-05: Prefer out-of-band file upload (Docker putArchive,
+      // K8s/Nomad cp) when the provider supports it. This keeps the token
+      // out of argv / `/proc/*/cmdline` / audit logs. Providers that do not
+      // implement `writeFile` fall back to the legacy base64-encoded
+      // `sh -c 'echo ... | base64 -d > ...'` path; those code paths are
+      // tracked as follow-up.
+      if (typeof sandbox.writeFile === 'function') {
+        try {
+          await sandbox.writeFile(containerPath, credentialsJson, 0o600);
+        } catch (writeErr) {
+          return err(
+            SandboxErrors.CREDENTIALS_INJECTION_FAILED(
+              `Failed to write credentials via file upload: ${errorMessage(writeErr)}`
+            )
+          );
+        }
+      } else {
+        // Legacy fallback for providers that do not implement `writeFile`.
+        // Base64 encode to safely pass through shell without injection risk,
+        // but the encoded blob is still visible in the container's argv —
+        // tracked as follow-up work per theme-04 P1-05.
+        const encoded = Buffer.from(credentialsJson).toString('base64');
+        const writeResult = await sandbox.exec('sh', [
+          '-c',
+          `echo "${encoded}" | base64 -d > ${containerPath}`,
+        ]);
 
-      if (writeResult.exitCode !== 0) {
-        return err(
-          SandboxErrors.CREDENTIALS_INJECTION_FAILED(
-            `Failed to write credentials: ${writeResult.stderr}`
-          )
-        );
-      }
+        if (writeResult.exitCode !== 0) {
+          return err(
+            SandboxErrors.CREDENTIALS_INJECTION_FAILED(
+              `Failed to write credentials: ${writeResult.stderr}`
+            )
+          );
+        }
 
-      // Set proper permissions (600 = owner read/write only)
-      const chmodResult = await sandbox.exec('chmod', ['600', containerPath]);
+        // Set proper permissions (600 = owner read/write only). writeFile()
+        // sets mode atomically via the tar entry; only needed on fallback.
+        const chmodResult = await sandbox.exec('chmod', ['600', containerPath]);
 
-      if (chmodResult.exitCode !== 0) {
-        return err(
-          SandboxErrors.CREDENTIALS_INJECTION_FAILED(
-            `Failed to set permissions: ${chmodResult.stderr}`
-          )
-        );
+        if (chmodResult.exitCode !== 0) {
+          return err(
+            SandboxErrors.CREDENTIALS_INJECTION_FAILED(
+              `Failed to set permissions: ${chmodResult.stderr}`
+            )
+          );
+        }
       }
 
       // Verify the file was created
