@@ -16,6 +16,7 @@ const NewProjectDialog = React.lazy(() =>
 import { AddProjectCard, ProjectCard } from '@/app/components/features/project-card';
 import { AgentPaneLogo } from '@/app/components/ui/agentpane-logo';
 import { Button } from '@/app/components/ui/button';
+import { DialogLoadingFallback } from '@/app/components/ui/suspense-fallbacks';
 import {
   apiClient,
   type ProjectSummaryItem,
@@ -474,7 +475,7 @@ function CodespacesPage(): React.JSX.Element {
         )}
       </div>
 
-      <Suspense fallback={null}>
+      <Suspense fallback={<DialogLoadingFallback label="Loading new codespace dialog…" />}>
         <NewProjectDialog
           open={showNewCodespace}
           onOpenChange={setShowNewCodespace}

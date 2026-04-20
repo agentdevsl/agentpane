@@ -5,8 +5,10 @@ import {
   useRouter,
 } from '@tanstack/react-router';
 import { GlobalShortcutsWithPicker } from '@/app/components/features/global-shortcuts';
+import { ConnectionStatusBanner } from '@/app/components/ui/connection-status-banner';
 import { Toaster } from '@/app/components/ui/toaster';
 import { TooltipProvider } from '@/app/components/ui/tooltip';
+import { useGlobalConnectionStatus } from '@/app/hooks/use-global-connection-status';
 import { CodespaceContextProvider } from '@/app/providers/codespace-context';
 import { FolderContextProvider } from '@/app/providers/folder-context';
 import { ShortcutsProvider } from '@/app/providers/shortcuts-provider';
@@ -65,12 +67,16 @@ function NotFoundComponent() {
 }
 
 function RootComponent() {
+  // F08-01: Global connectivity banner — renders at the top of the shell when
+  // the API or network is unreachable so every route sees the same signal.
+  const connectionStatus = useGlobalConnectionStatus();
   return (
     <ShortcutsProvider>
       <FolderContextProvider>
         <CodespaceContextProvider>
           <TooltipProvider delayDuration={300}>
             <div className="min-h-screen bg-canvas text-fg">
+              <ConnectionStatusBanner status={connectionStatus} />
               <Outlet />
               <Toaster />
               <GlobalShortcutsWithPicker />

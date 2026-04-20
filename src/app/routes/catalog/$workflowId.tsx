@@ -5,6 +5,7 @@ import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { WorkflowDesigner } from '@/app/components/features/workflow-designer';
 import { Button } from '@/app/components/ui/button';
+import { ErrorBoundary } from '@/app/components/ui/error-boundary';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Workflow } from '@/db/schema';
 
@@ -225,7 +226,9 @@ function WorkflowDetailPage(): React.JSX.Element {
       }
     >
       <div className="h-full w-full" data-testid="workflow-detail-page">
-        <WorkflowDesigner initialWorkflow={workflow} readOnly={true} />
+        <ErrorBoundary label="Workflow Designer">
+          <WorkflowDesigner initialWorkflow={workflow} readOnly={true} />
+        </ErrorBoundary>
       </div>
     </LayoutShell>
   );

@@ -10,6 +10,7 @@ import {
   X,
 } from '@phosphor-icons/react';
 import React, { Suspense, useMemo, useState } from 'react';
+import { PanelLoadingFallback } from '@/app/components/ui/suspense-fallbacks';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { AgentStatus, TaskColumn } from '@/db/schema/shared/enums.js';
 import { apiClient } from '@/lib/api/client';
@@ -320,7 +321,7 @@ export function LiveTaskView({
       </div>
 
       {/* Right: Audit Trail Panel */}
-      <Suspense fallback={null}>
+      <Suspense fallback={<PanelLoadingFallback />}>
         <AuditTrailPanel task={selectedTask} />
       </Suspense>
     </div>

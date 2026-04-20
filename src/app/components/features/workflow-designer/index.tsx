@@ -1,6 +1,7 @@
 import { CaretLeft, Warning } from '@phosphor-icons/react';
 import { type Edge, type Node, useEdgesState, useNodesState, type Viewport } from '@xyflow/react';
 import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react';
+import { DialogLoadingFallback } from '@/app/components/ui/suspense-fallbacks';
 import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import '@xyflow/react/dist/style.css';
@@ -596,7 +597,7 @@ export function WorkflowDesigner({
       />
 
       {/* AI Generate Dialog */}
-      <Suspense fallback={null}>
+      <Suspense fallback={<DialogLoadingFallback label="Loading AI generate dialog…" />}>
         <AIGenerateDialog
           open={aiDialogOpen}
           onOpenChange={setAiDialogOpen}
