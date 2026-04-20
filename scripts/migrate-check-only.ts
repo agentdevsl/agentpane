@@ -27,8 +27,12 @@ import { resolve } from 'node:path';
 import postgres from 'postgres';
 import { MIGRATIONS } from '../src/lib/bootstrap/migrations/index.js';
 
-function log(level: 'info' | 'error', msg: string, data?: Record<string, unknown>): void {
-  const line = { level, msg, ...(data ? { data } : {}), ts: new Date().toISOString() };
+function log(level: 'info' | 'error', msg: string, fields?: Record<string, unknown>): void {
+  // Callers pass structured fields flat (e.g. `{ mode }`); we serialise them
+  // under a single `data` key so parsers see one consistent level of nesting.
+  // An earlier contract let callers pass `{ data: {...} }` which double-wrapped
+  // into `data.data.*` — avoid by only ever wrapping once here.
+  const line = { level, msg, ...(fields ? { data: fields } : {}), ts: new Date().toISOString() };
   // biome-ignore lint/suspicious/noConsole: stdout is the intended interface for a standalone verification tool
   console.log(JSON.stringify(line));
 }
@@ -51,7 +55,8 @@ async function checkPg(): Promise<boolean> {
     expectedCount = journal.entries?.length ?? 0;
   } catch (e) {
     log('error', 'Failed to read migrations journal', {
-      data: { path: journalPath, error: e instanceof Error ? e.message : String(e) },
+      path: journalPath,
+      error: e instanceof Error ? e.message : String(e),
     });
     return false;
   }
@@ -75,7 +80,7 @@ async function checkPg(): Promise<boolean> {
     const tableExists = (rows[0]?.c ?? 0) > 0;
     if (!tableExists) {
       log('error', 'drizzle.__drizzle_migrations not found — migrations have not been applied', {
-        data: { expectedCount },
+        expectedCount,
       });
       return false;
     }
@@ -87,13 +92,15 @@ async function checkPg(): Promise<boolean> {
 
     if (appliedCount < expectedCount) {
       log('error', 'Pending migrations detected', {
-        data: { appliedCount, expectedCount },
+        appliedCount,
+        expectedCount,
       });
       return false;
     }
 
     log('info', 'PostgreSQL schema is up-to-date', {
-      data: { appliedCount, expectedCount },
+      appliedCount,
+      expectedCount,
     });
     return true;
   } finally {
@@ -112,7 +119,7 @@ function checkSqlite(): boolean {
       .get();
     if (!tableRow) {
       log('error', 'schema_migrations not found — migrations have not been applied', {
-        data: { dbPath },
+        dbPath,
       });
       return false;
     }
@@ -125,12 +132,13 @@ function checkSqlite(): boolean {
 
     if (applied < expected) {
       log('error', 'Pending SQLite migrations detected', {
-        data: { applied, expected },
+        applied,
+        expected,
       });
       return false;
     }
 
-    log('info', 'SQLite schema is up-to-date', { data: { applied, expected } });
+    log('info', 'SQLite schema is up-to-date', { applied, expected });
     return true;
   } finally {
     sqlite.close();
@@ -139,7 +147,7 @@ function checkSqlite(): boolean {
 
 async function main(): Promise<void> {
   const mode = (process.env.DB_MODE ?? 'sqlite').toLowerCase();
-  log('info', 'Starting migration check', { data: { mode } });
+  log('info', 'Starting migration check', { mode });
 
   const ok = mode === 'postgres' ? await checkPg() : checkSqlite();
   process.exit(ok ? 0 : 1);
@@ -147,6 +155,6 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   const e = err instanceof Error ? err : new Error(String(err));
-  log('error', 'Migration check failed', { data: { error: e.message, stack: e.stack } });
+  log('error', 'Migration check failed', { error: e.message, stack: e.stack });
   process.exit(1);
 });
