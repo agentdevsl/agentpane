@@ -1,6 +1,7 @@
 import { and, count, desc, eq } from 'drizzle-orm';
 import type { Agent, AgentConfig, NewAgent } from '../../db/schema';
 import { agents, codespaces } from '../../db/schema';
+import { ALLOW_ALL_TOOLS } from '../../lib/constants/tools.js';
 import type { AgentError } from '../../lib/errors/agent-errors.js';
 import { AgentErrors } from '../../lib/errors/agent-errors.js';
 import type { ValidationError } from '../../lib/errors/validation-errors.js';
@@ -35,8 +36,11 @@ export class AgentCrudService {
       return err(ValidationErrors.INVALID_ID('codespaceId'));
     }
 
+    // F06-06: `[]` means "deny all tools" (fail-closed). When no explicit
+    // config is set at either level, fall back to `ALLOW_ALL_TOOLS` (`['*']`)
+    // to preserve the pre-F06-06 default of "no config = open access".
     const config: AgentConfig = {
-      allowedTools: input.config?.allowedTools ?? codespace.config?.allowedTools ?? [],
+      allowedTools: input.config?.allowedTools ?? codespace.config?.allowedTools ?? ALLOW_ALL_TOOLS,
       maxTurns: input.config?.maxTurns ?? codespace.config?.maxTurns ?? 50,
       model: input.config?.model ?? codespace.config?.model,
       systemPrompt: input.config?.systemPrompt ?? codespace.config?.systemPrompt,
@@ -134,7 +138,8 @@ export class AgentCrudService {
     }
 
     const mergedConfig: AgentConfig = {
-      allowedTools: input.allowedTools ?? existing.value.config?.allowedTools ?? [],
+      // F06-06: see create() — fall back to ALLOW_ALL_TOOLS when no config set.
+      allowedTools: input.allowedTools ?? existing.value.config?.allowedTools ?? ALLOW_ALL_TOOLS,
       maxTurns: input.maxTurns ?? existing.value.config?.maxTurns ?? 50,
       model: input.model ?? existing.value.config?.model,
       systemPrompt: input.systemPrompt ?? existing.value.config?.systemPrompt,

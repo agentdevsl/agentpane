@@ -1,6 +1,7 @@
 import type { Octokit } from 'octokit';
 import { z } from 'zod';
 import type { CodespaceConfig } from '../../db/schema';
+import { ALLOW_ALL_TOOLS } from '../constants/tools.js';
 import { GitHubErrors } from '../errors/github-errors.js';
 import type { Result } from '../utils/result.js';
 import { err, ok } from '../utils/result.js';
@@ -81,7 +82,8 @@ export async function syncConfigFromGitHub(
       initScript: validationResult.data.initScript,
       envFile: validationResult.data.envFile ?? '.env',
       defaultBranch: validationResult.data.defaultBranch ?? 'main',
-      allowedTools: validationResult.data.allowedTools ?? [],
+      // F06-06: `[]` fails closed. Preserve pre-F06-06 default when user omits the field.
+      allowedTools: validationResult.data.allowedTools ?? ALLOW_ALL_TOOLS,
       maxTurns: validationResult.data.maxTurns ?? 50,
       model: validationResult.data.model,
       systemPrompt: validationResult.data.systemPrompt,

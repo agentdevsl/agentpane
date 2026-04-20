@@ -214,7 +214,10 @@ describe('GitHub Config Sync', () => {
         expect(result.value.config.worktreeRoot).toBe('.worktrees');
         expect(result.value.config.defaultBranch).toBe('main');
         expect(result.value.config.maxTurns).toBe(50);
-        expect(result.value.config.allowedTools).toEqual([]);
+        // F06-06: when allowedTools is missing from the GitHub config, we
+        // default to ALLOW_ALL_TOOLS (`['*']`) to preserve pre-F06-06
+        // "no config = open access". An explicit `[]` still fails closed.
+        expect(result.value.config.allowedTools).toEqual(['*']);
         expect(result.value.config.envFile).toBe('.env');
       }
     });

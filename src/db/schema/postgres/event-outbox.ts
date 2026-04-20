@@ -10,7 +10,7 @@
 
 import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
-import { index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { index, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
 export const eventOutbox = pgTable(
   'event_outbox',
@@ -20,7 +20,10 @@ export const eventOutbox = pgTable(
       .$defaultFn(() => createId()),
     streamId: text('stream_id').notNull(),
     type: text('type').notNull(),
-    payload: text('payload').notNull(),
+    // Migration 0012 creates this column as JSONB. Drizzle was previously declared as
+    // `text` which caused a schema drift (caught by tests/integration/*-schema-drift.test.ts).
+    // The `$type` annotation gives consumers a typed handle instead of `unknown`.
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
     status: text('status', { enum: ['pending', 'published', 'dead'] })
       .notNull()
       .default('pending'),

@@ -308,7 +308,7 @@ All file paths in commits and PRs should be relative to the worktree root. The w
 
 ### Publishing `@agentpane/cli-monitor` to npm
 
-The CLI monitor package lives at `packages/cli-monitor`. To publish:
+The CLI monitor package lives at `packages/cli-monitor` (current version: `0.2.1`). To publish:
 
 ```bash
 cd packages/cli-monitor
@@ -316,10 +316,10 @@ npm version patch --no-git-tag-version   # bump version
 npm publish --//registry.npmjs.org/:_authToken=<token>
 ```
 
-- The `prepublishOnly` script runs tests and builds automatically.
-- **npm access token** is stored in `/specs/CLI_monitor/.env` (`npm_access_token`). Use this token for the `--//registry.npmjs.org/:_authToken=` flag.
+- The `prepublishOnly` script runs tests and builds (`bun run test && bun run build:js`) automatically.
+- **npm access token** — ask the user for it; do not commit or hardcode. The previous `/specs/CLI_monitor/.env` path no longer exists.
 - The package is published with `"access": "public"` under the `@agentpane` scope.
-- Build output: `dist/index.js` (single Bun-bundled file, ~75 KB).
+- Build output: `dist/index.js` (single Bun-bundled Node target). The `build` script also compiles platform binaries via `bun build --compile`.
 
 ## Agent Execution Architecture
 
@@ -359,19 +359,6 @@ When a task is moved to `in_progress` (via drag-drop on the Kanban board):
    - Creates session with `permissionMode: 'acceptEdits'`
    - Executes the approved plan
    - On completion: task moves to `waiting_approval`
-
-### Team Mode
-
-Team mode enables parallel agent execution for complex tasks. When the planning agent calls `ExitPlanMode` with `launchSwarm: true`, the execution phase spawns multiple sub-agents that work concurrently on different parts of the plan. Each sub-agent gets its own worktree for isolated work.
-
-```typescript
-interface ExitPlanModeOptions {
-  allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  launchSwarm?: boolean;      // Enable team mode
-  teammateCount?: number;     // Number of parallel agents
-  pushToRemote?: boolean;     // Remote session support
-}
-```
 
 ### Key Files
 
@@ -497,9 +484,13 @@ OAuth tokens passed via `ANTHROPIC_API_KEY` env var are blocked by the API, whic
 |------|---------|
 | `agent-runner/src/index.ts` | Entry point for Claude Agent SDK inside container |
 | `agent-runner/src/event-emitter.ts` | Emits structured events for real-time UI updates |
+| `agent-runner/src/agentcore-handler.ts` | AWS Bedrock AgentCore integration |
 | `docker/Dockerfile.agent-sandbox` | Docker image with Claude CLI and agent runner |
 | `docker/entrypoint.sh` | Fixes permissions for bind-mounted volumes |
-| `src/services/container-agent.service.ts` | Orchestrates container creation and agent execution |
+| `src/services/container-agent.service.ts` | Top-level re-export / orchestration entry |
+| `src/services/container-agent/container-agent.service.ts` | Main orchestration (creation + execution) |
+| `src/services/container-agent/plan-approval.service.ts` | Plan ready / approve / reject transitions |
+| `src/services/container-agent/agent-review.service.ts` | Post-execution review and merge |
 
 ### Agent Runner Configuration
 
@@ -555,42 +546,54 @@ When performing any research, concurrent subagents can be used for performance a
 
 ## Use this tech stack
 
-| Layer              | Technology       | Package                                                                                             | Version          |
-| ------------------ | ---------------- | --------------------------------------------------------------------------------------------------- | ---------------- |
-| Runtime            | Bun              | https://bun.sh                                                                                      | 1.3.10           |
-| Build              | Vite             | vite (https://github.com/vitejs/vite)                                                               | 8.0.1            |
-| Framework          | TanStack Start   | @tanstack/react-start (https://github.com/TanStack/router)                                          | 1.166.1          |
-| API Router         | Hono             | hono (https://github.com/honojs/hono)                                                               | 4.12.7           |
-| Database           | SQLite           | better-sqlite3 (https://github.com/WiseLibs/better-sqlite3)                                         | 12.8.0           |
-| ORM                | Drizzle          | drizzle-orm + drizzle-kit (https://github.com/drizzle-team/drizzle-orm)                             | 0.45.1 / 0.31.10 |
-| Client State       | TanStack DB      | @tanstack/db + @tanstack/react-db (https://github.com/TanStack/db)                                  | 0.5.33 / 0.1.77  |
-| Agent Events       | Durable Streams  | @durable-streams/* (https://github.com/durable-streams/durable-streams)                              | 0.2.x            |
-| AI / Agents        | Claude Agent SDK | @anthropic-ai/claude-agent-sdk (https://github.com/anthropics/claude-agent-sdk-typescript)          | 0.2.76           |
-| AI / API           | Anthropic SDK    | @anthropic-ai/sdk (https://github.com/anthropics/anthropic-sdk-typescript)                          | 0.78.0           |
-| Memory             | Honcho           | @honcho-ai/sdk (https://github.com/plastic-labs/honcho)                                             | 2.0.1            |
-| UI                 | Radix + Tailwind | @radix-ui/* + tailwindcss (https://github.com/radix-ui/primitives)                                  | 1.2.4 / 4.1.18   |
-| Workflow Designer  | React Flow       | @xyflow/react (https://github.com/xyflow/xyflow)                                                    | 12.10.1          |
-| Graph Layout       | ELK              | elkjs (https://github.com/kieler/elkjs)                                                             | 0.11.0           |
-| Drag & Drop        | dnd-kit          | @dnd-kit/core + @dnd-kit/sortable (https://github.com/clauderic/dnd-kit)                            | 6.3.1 / 10.0.0   |
-| Icons              | Phosphor         | @phosphor-icons/react (https://github.com/phosphor-icons/react)                                     | 2.1.10           |
-| Testing            | Vitest           | vitest (https://github.com/vitest-dev/vitest)                                                       | 4.0.16           |
-| UI Testing         | Agent Browser    | agent-browser (https://github.com/anthropics/agent-browser)                                         | 0.7.6            |
-| E2E Testing        | Playwright       | playwright + @playwright/test (https://github.com/microsoft/playwright)                             | 1.58.1           |
-| Linting/Formatting | Biome            | @biomejs/biome (https://github.com/biomejs/biome)                                                   | 2.4.4            |
-| CI/CD              | GitHub Actions   | https://github.com/features/actions                                                                 | -                |
+Versions below reflect `package.json` as of 2026-04-21. Run `jq '.dependencies,.devDependencies' package.json` to verify before relying on specific pins.
+
+| Layer              | Technology          | Package                                                                                             | Version           |
+| ------------------ | ------------------- | --------------------------------------------------------------------------------------------------- | ----------------- |
+| Runtime            | Bun + Node          | https://bun.sh (Node >=24)                                                                          | Bun 1.3.12 / Node 24+ |
+| Build              | Vite                | vite (https://github.com/vitejs/vite)                                                               | ^8.0.8            |
+| Framework          | TanStack Start      | @tanstack/react-start + @tanstack/react-router (https://github.com/TanStack/router)                 | ^1.167.41 / ^1.168.22 |
+| API Router         | Hono                | hono (https://github.com/honojs/hono)                                                               | ^4.12.14          |
+| Database           | SQLite + PostgreSQL | better-sqlite3 + postgres (https://github.com/WiseLibs/better-sqlite3)                              | ^12.9.0 / ^3.4.9  |
+| ORM                | Drizzle             | drizzle-orm + drizzle-kit (https://github.com/drizzle-team/drizzle-orm)                             | ^0.45.2 / ^0.31.10 |
+| Client State       | TanStack DB         | @tanstack/db + @tanstack/react-db (https://github.com/TanStack/db)                                  | 0.6.5 / ^0.1.83   |
+| Agent Events       | Durable Streams     | @durable-streams/client + server + state (https://github.com/durable-streams/durable-streams)       | 0.2.3 / 0.3.1 / 0.2.5 |
+| AI / Agents        | Claude Agent SDK    | @anthropic-ai/claude-agent-sdk (https://github.com/anthropics/claude-agent-sdk-typescript)          | ^0.2.113          |
+| AI / API           | Anthropic SDK       | @anthropic-ai/sdk (https://github.com/anthropics/anthropic-sdk-typescript)                          | ^0.90.0           |
+| UI                 | Radix + Tailwind    | @radix-ui/* + tailwindcss (https://github.com/radix-ui/primitives)                                  | 1.x / ^4.2.2      |
+| Workflow Designer  | React Flow          | @xyflow/react (https://github.com/xyflow/xyflow)                                                    | 12.10.2           |
+| Graph Layout       | ELK                 | elkjs (https://github.com/kieler/elkjs)                                                             | ^0.11.1           |
+| Drag & Drop        | dnd-kit             | @dnd-kit/core + @dnd-kit/sortable (https://github.com/clauderic/dnd-kit)                            | ^6.3.1 / ^10.0.0  |
+| Icons              | Phosphor            | @phosphor-icons/react (https://github.com/phosphor-icons/react)                                     | ^2.1.10           |
+| React              | React 19            | react + react-dom                                                                                   | ^19.2.5           |
+| Testing            | Vitest              | vitest (https://github.com/vitest-dev/vitest)                                                       | 4.1.4             |
+| UI Testing         | Agent Browser       | agent-browser (https://github.com/anthropics/agent-browser)                                         | 0.26.0            |
+| E2E Testing        | Playwright          | playwright + @playwright/test (https://github.com/microsoft/playwright)                             | ^1.59.1           |
+| Mutation Testing   | Stryker             | @stryker-mutator/core + vitest-runner (https://github.com/stryker-mutator/stryker-js)               | ^9.6.1            |
+| Linting/Formatting | Biome               | @biomejs/biome (https://github.com/biomejs/biome)                                                   | ^2.4.12           |
+| TypeScript         | tsc                 | typescript                                                                                          | ^6.0.3            |
+| CI/CD              | GitHub Actions      | https://github.com/features/actions                                                                 | -                 |
+
+> **Note**: Honcho (`@honcho-ai/sdk`) was previously listed but is **not installed**. Memory is currently implemented in-app without Honcho.
 
 ### Utility Libraries
 
-| Package                  | Version | Purpose                                |
-| ------------------------ | ------- | -------------------------------------- |
-| class-variance-authority | 0.7.1   | Component variant styling (cva)        |
-| @paralleldrive/cuid2     | 3.3.0   | Secure collision-resistant IDs         |
-| zod                      | 4.3.6   | Schema validation                      |
-| @radix-ui/react-slot     | 1.2.4   | asChild prop support                   |
-| @tailwindcss/vite        | 4.2.2   | Tailwind v4 Vite plugin                |
-| octokit                  | 5.0.5   | GitHub API client (REST + GraphQL)     |
-| react-markdown           | 10.1.0  | Markdown rendering                     |
-| dockerode                | 4.0.10  | Docker API client                      |
-| @kubernetes/client-node  | 1.4.0   | Kubernetes API client                  |
-| vite                     | 8.0.1   | Build tool                             |
-| react                    | 19.2.4  | UI framework                           |
+| Package                  | Version  | Purpose                                |
+| ------------------------ | -------- | -------------------------------------- |
+| class-variance-authority | ^0.7.1   | Component variant styling (cva)        |
+| @paralleldrive/cuid2     | ^3.3.0   | Secure collision-resistant IDs         |
+| zod                      | 4.3.6    | Schema validation                      |
+| @radix-ui/react-slot     | ^1.2.4   | asChild prop support                   |
+| @tailwindcss/vite        | ^4.2.2   | Tailwind v4 Vite plugin                |
+| octokit                  | ^5.0.5   | GitHub API client (REST + GraphQL)     |
+| react-markdown           | ^10.1.0  | Markdown rendering                     |
+| dockerode                | ^4.0.10  | Docker API client                      |
+| @kubernetes/client-node  | ^1.4.0   | Kubernetes API client                  |
+| @aws-sdk/client-sts      | ^3.1032.0 | AWS STS client (Terraform composer)   |
+| @cdktf/hcl2json          | ^0.21.0  | HCL ↔ JSON parsing (Terraform)         |
+| dompurify                | ^3.4.0   | HTML sanitization                      |
+| shiki                    | ^4.0.2   | Syntax highlighting                    |
+| yaml                     | ^2.8.3   | YAML parsing                           |
+| cron-parser              | ^5.5.0   | Cron expression parsing                |
+| fast-check               | ^4.7.0   | Property-based testing (dev)           |
+| knip                     | ^6.4.1   | Dead-code detection (dev)              |

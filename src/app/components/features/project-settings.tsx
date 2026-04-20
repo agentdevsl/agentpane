@@ -169,7 +169,8 @@ export function ProjectSettings({
     project.config ?? {
       worktreeRoot: '.worktrees',
       defaultBranch: 'main',
-      allowedTools: [],
+      // F06-06: `[]` now denies all tools. `['*']` preserves the open-access default.
+      allowedTools: ['*'],
       maxTurns: 50,
     }
   );
