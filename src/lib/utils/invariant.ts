@@ -1,4 +1,6 @@
+import { getRequestId } from '../context/request-context.js';
 import { createLogger } from '../logging/logger.js';
+import { captureException } from '../telemetry/error-sink.js';
 
 const log = createLogger('Invariant');
 
@@ -24,13 +26,23 @@ export function invariant(
   if (condition) return;
 
   const isProduction = process.env.NODE_ENV === 'production';
+  const violation = new InvariantViolation(message, context);
+
+  // F10-04: every invariant failure — in either environment — flows through
+  // the error sink so a future Sentry adapter aggregates them.
+  captureException(violation, {
+    source: 'invariant',
+    requestId: getRequestId(),
+    severity: isProduction ? 'warning' : 'error',
+    ...context,
+  });
 
   if (isProduction) {
     log.error(`Invariant violation: ${message}`, { data: context });
     return;
   }
 
-  throw new InvariantViolation(message, context);
+  throw violation;
 }
 
 /**
@@ -45,7 +57,14 @@ export function strictInvariant(
 ): asserts condition {
   if (condition) return;
   log.error(`Critical invariant violation: ${message}`, { data: context });
-  throw new InvariantViolation(message, context);
+  const violation = new InvariantViolation(message, context);
+  captureException(violation, {
+    source: 'strictInvariant',
+    requestId: getRequestId(),
+    severity: 'error',
+    ...context,
+  });
+  throw violation;
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   unstable_v2_resumeSession,
 } from '@anthropic-ai/claude-agent-sdk';
 import { createId } from '@paralleldrive/cuid2';
+import { getRequestId } from '../../lib/context/request-context.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import { createSessionEventWithMetadata } from '../../services/session/event-metadata.js';
 import type { SessionEvent } from '../../services/session.service.js';
@@ -23,7 +24,13 @@ function createStreamMetadata(params: {
   durability: StreamDurability;
   sequence?: number | null;
   createdAt?: string;
+  correlationId?: string | null;
 }): StreamEventMetadata {
+  // F10-03: default the correlation id to the current request id so any
+  // event flowing through the stream handler carries the spawning request's
+  // identifier, bridging the HTTP → SDK → stream hop.
+  const resolvedCorrelationId =
+    params.correlationId === undefined ? (getRequestId() ?? null) : (params.correlationId ?? null);
   return {
     schemaVersion: 1,
     eventId: params.eventId,
@@ -33,6 +40,7 @@ function createStreamMetadata(params: {
     durability: params.durability,
     sequence: params.sequence ?? null,
     createdAt: params.createdAt ?? new Date().toISOString(),
+    correlationId: resolvedCorrelationId,
   };
 }
 

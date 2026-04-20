@@ -29,6 +29,15 @@ export const streamEventMetadataSchema = z.object({
   durability: streamDurabilitySchema,
   sequence: z.number().int().nonnegative().nullable(),
   createdAt: z.string().min(1),
+  /**
+   * F10-03: optional correlation identifier (the host's `requestId` or any
+   * upstream trace id). When present, the value propagates from the HTTP
+   * request through the durable-stream envelope into agent-runner log lines
+   * so a single operation can be reconstructed across the API/runner/stream
+   * boundary without timestamp triangulation. Optional to keep the protocol
+   * backward-compatible with events produced before this field existed.
+   */
+  correlationId: z.string().min(1).nullable().optional(),
 });
 
 export type StreamEventMetadata = z.infer<typeof streamEventMetadataSchema>;
@@ -97,7 +106,10 @@ function metadataMatches(a: StreamEventMetadata, b: StreamEventMetadata): boolea
     a.partType === b.partType &&
     a.durability === b.durability &&
     a.sequence === b.sequence &&
-    a.createdAt === b.createdAt
+    a.createdAt === b.createdAt &&
+    // F10-03: treat missing/undefined/null correlationIds as equivalent so
+    // the conflict check doesn't false-positive when only one side carries it.
+    (a.correlationId ?? null) === (b.correlationId ?? null)
   );
 }
 

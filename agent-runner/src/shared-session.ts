@@ -15,6 +15,10 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentFileChangedData } from './event-emitter.js';
+import { createAgentRunnerLogger } from './logger.js';
+
+// F10-05: structured runner logger.
+const log = createAgentRunnerLogger();
 
 // ---------------------------------------------------------------------------
 // OAuth credential writing
@@ -83,7 +87,7 @@ export async function writeCredentialsFile(
     throw new Error('Credentials file written but accessToken missing');
   }
 
-  console.error(`[shared-session] Credentials file written to ${credentialsFile}`);
+  log.error(`[shared-session] Credentials file written to ${credentialsFile}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +108,7 @@ export async function shouldStop(stopFile: string | undefined): Promise<boolean>
     }
     // Permission errors or other filesystem failures mean we can't reliably
     // check for cancellation — stop the agent to avoid uncontrolled execution.
-    console.error(`[shared-session] Error checking stop file: ${(err as Error).message}`);
+    log.error(`[shared-session] Error checking stop file: ${(err as Error).message}`);
     return true;
   }
 }

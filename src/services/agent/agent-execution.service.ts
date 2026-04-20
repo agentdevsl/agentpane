@@ -12,6 +12,7 @@ import { ConcurrencyErrors } from '../../lib/errors/concurrency-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import { createAgentLifecycleMachine } from '../../lib/state-machines/agent-lifecycle/machine.js';
 import type { AgentLifecycleEvent } from '../../lib/state-machines/agent-lifecycle/types.js';
+import { captureException } from '../../lib/telemetry/error-sink.js';
 import { errorMessage } from '../../lib/utils/error-message.js';
 import { resolveModel } from '../../lib/utils/resolve-model.js';
 import type { Result } from '../../lib/utils/result.js';
@@ -832,6 +833,14 @@ export class AgentExecutionService {
       }
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
+      // F10-04: forward to telemetry sink with task/session/agent tags so a
+      // future Sentry adapter can group the failures correctly.
+      captureException(error, {
+        source: 'AgentExecutionService.runPlanning',
+        agentId,
+        taskId,
+        sessionId,
+      });
       this.finalizeMemorySession(memoryRef, agentId, 'planning error', { status: 'failed' });
 
       const errMsg = errorMessage(error);
@@ -1341,6 +1350,14 @@ export class AgentExecutionService {
       }
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
+      // F10-04: forward to telemetry sink with task/session/agent tags so a
+      // future Sentry adapter can group the failures correctly.
+      captureException(error, {
+        source: 'AgentExecutionService.runExecution',
+        agentId,
+        taskId: task.id,
+        sessionId,
+      });
       this.finalizeMemorySession(memoryRef, agentId, 'execution error', {
         status: 'failed',
       });

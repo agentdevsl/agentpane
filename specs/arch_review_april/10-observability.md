@@ -58,9 +58,11 @@ This file consolidates the prior release-plan items against their current status
 ### F10-01 — No `/metrics` endpoint at all
 
 - **Priority:** P1
+- **Status:** **Resolved** (April 2026 remediation).
 - **Observation:** There is no Prometheus scrape endpoint and no JSON counter endpoint. No per-route request counts, no histogram for HTTP latency, no agent-start/complete/error counters, no task state-transition counters, no tool-execution counters, no Claude API token usage, no active-SSE gauge, no DB query latency histogram, no DB pool size. The `instrumented-machine.ts` transition telemetry goes to logs but is never aggregated. Every operational question past "is it up" requires grepping JSON.
 - **Risk:** You cannot define or measure an SLO. You cannot set an alert on "agent error rate > 10% over 5 min" because nothing counts. In an incident, mean-time-to-detect is bounded below by whoever notices the UI is broken.
 - **Recommendation:** Start with the minimum viable endpoint — `GET /api/admin/metrics` returning JSON counters maintained in memory: request count by route + status class, agent starts/completes/errors, active-agents gauge, SSE connection count (feeds F05-03), dropped-event counter (feeds F05-02), DB latency histogram (simple bucket map), sandbox-create success/failure. One file, no new dependency. Layer `prom-client` on top once the shape is known and a scraper exists. Wire `instrumented-machine.ts` to emit transition counters at each `send()`.
+- **Remediation:** `MetricsService` (`src/services/metrics.service.ts`) + `GET /api/metrics` (`src/server/routes/metrics.ts`) surface request counts per route + status class, agent start/complete/error counters and running/idle gauges, an SSE connection gauge wired from the `EventRouter` snapshot (F05-03), a DB latency summary per query type, and fold-ins of the F05-13 stream lag metrics and F05-02 plan-mode drop counter. Hono middleware (`metricsMiddleware`) runs after routing so route patterns stay low-cardinality. Admin-only.
 - **Effort:** S (1–2 days) for the JSON endpoint; M (3–5 days) for the full Prometheus surface.
 - **Links:** prior item #5 and #8; `src/lib/state-machines/instrumented-machine.ts`.
 
@@ -76,27 +78,33 @@ This file consolidates the prior release-plan items against their current status
 ### F10-03 — No distributed tracing across the agent hot path
 
 - **Priority:** P1
+- **Status:** **Step 1 resolved** (April 2026 remediation). Steps 2–4 remain open.
 - **Observation:** The product's defining interaction is HTTP (`PATCH /api/tasks/:id/move`) → `TaskService.moveColumn` → `AgentExecutionService.start` → `runAgentPlanning` → Claude Agent SDK → (optional) Docker/K8s provider → `DurableStreamsService.publish` → Caddy → browser SSE. A request ID is threaded via `AsyncLocalStorage` **within** the API process, but it is not attached to the outbound SDK call, the Dockerode/K8s client request, or the durable-streams publish. It is not received by agent-runner, which means an error in the container cannot be correlated to the HTTP request that spawned it. `session-event` envelopes don't carry the spawning request ID.
 - **Risk:** In-production debugging of "why did this task fail" requires timestamp archaeology across stream logs, agent-runner stdout, and the API access log — exactly the problem OpenTelemetry exists to solve. Without it, a flaky run in a customer environment is effectively unreproducible.
 - **Recommendation:** Phased. (1) Propagate `requestId` manually as a `correlationId` field on the durable-stream envelope and on agent-runner's `AgentEvent` schema — no SDK needed, unblocks most of the value immediately. (2) Stamp `requestId` onto a custom header on outbound Dockerode/K8s calls where supported. (3) Once the event path is correlated, layer `@opentelemetry/sdk-node` with auto-instrumentation for HTTP + better-sqlite3, then add manual spans around `runAgentPlanning`/`runAgentExecution`. (4) Propagate W3C traceparent through durable streams so the browser can correlate user clicks to server spans.
+- **Remediation (step 1):** `streamEventMetadataSchema` (`src/lib/streams/envelope.ts`) grew an optional `correlationId` field; `createSessionEventMetadata` / `createStreamPayloadWithMetadata` default it to `getRequestId()` from `AsyncLocalStorage`, so every event published inside a Hono request chain automatically carries the spawning request's id. `stream-handler.ts` does the same for events it mints directly. `container-exec.service.ts` exports the current `requestId` to the agent-runner container as the `CORRELATION_ID` env var; the runner's new `logger.ts` tags every log line with it, and the host-side `container-bridge.ts` replays those lines through `createLogger('agent-runner')` with the id preserved.
 - **Effort:** S for step (1) alone (2 days); M for steps (2)–(3) (1 week); L for (4).
 - **Links:** prior item #9; `src/lib/agents/stream-handler.ts`, `src/services/durable-streams.service.ts`.
 
 ### F10-04 — No error reporting integration
 
 - **Priority:** P1
+- **Status:** **Sink abstraction resolved** (April 2026 remediation); Sentry adapter dependency is a follow-up.
 - **Observation:** `uncaughtException` and `unhandledRejection` log via the structured logger and either die (exception) or are swallowed (rejection). `app.onError()` logs with requestId. `invariant()` in `src/lib/utils/invariant.ts` logs-and-continues in production. No Sentry, no Bugsnag, no Honeybadger — there is no destination that aggregates errors, deduplicates them by stack, tracks regressions across deploys, or pages on-call.
 - **Risk:** First-time production errors are discovered when a user reports them. Errors that span multiple processes (API + agent-runner) are not correlated even within the error stream.
 - **Recommendation:** Wire `@sentry/node` (or `@sentry/bun` once stable) into four sites: both process handlers, `app.onError()`, `invariant()` production branch, and the catch in `AgentExecutionService.start`. Attach `requestId`, `taskId`, `sessionId`, `codespaceId` as tags. Also wire the browser SDK on the frontend — this alone covers most of F10-07's value.
+- **Remediation:** `src/lib/telemetry/error-sink.ts` adds a `captureException(err, context)` choke point with a replaceable sink interface. The default sink writes through the structured logger and keeps a ring buffer for introspection; `initSentryIfConfigured()` logs a breadcrumb when `SENTRY_DSN` is present so a future PR can swap in the real `@sentry/node` adapter without touching call sites. Call sites wired: `process.on('uncaughtException'|'unhandledRejection')` in `src/server/api.ts`, `app.onError` in the router, `invariant()` / `strictInvariant()` in `src/lib/utils/invariant.ts`, and the planning + execution catches in `AgentExecutionService`. Tags: `source`, `requestId`, `route`, `method`, `taskId`, `sessionId`, `codespaceId`.
 - **Effort:** S (1–2 days) for backend; S more for browser.
 - **Links:** prior item #6.
 
 ### F10-05 — Agent-runner logs are raw `console.*`, not structured
 
 - **Priority:** P1
+- **Status:** **Resolved** (April 2026 remediation).
 - **Observation:** `agent-runner/src/index.ts` contains 57 `console.*` calls, `shared-session.ts` 2, `agentcore-handler.ts` 20 — 79 total, unstructured. The emitter-based JSON events on stdout (`event-emitter.ts`) are the structured channel and are parsed by `container-bridge.ts`, but errors, startup lifecycle, and diagnostic traces inside the runner are plain strings. Because the runner is a separate process in a separate container, those lines only reach the host if Docker log drivers forward them, and they cannot be correlated to a `requestId` or `sessionId` once they do.
 - **Risk:** When the runner misbehaves — wrong credentials, sandbox clock skew, Claude SDK quota error — the evidence lives in a container log that may or may not be collected, in a format that cannot be joined back to the API host.
 - **Recommendation:** Introduce a mini-logger in the runner that emits JSON lines on stdout with `taskId`, `sessionId`, and a new `correlationId` field (populated from the `AGENT_CORRELATION_ID` env var set by the host). Parse both JSON events **and** JSON log lines in `container-bridge.ts`, routing log lines to the host's `createLogger('agent-runner')` with the correlation ID preserved. Sweep `console.*` → the new logger.
+- **Remediation:** `agent-runner/src/logger.ts` adds `createAgentRunnerLogger()`, which writes one JSON object per line on **stderr** — stdout is reserved for the existing event emitter, so the host bridge can cheaply distinguish logs (`channel === 'agent-runner-log'`) from events. Every record carries `correlationId` (from `CORRELATION_ID`, set by `container-exec.service.ts`), `taskId`, and `sessionId`. All 87 `console.*` sites across `index.ts`, `agentcore-handler.ts`, and `shared-session.ts` were rewritten to `log.*` calls. `container-bridge.ts` exports `tryReplayAgentRunnerLogLine()` and calls it on each stderr line before the existing `agent:error` JSON-event check, so structured log lines are replayed via `createLogger('agent-runner')` at the matching level and non-runner lines fall through unchanged.
 - **Effort:** M (3 days).
 - **Links:** `agent-runner/src/index.ts`, `src/lib/agents/container-bridge.ts`.
 
@@ -128,6 +136,7 @@ This file consolidates the prior release-plan items against their current status
 ### F10-09 — `droppedEventCount` is still invisible
 
 - **Priority:** P1
+- **Status:** **Resolved (pre-existing, same change as F05-02)** — theme 05 PR #168 shipped `recordDroppedEvent()` on `PlanModeService`, which bumps per-event-type + per-reason counters, emits a `log.warn` at each drop site, and is surfaced on `GET /api/admin/metrics/plan-mode`. The F10-01 `/api/metrics` remediation additionally folds those counters into the global metrics snapshot under `planMode`.
 - **Observation:** Cross-linked from F05-02 but called out here because it is primarily an observability failure, not a streaming one. The counter increments on 13 catch sites, exposes a getter, and nothing calls the getter. No log emission at the increment, no `/metrics` surface, no alert.
 - **Risk:** Silent failure class the prior observability pass already flagged and "fixed" (by adding a counter that nobody reads). The shape is correct; the wiring is missing.
 - **Recommendation:** At minimum, emit `log.warn` at each increment with `{ streamId, eventType, errorCode }`. Long-term, fold the counter into F10-01's endpoint and F05-05's outbox.

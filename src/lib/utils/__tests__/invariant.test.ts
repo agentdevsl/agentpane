@@ -11,6 +11,12 @@ vi.mock('../../logging/logger.js', () => ({
   createLogger: () => mockLogger,
 }));
 
+// F10-04: stub the telemetry sink so tests can observe captureException calls.
+const mockCapture = vi.hoisted(() => vi.fn());
+vi.mock('../../telemetry/error-sink.js', () => ({
+  captureException: mockCapture,
+}));
+
 import { InvariantViolation, invariant, softInvariant, strictInvariant } from '../invariant.js';
 
 describe('invariant', () => {
@@ -55,6 +61,16 @@ describe('invariant', () => {
 
     expect(error.name).toBe('InvariantViolation');
     expect(error).toBeInstanceOf(Error);
+  });
+
+  it('forwards violations to the telemetry sink (F10-04)', () => {
+    mockCapture.mockClear();
+    expect(() => invariant(false, 'sink test', { taskId: 't1' })).toThrow(InvariantViolation);
+    expect(mockCapture).toHaveBeenCalledTimes(1);
+    const [err, ctx] = mockCapture.mock.calls[0] as [unknown, Record<string, unknown>];
+    expect(err).toBeInstanceOf(InvariantViolation);
+    expect(ctx.source).toBe('invariant');
+    expect(ctx.taskId).toBe('t1');
   });
 
   describe('production mode', () => {
