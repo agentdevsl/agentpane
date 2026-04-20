@@ -31,7 +31,8 @@ describe('SandboxConfigService', () => {
         expect(result.value.name).toBe('Test Config');
         expect(result.value.type).toBe('docker');
         expect(result.value.isDefault).toBe(false);
-        expect(result.value.baseImage).toBe('node:22-slim');
+        // theme-04 P0-01: default baseImage is the digest-pinned SANDBOX_DEFAULTS.image
+        expect(result.value.baseImage).toMatch(/@sha256:[a-f0-9]{64}$/);
         expect(result.value.memoryMb).toBe(4096);
         expect(result.value.cpuCores).toBe(2.0);
         expect(result.value.maxProcesses).toBe(256);
@@ -43,12 +44,15 @@ describe('SandboxConfigService', () => {
     });
 
     it('creates a sandbox configuration with all fields', async () => {
+      // theme-04 P0-01: custom baseImage must be digest-pinned
+      const digestPinnedImage =
+        'docker.io/library/python@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
       const result = await service.create({
         name: 'Full Config',
         description: 'A complete configuration',
         type: 'devcontainer',
         isDefault: true,
-        baseImage: 'python:3.12-slim',
+        baseImage: digestPinnedImage,
         memoryMb: 8192,
         cpuCores: 4.0,
         maxProcesses: 512,
@@ -62,7 +66,7 @@ describe('SandboxConfigService', () => {
         expect(result.value.description).toBe('A complete configuration');
         expect(result.value.type).toBe('devcontainer');
         expect(result.value.isDefault).toBe(true);
-        expect(result.value.baseImage).toBe('python:3.12-slim');
+        expect(result.value.baseImage).toBe(digestPinnedImage);
         expect(result.value.memoryMb).toBe(8192);
         expect(result.value.cpuCores).toBe(4.0);
         expect(result.value.maxProcesses).toBe(512);
