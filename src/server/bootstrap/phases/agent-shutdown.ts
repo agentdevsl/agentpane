@@ -12,17 +12,37 @@
  * any runaway.
  */
 
-import { inArray } from 'drizzle-orm';
+import { inArray, sql } from 'drizzle-orm';
+import * as pgSchema from '../../../db/schema/postgres/index.js';
 import type { AgentStatus } from '../../../db/schema/shared/enums.js';
-import { agents as agentsSqlite } from '../../../db/schema/sqlite/agents.js';
+import * as sqliteSchema from '../../../db/schema/sqlite/index.js';
 import { createLogger } from '../../../lib/logging/logger.js';
 import type { SandboxProvider } from '../../../lib/sandbox/providers/sandbox-provider.js';
 import type { SessionService } from '../../../services/session.service.js';
 import type { Database } from '../../../types/database.js';
+import type { ServerConfig } from '../types.js';
 
 const log = createLogger('AgentShutdown');
 
 const RUNNING_AGENT_STATUSES: readonly AgentStatus[] = ['running', 'planning', 'starting'] as const;
+
+/**
+ * Resolve the `agents` table reference for the active DB mode.
+ *
+ * Mirrors the dispatch pattern in `sandbox-reconciliation.ts` so queries built
+ * here target the correct driver schema. Drizzle's runtime SQL is driver-aware
+ * — the cast to the SQLite schema type satisfies the canonical `Database`
+ * handle (see `src/types/database.ts`) while the actual column metadata used
+ * at execution time is the correct dialect's.
+ */
+function resolveSchemaTables(dbMode: ServerConfig['dbMode'] = 'sqlite') {
+  if (dbMode === 'postgres') {
+    return {
+      agents: pgSchema.agents as unknown as typeof sqliteSchema.agents,
+    };
+  }
+  return { agents: sqliteSchema.agents };
+}
 
 /**
  * Flush in-flight agent runs before the process exits.
@@ -48,19 +68,21 @@ export async function flushRunningAgents(params: {
   sessionService: SessionService;
   getSandboxProvider: () => SandboxProvider | null;
   budgetMs?: number;
+  dbMode?: ServerConfig['dbMode'];
 }): Promise<number> {
   const budgetMs = params.budgetMs ?? 10_000;
   const deadline = Date.now() + budgetMs;
+  const schemaTables = resolveSchemaTables(params.dbMode);
 
   let running: Array<{ id: string; currentSessionId: string | null }> = [];
   try {
     running = await params.db
       .select({
-        id: agentsSqlite.id,
-        currentSessionId: agentsSqlite.currentSessionId,
+        id: schemaTables.agents.id,
+        currentSessionId: schemaTables.agents.currentSessionId,
       })
-      .from(agentsSqlite)
-      .where(inArray(agentsSqlite.status, [...RUNNING_AGENT_STATUSES]));
+      .from(schemaTables.agents)
+      .where(inArray(schemaTables.agents.status, [...RUNNING_AGENT_STATUSES]));
   } catch (err) {
     log.warn('Failed to snapshot running agents during shutdown', {
       error: err instanceof Error ? err : new Error(String(err)),
@@ -103,14 +125,17 @@ export async function flushRunningAgents(params: {
   );
 
   // Step 3: mark each agent paused with a fresh updatedAt timestamp so
-  // recovery on next boot knows they were unfinished.
+  // recovery on next boot knows they were unfinished. Using `CURRENT_TIMESTAMP`
+  // lets the DB render the correct dialect-native value — an ISO string would
+  // break on Postgres `timestamptz` columns, and a bare `new Date()` requires
+  // Drizzle to pick the right conversion per driver.
   try {
     await params.db
-      .update(agentsSqlite)
-      .set({ status: 'paused', updatedAt: new Date().toISOString() })
+      .update(schemaTables.agents)
+      .set({ status: 'paused', updatedAt: sql`CURRENT_TIMESTAMP` })
       .where(
         inArray(
-          agentsSqlite.id,
+          schemaTables.agents.id,
           running.map((a) => a.id)
         )
       );
@@ -127,7 +152,13 @@ export async function flushRunningAgents(params: {
   if (provider && Date.now() < deadline) {
     try {
       const sandboxes = await provider.list();
-      const stopTargets = sandboxes.filter((s) => s.status === 'running');
+      // Include `creating` (the "starting up" state in the SandboxStatus enum)
+      // alongside `running`: an agent booted immediately before SIGTERM may
+      // have its sandbox half-provisioned, and leaving such containers orphaned
+      // defeats the point of the graceful-shutdown sweep.
+      const stopTargets = sandboxes.filter(
+        (s) => s.status === 'running' || s.status === 'creating'
+      );
       if (stopTargets.length > 0) {
         log.info(`Stopping ${stopTargets.length} sandbox(es) before exit`);
         const remainingBudget = Math.max(0, deadline - Date.now());

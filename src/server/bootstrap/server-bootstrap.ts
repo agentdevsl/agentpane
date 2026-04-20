@@ -248,6 +248,7 @@ export async function run(): Promise<void> {
         db: database.db,
         sessionService: services.sessionService,
         getSandboxProvider,
+        dbMode: config.dbMode,
       });
       log.info(`flushRunningAgents interrupted ${count} agent(s)`);
     } catch (err) {
