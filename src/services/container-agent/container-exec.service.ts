@@ -16,6 +16,7 @@ import type { CompleteEventMetrics, ContainerBridge } from '../../lib/agents/con
 import { createContainerBridge } from '../../lib/agents/container-bridge.js';
 import { DEFAULT_AGENT_MODEL, getFullModelId } from '../../lib/constants/models.js';
 import { CONTAINER_WORKSPACE_PATH } from '../../lib/constants/sandbox.js';
+import { ALLOW_ALL_TOOLS } from '../../lib/constants/tools.js';
 import { getRequestId } from '../../lib/context/request-context.js';
 import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
@@ -450,7 +451,8 @@ export class ContainerExecService {
     const agentConfig: AgentConfig = {
       model: resolvedModel ?? getFullModelId(DEFAULT_AGENT_MODEL),
       maxTurns: maxTurns ?? codespace.config?.maxTurns ?? 50,
-      allowedTools: codespace.config?.allowedTools ?? [],
+      // F06-06: `[]` fails closed. Fall back to ALLOW_ALL_TOOLS when no config set.
+      allowedTools: codespace.config?.allowedTools ?? ALLOW_ALL_TOOLS,
     };
     log.info('Resolved agent config', {
       data: { model: agentConfig.model, maxTurns: agentConfig.maxTurns },

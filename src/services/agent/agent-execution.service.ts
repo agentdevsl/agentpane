@@ -4,6 +4,7 @@ import type { TaskColumn } from '../../db/schema';
 import { agentRuns, agents, codespaces, sessions, tasks, worktrees } from '../../db/schema';
 import { handleAgentError } from '../../lib/agents/recovery.js';
 import { runAgentExecution, runAgentPlanning } from '../../lib/agents/stream-handler.js';
+import { ALLOW_ALL_TOOLS } from '../../lib/constants/tools.js';
 
 import type { AgentError } from '../../lib/errors/agent-errors.js';
 import { AgentErrors } from '../../lib/errors/agent-errors.js';
@@ -592,7 +593,8 @@ export class AgentExecutionService {
       session.value.id,
       taskPrompt,
       {
-        allowedTools: agent.config?.allowedTools ?? [],
+        // F06-06: `[]` fails closed. Fall back to ALLOW_ALL_TOOLS when no config set.
+        allowedTools: agent.config?.allowedTools ?? ALLOW_ALL_TOOLS,
         maxTurns: agent.config?.maxTurns ?? 50,
         model: resolvedModel,
         cwd: worktree.value.path,
@@ -1210,7 +1212,8 @@ export class AgentExecutionService {
         agentId,
         sessionId,
         prompt,
-        allowedTools: agent.config?.allowedTools ?? [],
+        // F06-06: `[]` fails closed. Fall back to ALLOW_ALL_TOOLS when no config set.
+        allowedTools: agent.config?.allowedTools ?? ALLOW_ALL_TOOLS,
         maxTurns: agent.config?.maxTurns ?? 50,
         model: resolvedModel,
         cwd,

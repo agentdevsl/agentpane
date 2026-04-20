@@ -360,19 +360,6 @@ When a task is moved to `in_progress` (via drag-drop on the Kanban board):
    - Executes the approved plan
    - On completion: task moves to `waiting_approval`
 
-### Team Mode
-
-Team mode enables parallel agent execution for complex tasks. When the planning agent calls `ExitPlanMode` with `launchSwarm: true`, the execution phase spawns multiple sub-agents that work concurrently on different parts of the plan. Each sub-agent gets its own worktree for isolated work.
-
-```typescript
-interface ExitPlanModeOptions {
-  allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  launchSwarm?: boolean;      // Enable team mode
-  teammateCount?: number;     // Number of parallel agents
-  pushToRemote?: boolean;     // Remote session support
-}
-```
-
 ### Key Files
 
 | File | Purpose |
