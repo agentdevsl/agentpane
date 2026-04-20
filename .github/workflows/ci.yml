@@ -31,8 +31,6 @@ jobs:
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
-          restore-keys: |
-            node-modules-${{ runner.os }}-
 
       - name: Cache Bun packages
         uses: actions/cache@v5
