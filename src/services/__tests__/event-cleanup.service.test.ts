@@ -151,22 +151,22 @@ describe('EventCleanupService', () => {
 
     expect(service.getState().isRunning).toBe(false);
 
-    const stop = service.start();
+    service.start();
 
     expect(service.getState().isRunning).toBe(true);
 
-    stop();
+    service.stop();
 
     expect(service.getState().isRunning).toBe(false);
   });
 
-  it('start returns stop function and calling stop twice is safe', () => {
+  it('calling stop twice is safe', () => {
     const db = createDbMock(0);
     const settings = createSettingsMock();
     const service = new EventCleanupService(db as never, settings as never);
 
-    const stop = service.start();
-    stop();
+    service.start();
+    service.stop();
 
     // Second stop should be a no-op, not throw
     expect(() => service.stop()).not.toThrow();
@@ -179,10 +179,10 @@ describe('EventCleanupService', () => {
     const service = new EventCleanupService(db as never, settings as never);
 
     service.start();
-    const stop2 = service.start(); // Should return stop without starting again
+    service.start(); // Should be a no-op
 
     expect(service.getState().isRunning).toBe(true);
-    stop2();
+    service.stop();
     expect(service.getState().isRunning).toBe(false);
   });
 

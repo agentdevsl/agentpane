@@ -5,6 +5,7 @@ import type { EventSource } from '../db/schema/index.js';
 import { eventSources } from '../db/schema/index.js';
 import type { CronEventSourceConfig } from '../db/schema/shared/cron-config.js';
 import { scheduleExecutions } from '../db/schema/sqlite/schedule-executions.js';
+import type { BackgroundJob, BackgroundJobSnapshot } from '../lib/background/job.js';
 import type { AppError } from '../lib/errors/base.js';
 import { ScheduleErrors } from '../lib/errors/event-errors.js';
 import { ServiceErrors } from '../lib/errors/service-errors.js';
@@ -40,10 +41,13 @@ interface BudgetCheckResult {
   count?: number;
 }
 
-export class SchedulerService {
+export class SchedulerService implements BackgroundJob {
+  readonly name = 'scheduler';
   private tickInterval: ReturnType<typeof setInterval> | null = null;
   private isRunning = false;
   private activeExecutions = new Set<string>();
+  private lastTickAt: string | null = null;
+  private lastError: string | null = null;
 
   private readonly tickIntervalMs: number;
   private readonly concurrencyLimit: number;
@@ -112,6 +116,19 @@ export class SchedulerService {
     log.info('Scheduler stopped');
   }
 
+  /**
+   * {@link BackgroundJob.healthSnapshot} — reports last tick timing and any
+   * transient query error. Never throws.
+   */
+  healthSnapshot(): BackgroundJobSnapshot {
+    return {
+      name: this.name,
+      running: this.isRunning,
+      lastRunAt: this.lastTickAt ?? undefined,
+      lastError: this.lastError ?? undefined,
+    };
+  }
+
   // -------------------------------------------------------------------------
   // Tick Loop
   // -------------------------------------------------------------------------
@@ -121,6 +138,7 @@ export class SchedulerService {
 
     const tickStart = Date.now();
     const now = new Date().toISOString();
+    this.lastTickAt = now;
 
     let dueSources: EventSource[];
     try {
@@ -136,9 +154,14 @@ export class SchedulerService {
           )
         );
     } catch (queryError) {
+      this.lastError = queryError instanceof Error ? queryError.message : String(queryError);
       log.error('Failed to query due sources', { error: queryError });
       return;
     }
+
+    // Successful query path clears the last error marker so the snapshot
+    // reflects the most recent outcome, not stale errors from previous ticks.
+    this.lastError = null;
 
     if (dueSources.length === 0) return;
 
