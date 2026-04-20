@@ -1562,19 +1562,33 @@ runAgent()
     await flushAndExit(0);
   })
   .catch(async (error) => {
-    // Fatal error before agent could start - write JSON error to stderr
-    // The container bridge reads stderr for JSON error events
-    log.error(
-      JSON.stringify({
-        type: 'agent:error',
-        timestamp: Date.now(),
-        taskId: config.taskId ?? 'unknown',
-        sessionId: config.sessionId ?? 'unknown',
-        data: {
-          error: error instanceof Error ? error.message : String(error),
+    // Fatal error before agent could start. The container bridge parses
+    // JSON-line agent events from stdout (see event-emitter.ts); logging a
+    // JSON blob via log.error writes to stderr and would be wrapped in a
+    // structured log record, so the bridge would never see it as an event.
+    // Emit through the proper event path so the UI gets an `agent:error`.
+    const message = error instanceof Error ? error.message : String(error);
+    const errorCode = (error as { code?: string }).code;
+    log.error('[agent-runner] Fatal error before run:', { message });
+    if (error instanceof Error && error.stack) {
+      log.error('[agent-runner] Stack:', { stack: error.stack });
+    }
+
+    if (config.taskId && config.sessionId) {
+      try {
+        const events = createEventEmitter(config.taskId, config.sessionId);
+        events.error({
+          error: message,
+          code: errorCode ?? 'FATAL_ERROR',
           turnCount: 0,
-        },
-      })
-    );
+        });
+      } catch (emitErr) {
+        // Best-effort — if even the emitter fails, the stderr log above is
+        // the last-resort signal.
+        log.error('[agent-runner] Failed to emit fatal error event', {
+          error: emitErr instanceof Error ? emitErr.message : String(emitErr),
+        });
+      }
+    }
     await flushAndExit(1);
   });
