@@ -15,7 +15,7 @@
  * migration chain) are listed in `MISSING_IN_TEST_DB` — these are skipped
  * for the test environment but still receive coverage in the real runtime.
  */
-import { getTableColumns, is, sql } from 'drizzle-orm';
+import { getTableColumns, getTableName, is, sql } from 'drizzle-orm';
 import { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as schema from '../../src/db/schema/sqlite';
@@ -93,7 +93,7 @@ function collectTableCases(): TableCase[] {
     const expectedColumns = Object.values(cols).map((c) => c.name);
     // Table DB name is stored in a symbol-keyed field on the table.
     // @ts-expect-error — private Drizzle internal, but stable.
-    const dbName = value[SQLiteTable.Symbol.Name] as string;
+    const dbName = getTableName(value as SQLiteTable);
     cases.push({ exportName, dbName, expectedColumns });
   }
   return cases.sort((a, b) => a.dbName.localeCompare(b.dbName));

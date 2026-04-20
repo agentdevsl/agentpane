@@ -17,7 +17,7 @@
  * to execute. Otherwise the describe.skip path runs and the test is a
  * no-op.
  */
-import { sql as drizzleSql, getTableColumns, is } from 'drizzle-orm';
+import { getTableColumns, getTableName, is } from 'drizzle-orm';
 import { PgTable } from 'drizzle-orm/pg-core';
 import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js';
 import { migrate as migratePg } from 'drizzle-orm/postgres-js/migrator';
@@ -26,7 +26,10 @@ import { afterAll, describe, expect, it } from 'vitest';
 import * as pgSchema from '../../src/db/schema/postgres/index.js';
 
 const ENABLED = process.env.POSTGRES_INTEGRATION === 'true';
-const URL = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
+// Require an explicit dedicated-test URL. We deliberately do NOT fall back to
+// DATABASE_URL — `resetSchema()` does `DROP SCHEMA ... CASCADE` and we will
+// not risk wiping the developer's primary database if this var is absent.
+const URL = process.env.POSTGRES_URL;
 
 /**
  * Strip an opinion-free set of meta-tables that Drizzle or PG themselves
@@ -83,8 +86,7 @@ suite('PostgreSQL migration safety (F02-13, gated)', () => {
     for (const value of Object.values(pgSchema)) {
       if (!is(value, PgTable)) continue;
       const cols = getTableColumns(value as PgTable);
-      // @ts-expect-error — stable Drizzle internal symbol for table name.
-      const dbName = (value as PgTable)[PgTable.Symbol.Name] as string;
+      const dbName = getTableName(value as PgTable);
       declaredTables.push({
         name: dbName,
         columns: Object.values(cols).map((c) => c.name),
@@ -139,8 +141,6 @@ suite('PostgreSQL migration safety (F02-13, gated)', () => {
     // A simple probe query should work.
     const v = await client<[{ v: string }]>`SELECT version() as v`;
     expect(v[0].v).toContain('PostgreSQL');
-    // Silence unused import warning.
-    void drizzleSql;
   });
 });
 
