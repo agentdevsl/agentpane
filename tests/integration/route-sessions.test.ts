@@ -64,10 +64,12 @@ describe('Sessions Routes (IT-1250)', () => {
     expect(body.data).toHaveLength(2);
     expect(body.pagination.limit).toBe(50);
     expect(body.pagination.offset).toBe(0);
-    // F07-01: global sessions list fixes sort direction so cursor-based
-    // pagination is stable. Without a cursor it falls back to offset+limit.
+    // F07-01: global sessions list always runs in cursor mode — the route
+    // fetches `limit + 1` so `paginate()` can derive `hasMore`/`nextCursor`
+    // without a count query. Default sort is `updatedAt` desc (with `id` as
+    // the tiebreaker).
     expect(mockService.list).toHaveBeenCalledWith({
-      limit: 50,
+      limit: 51,
       offset: 0,
       orderBy: 'updatedAt',
       orderDirection: 'desc',
@@ -79,9 +81,10 @@ describe('Sessions Routes (IT-1250)', () => {
 
     await app.request('http://localhost/?limit=10&offset=20');
 
-    // F07-01: same fixed sort as above.
+    // F07-01: same cursor-mode semantics — route overshoots by 1 to detect
+    // `hasMore`.
     expect(mockService.list).toHaveBeenCalledWith({
-      limit: 10,
+      limit: 11,
       offset: 20,
       orderBy: 'updatedAt',
       orderDirection: 'desc',

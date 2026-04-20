@@ -110,12 +110,19 @@ export class SessionCrudService {
 
     const orderColumn = orderBy === 'createdAt' ? sessions.createdAt : sessions.updatedAt;
 
-    // F07-01: when a cursor is supplied, query `limit + 1` rows strictly after
-    // the cursor position using a compound `(sortValue, id)` comparison. The
-    // route handler slices the overflow row to detect `hasMore`.
+    // F07-01: when a cursor is supplied, query strictly after the cursor
+    // position using a compound `(sortValue, id)` comparison. The route
+    // handler is responsible for passing `limit + 1` and slicing the
+    // overflow row via `paginate()` to detect `hasMore` — this method does
+    // NOT add a redundant `+ 1` on top.
+    //
+    // Precondition: sort columns (`sessions.createdAt`, `sessions.updatedAt`)
+    // are declared `.notNull()` in the SQLite and Postgres schemas, so the
+    // compound `col < v` comparison always yields a boolean (never NULL).
+    // If a nullable sort column is ever added, wrap with COALESCE or use
+    // explicit NULL ordering so pagination does not silently break.
     const cursor = options?.cursor;
     let where: ReturnType<typeof and> | undefined;
-    let fetchLimit = limit;
     let fetchOffset = offset;
     if (cursor) {
       const sortVal = cursor.sortValue;
@@ -130,7 +137,6 @@ export class SessionCrudService {
           ? sql`(${orderColumn} = ${sortVal} AND ${sessions.id} < ${cursor.id})`
           : sql`(${orderColumn} = ${sortVal} AND ${sessions.id} > ${cursor.id})`;
       where = and(sql`(${primary} OR ${tiebreak})`) as ReturnType<typeof and>;
-      fetchLimit = limit + 1;
       fetchOffset = 0;
     }
 
@@ -139,7 +145,7 @@ export class SessionCrudService {
       orderBy: (direction === 'asc'
         ? [orderColumn, sessions.id]
         : [desc(orderColumn), desc(sessions.id)]) as never,
-      limit: fetchLimit,
+      limit,
       offset: fetchOffset,
     });
 

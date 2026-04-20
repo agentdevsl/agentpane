@@ -71,11 +71,12 @@ describe('Sessions API Routes', () => {
 
       await request(app, 'GET', '/api/sessions?limit=10&offset=20');
 
-      // F07-01: global sessions list defaults to updatedAt desc (with id as
-      // tiebreaker) so cursor semantics are stable even when no cursor is
-      // supplied on the first page.
+      // F07-01: global sessions list always runs in cursor mode — the route
+      // fetches `limit + 1` so `paginate()` can derive `hasMore`/`nextCursor`
+      // without a count query. Default sort is `updatedAt` desc with `id` as
+      // the tiebreaker.
       expect(sessionService.list).toHaveBeenCalledWith({
-        limit: 10,
+        limit: 11,
         offset: 20,
         orderBy: 'updatedAt',
         orderDirection: 'desc',
@@ -94,32 +95,44 @@ describe('Sessions API Routes', () => {
       expect(json.error.code).toBe('INTERNAL_ERROR');
     });
 
-    it('returns hasMore = true when result count equals limit', async () => {
+    it('returns hasMore = true and a nextCursor on the first page when more rows exist', async () => {
+      // Regression: previously the first page (no inbound `cursor` query
+      // param) silently fell back to the legacy offset branch and never
+      // emitted `nextCursor`, so clients had no way to advance past page 1.
+      // The route now always runs through `paginate()` and encodes a
+      // `nextCursor` whenever the service returns more than `limit` rows.
       const { app, sessionService } = createTestApp();
-      // Return exactly 5 results when limit is 5
-      const fiveSessions = Array.from({ length: 5 }, (_, i) => ({
+      const sixSessions = Array.from({ length: 6 }, (_, i) => ({
         id: `sess-${i}`,
         status: 'active',
+        updatedAt: `2026-01-0${i + 1}T00:00:00Z`,
       }));
-      sessionService.list.mockResolvedValue({ ok: true, value: fiveSessions });
+      sessionService.list.mockResolvedValue({ ok: true, value: sixSessions });
 
       const res = await request(app, 'GET', '/api/sessions?limit=5');
 
       const json = await res.json();
+      expect(Array.isArray(json.data)).toBe(true);
+      // `paginate()` slices the overflow row off the tail — only 5 rows
+      // should reach the client even though the service returned 6.
+      expect(json.data).toHaveLength(5);
       expect(json.pagination.hasMore).toBe(true);
+      expect(typeof json.pagination.nextCursor).toBe('string');
+      expect(json.pagination.nextCursor).not.toBeNull();
     });
 
-    it('returns hasMore = false when result count is less than limit', async () => {
+    it('returns hasMore = false and nextCursor=null when fewer results than limit', async () => {
       const { app, sessionService } = createTestApp();
       sessionService.list.mockResolvedValue({
         ok: true,
-        value: [{ id: 'sess-1', status: 'active' }],
+        value: [{ id: 'sess-1', status: 'active', updatedAt: '2026-01-01T00:00:00Z' }],
       });
 
       const res = await request(app, 'GET', '/api/sessions?limit=10');
 
       const json = await res.json();
       expect(json.pagination.hasMore).toBe(false);
+      expect(json.pagination.nextCursor).toBeNull();
     });
 
     it('returns error when list returns error result', async () => {

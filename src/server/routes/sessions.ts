@@ -189,8 +189,14 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
     // Backward-compatible envelope: `data` stays a flat array (so
     // `apiServerFetch<Session[]>` keeps working) and `pagination` exposes
     // the opaque `nextCursor` + `hasMore` flags alongside the legacy
-    // `limit`/`offset`. Passing the new `cursor` query param uses cursor
-    // mode; omitting it keeps the existing offset-and-limit behaviour.
+    // `limit`/`offset`.
+    //
+    // Bug fix: previously only requests that carried an inbound `cursor`
+    // query param went through `paginate()`; the first page (no cursor) fell
+    // back to the legacy offset branch and never emitted `nextCursor`,
+    // leaving clients with no way to advance beyond page 1. We now always
+    // fetch `limit + 1` and run through `paginate()` so the first page
+    // returns a valid `nextCursor` whenever there are more rows.
     const sortField = 'updatedAt' as const;
     const order = 'desc' as const;
     const rawCursor = c.req.query('cursor') || undefined;
@@ -208,14 +214,15 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
       );
     }
     const cursorPayload = cursorResult.value;
-    const usingCursor = cursorPayload !== null;
 
     const result = await sessionService.list({
-      // F07-01: when using cursor mode, fetch limit+1 so `paginate` can
-      // detect `hasMore` without a count query. Otherwise preserve the
-      // legacy offset-and-limit semantics.
-      limit: usingCursor ? limit + 1 : limit,
-      offset: usingCursor ? 0 : offset,
+      // F07-01: fetch `limit + 1` so `paginate()` can detect `hasMore`
+      // without a count query. When a cursor is supplied we do not apply an
+      // offset (the cursor itself positions the page); when absent we keep
+      // the legacy `offset` semantics so pre-cursor clients that still pass
+      // `offset` continue to work.
+      limit: limit + 1,
+      offset: cursorPayload ? 0 : offset,
       orderBy: sortField,
       orderDirection: order,
       ...(cursorPayload
@@ -231,27 +238,15 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
       return errorResponse(result);
     }
 
-    if (usingCursor) {
-      const body = paginate(result.value, { limit, sortField, order });
-      return json({
-        ok: true,
-        data: body.items,
-        pagination: {
-          limit,
-          offset: 0,
-          nextCursor: body.nextCursor,
-          hasMore: body.hasMore,
-        },
-      });
-    }
-
+    const body = paginate(result.value, { limit, sortField, order });
     return json({
       ok: true,
-      data: result.value,
+      data: body.items,
       pagination: {
         limit,
-        offset,
-        hasMore: result.value.length === limit,
+        offset: cursorPayload ? 0 : offset,
+        nextCursor: body.nextCursor,
+        hasMore: body.hasMore,
       },
     });
   });

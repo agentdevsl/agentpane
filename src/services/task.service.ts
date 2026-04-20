@@ -476,9 +476,18 @@ export class TaskService {
     }
 
     // F07-01: cursor-based pagination. When supplied, append a compound
-    // `(sortValue, id)` tuple comparison filter and fetch `limit + 1` rows.
+    // `(sortValue, id)` tuple comparison filter. The route handler is
+    // responsible for passing `limit + 1` and slicing the overflow row via
+    // `paginate()` to detect `hasMore` — this method does NOT add a
+    // redundant `+ 1` on top.
+    //
+    // Precondition: sort columns (`tasks.position`, `tasks.createdAt`,
+    // `tasks.updatedAt`) are declared `.notNull()` in the SQLite and
+    // Postgres schemas, so the compound `col < v` comparison always yields
+    // a boolean (never NULL). If a nullable sort column is ever added,
+    // wrap with COALESCE or use explicit NULL ordering so pagination does
+    // not silently break.
     const cursor = options?.cursor;
-    let fetchLimit = limit;
     let fetchOffset = offset;
     if (cursor) {
       const sortVal = cursor.sortValue;
@@ -489,7 +498,6 @@ export class TaskService {
           ? sql`(${orderColumn} = ${sortVal} AND ${tasks.id} < ${cursor.id})`
           : sql`(${orderColumn} = ${sortVal} AND ${tasks.id} > ${cursor.id})`;
       filters.push(sql`(${primary} OR ${tiebreak})`);
-      fetchLimit = limit + 1;
       fetchOffset = 0;
     }
 
@@ -498,7 +506,7 @@ export class TaskService {
       orderBy: (direction === 'asc'
         ? [orderColumn, tasks.id]
         : [desc(orderColumn), desc(tasks.id)]) as never,
-      limit: fetchLimit,
+      limit,
       offset: fetchOffset,
     });
 
