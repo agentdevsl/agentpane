@@ -214,23 +214,63 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
     const offset = parseOffset(c);
     const afterEventId = c.req.query('afterEventId') ?? undefined;
 
-    if (afterEventId && c.req.query('offset') !== undefined) {
+    // F05-04: "load earlier" via beforeOffset.
+    // F05-06: contiguous gap-fill via fromOffset + toOffset.
+    const beforeOffsetRaw = c.req.query('beforeOffset');
+    const fromOffsetRaw = c.req.query('fromOffset');
+    const toOffsetRaw = c.req.query('toOffset');
+    const beforeOffset =
+      beforeOffsetRaw !== undefined ? Number.parseInt(beforeOffsetRaw, 10) : undefined;
+    const fromOffset = fromOffsetRaw !== undefined ? Number.parseInt(fromOffsetRaw, 10) : undefined;
+    const toOffset = toOffsetRaw !== undefined ? Number.parseInt(toOffsetRaw, 10) : undefined;
+
+    const hasOffset = c.req.query('offset') !== undefined;
+    const hasAfter = afterEventId !== undefined;
+    const hasBefore = beforeOffset !== undefined;
+    const hasRange = fromOffset !== undefined || toOffset !== undefined;
+    const exclusiveCount = [hasAfter, hasBefore, hasRange && !hasBefore].filter(Boolean).length;
+    if (exclusiveCount > 1 || (hasAfter && hasOffset)) {
       return json(
         {
           ok: false,
           error: {
             code: 'INVALID_PARAMS',
-            message: 'Use either offset or afterEventId, not both',
+            message:
+              'Use only one of: offset, afterEventId, beforeOffset, or (fromOffset + toOffset)',
           },
         },
         400
       );
     }
 
-    const result = await sessionService.getEventsBySession(
-      id,
-      afterEventId ? { limit, afterEventId } : { limit, offset }
-    );
+    if (hasRange && (fromOffset === undefined || toOffset === undefined)) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'INVALID_PARAMS',
+            message: 'fromOffset and toOffset must be used together',
+          },
+        },
+        400
+      );
+    }
+
+    let result: Awaited<ReturnType<typeof sessionService.getEventsBySession>>;
+    if (afterEventId) {
+      result = await sessionService.getEventsBySession(id, { limit, afterEventId });
+    } else if (beforeOffset !== undefined && Number.isFinite(beforeOffset)) {
+      result = await sessionService.getEventsBySession(id, { limit, beforeOffset });
+    } else if (
+      fromOffset !== undefined &&
+      toOffset !== undefined &&
+      Number.isFinite(fromOffset) &&
+      Number.isFinite(toOffset)
+    ) {
+      result = await sessionService.getEventsBySession(id, { limit, fromOffset, toOffset });
+    } else {
+      result = await sessionService.getEventsBySession(id, { limit, offset });
+    }
     if (!result.ok) {
       return errorResponse(result);
     }
@@ -243,6 +283,9 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
         limit,
         offset,
         afterEventId: afterEventId ?? null,
+        beforeOffset: beforeOffset ?? null,
+        fromOffset: fromOffset ?? null,
+        toOffset: toOffset ?? null,
       },
     });
   });
