@@ -731,12 +731,19 @@ export class AgentExecutionService {
           ...(result.sdkSessionId ? { sdkSessionId: result.sdkSessionId } : {}),
         };
 
-        // Store the plan and options on the task
+        // Store the plan and options on the task, and flip to the
+        // waiting_approval state. Without this the kanban UI would not
+        // surface the plan and the theme-03 F6 rejectPlanForTask guard
+        // (which requires lastAgentStatus === 'planning') would never
+        // match, rendering host-mode reject non-functional. Mirrors
+        // PlanApprovalService.handlePlanReady for container-mode.
         await this.db
           .update(tasks)
           .set({
             plan: result.plan,
             planOptions: mergedPlanOptions,
+            lastAgentStatus: 'planning',
+            column: 'waiting_approval',
           })
           .where(eq(tasks.id, taskId));
 
