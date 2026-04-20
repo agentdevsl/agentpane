@@ -120,6 +120,41 @@ The service layer is reasonably well-organised: the recent facade split for `Age
 - **Effort**: S
 - **Links**: project `CLAUDE.md` — "Functional Tests: Real Service Transitions"
 
+## Resolution notes (April 2026 remediation)
+
+### F01-01 — Resolved
+Added new bootstrap phase `src/server/bootstrap/phases/sandbox-reconciliation.ts`.
+After `initSandboxProvider` completes (and before `sandboxState.reconciled` is
+flipped), it lists the live sandboxes via `provider.list()` and cross-references
+the `sandbox_instances` table:
+- Live sandbox with no DB row → inserted into DB (adopted).
+- DB row in an active status (`creating`/`running`/`idle`/`stopping`) with no
+  matching live sandbox → marked `stopped` with `errorMessage = 'Marked
+  terminated by sandbox reconciliation on startup'`.
+Terminal statuses (`stopped`/`error`) are left untouched so historical records
+are preserved. Tests: `tests/integration/sandbox-reconciliation.test.ts` (6
+cases: orphan DB row, orphan provider row, no-op match, terminal-status
+preservation, null provider, combined pass).
+
+### F01-03 — Resolved
+`/api/health` now accepts an `isSandboxReady` callback (F01-03). The bootstrap
+wires it to `sandboxState.provider !== null && sandboxState.reconciled`. When
+not ready, the endpoint short-circuits with HTTP 503 and
+`{ status: 'initializing', message: '...' }`. Tests:
+`src/server/routes/__tests__/health.test.ts` (4 new cases inside the F01-03
+sandbox readiness gate describe block).
+
+### F01-05 — Resolved
+Introduced `BootstrapPhaseResult = { ok: true } | { ok: false, fatal: boolean,
+error: Error }` in `src/server/bootstrap/types.ts`. The database, api-key
+resolution, and schedulers phases now return this type explicitly. A new helper
+`applyPhaseResult` in `server-bootstrap.ts` centralizes the policy:
+fatal → `process.exit(1)`; non-fatal → log and continue. Individual phases no
+longer call `process.exit` directly. Production (`NODE_ENV=production`) is
+generally treated as fatal for missing keys / scheduler failures. Tests:
+`src/server/bootstrap/__tests__/bootstrap-phase-result.test.ts` (8 cases:
+phase result shapes and orchestrator policy).
+
 ## Open questions
 - What is the intended restart policy for containers that outlive the server? Adopt, reap, or ignore? (affects F01-01, F01-06)
 - Is there an operational SLA for "sandbox provider unreachable"? The 300s max backoff means prolonged degradation can be invisible (F01-03, F01-05).

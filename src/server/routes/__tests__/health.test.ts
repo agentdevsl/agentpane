@@ -49,6 +49,7 @@ function createTestApp(opts?: {
   githubConfigured?: boolean;
   githubValid?: boolean;
   sandboxes?: Array<{ status: string }> | null;
+  isSandboxReady?: () => boolean;
 }) {
   const db = createMockDb(opts?.dbFail);
   const githubService = createMockGithubService({
@@ -64,6 +65,7 @@ function createTestApp(opts?: {
     db: db as never,
     githubService: githubService as never,
     getSandboxProvider: sandboxProvider ? () => sandboxProvider : undefined,
+    isSandboxReady: opts?.isSandboxReady,
   });
   const app = new Hono();
   app.route('/api/health', routes);
@@ -165,6 +167,55 @@ describe('Health API Routes', () => {
       const json = await res.json();
       expect(json.data.checks.sandbox.status).toBe('error');
       expect(json.data.checks.sandbox.error).toContain('No running containers');
+    });
+  });
+
+  // ── F01-03: Readiness gate ──
+
+  describe('F01-03: sandbox readiness gate', () => {
+    it('returns 503 with status=initializing while sandbox is not ready', async () => {
+      const { app } = createTestApp({ isSandboxReady: () => false });
+
+      const res = await request(app, 'GET', '/api/health');
+
+      expect(res.status).toBe(503);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.data.status).toBe('initializing');
+      // Ensure we did not run the full health probe (no checks field)
+      expect(json.data.checks).toBeUndefined();
+    });
+
+    it('returns 200 once the readiness gate reports ready', async () => {
+      const { app } = createTestApp({ isSandboxReady: () => true });
+
+      const res = await request(app, 'GET', '/api/health');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.status).toBe('healthy');
+      expect(json.data.checks.database.status).toBe('ok');
+    });
+
+    it('is backwards compatible when isSandboxReady is undefined', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'GET', '/api/health');
+
+      // No gate means always-ready — same as before this change.
+      expect(res.status).toBe(200);
+    });
+
+    it('readiness gate flipping from false to true unblocks health', async () => {
+      let ready = false;
+      const { app } = createTestApp({ isSandboxReady: () => ready });
+
+      const res1 = await request(app, 'GET', '/api/health');
+      expect(res1.status).toBe(503);
+
+      ready = true;
+      const res2 = await request(app, 'GET', '/api/health');
+      expect(res2.status).toBe(200);
     });
   });
 

@@ -7,7 +7,7 @@
 
 import { createLogger } from '../../lib/logging/logger.js';
 import { resolveApiKey } from './phases/api-key-resolution.js';
-import { initializeDatabase } from './phases/database.js';
+import { tryInitializeDatabase } from './phases/database.js';
 import { runRecovery } from './phases/recovery.js';
 import { createAppRouter } from './phases/router.js';
 import { startSchedulers } from './phases/schedulers.js';
@@ -15,7 +15,7 @@ import { createServiceContainer } from './phases/services.js';
 import { initSandboxProvider } from './sandbox/sandbox-init.js';
 import { parseServerConfig } from './server-config.js';
 import { GracefulShutdown } from './shutdown.js';
-import type { SandboxState } from './types.js';
+import type { BootstrapPhaseResult, SandboxState } from './types.js';
 
 declare const Bun: {
   serve: (options: {
@@ -26,6 +26,21 @@ declare const Bun: {
 };
 
 const log = createLogger('Bootstrap');
+
+/**
+ * Apply a {@link BootstrapPhaseResult}: fatal failures exit the process,
+ * non-fatal failures are logged and the bootstrap continues (F01-05).
+ */
+function applyPhaseResult(phase: string, result: BootstrapPhaseResult): void {
+  if (result.ok) return;
+  if (result.fatal) {
+    log.error(`Bootstrap phase '${phase}' failed (fatal)`, { error: result.error });
+    process.exit(1);
+  }
+  log.warn(`Bootstrap phase '${phase}' failed (non-fatal, continuing)`, {
+    error: result.error,
+  });
+}
 
 /**
  * Run the complete server bootstrap pipeline.
@@ -46,8 +61,14 @@ export async function run(): Promise<void> {
   // Phase 1: Configuration
   const config = parseServerConfig();
 
-  // Phase 2: Database
-  const database = await initializeDatabase(config);
+  // Phase 2: Database (F01-05: fatal if fails; exit via applyPhaseResult)
+  const { result: dbResult, database } = await tryInitializeDatabase(config);
+  applyPhaseResult('database', dbResult);
+  if (!database) {
+    // Should be unreachable: applyPhaseResult exits on fatal failure. Guard for
+    // the type narrower and for any future non-fatal DB policy.
+    throw new Error('Bootstrap: database initialization returned no database');
+  }
 
   // Phase 3: Recovery
   const recovery = await runRecovery(database.db);
@@ -66,8 +87,8 @@ export async function run(): Promise<void> {
   // Phase 4.5: Memory service initialization (always available — backed by local SQLite)
   await services.memoryService.initialize();
 
-  // Phase 5: API Key Resolution
-  await resolveApiKey(services.apiKeyService);
+  // Phase 5: API Key Resolution (F01-05)
+  applyPhaseResult('api-key-resolution', await resolveApiKey(services.apiKeyService));
 
   // Phase 6: Sandbox state (mutable, shared across runtime)
   const sandboxState: SandboxState = {
@@ -81,6 +102,7 @@ export async function run(): Promise<void> {
     retryTimer: null,
     retryCount: 0,
     initializing: false,
+    reconciled: false,
   };
 
   const isDev = process.env.NODE_ENV === 'development';
@@ -90,7 +112,13 @@ export async function run(): Promise<void> {
     if (!sandboxState.provider && isDev && !sandboxState.retryTimer && !sandboxState.initializing) {
       sandboxState.initializing = true;
       // Trigger async retry - will be picked up on next call
-      initSandboxProvider(database.db, services, sandboxState, config.sandboxInitTimeoutMs)
+      initSandboxProvider(
+        database.db,
+        services,
+        sandboxState,
+        config.sandboxInitTimeoutMs,
+        config.dbMode
+      )
         .finally(() => {
           sandboxState.initializing = false;
         })
@@ -106,13 +134,19 @@ export async function run(): Promise<void> {
   const getK8sProvider = () => sandboxState.k8sProvider;
   const getNomadProvider = () => sandboxState.nomadProvider;
 
+  // F01-03: readiness gate for `/api/health`. The sandbox provider init
+  // runs in the background (Phase 11) and sandbox reconciliation follows
+  // it; health is "initializing" until both complete.
+  const isSandboxReady = () => sandboxState.provider !== null && sandboxState.reconciled;
+
   // Phase 7: Router
   const app = createAppRouter(
     database.db,
     services,
     getSandboxProvider,
     getK8sProvider,
-    getNomadProvider
+    getNomadProvider,
+    isSandboxReady
   );
 
   // Phase 8: Start server
@@ -204,15 +238,39 @@ export async function run(): Promise<void> {
 
   shutdown.installSignalHandlers();
 
-  // Phase 10: Schedulers (registers own cleanups)
-  await startSchedulers(database.db, services, shutdown);
+  // Phase 10: Schedulers (registers own cleanups; F01-05 applies)
+  applyPhaseResult('schedulers', await startSchedulers(database.db, services, shutdown));
 
-  // Phase 11: Sandbox provider (background, non-blocking)
-  initSandboxProvider(database.db, services, sandboxState, config.sandboxInitTimeoutMs).catch(
-    (err) => {
+  // Phase 11: Sandbox provider (background, non-blocking).
+  // initSandboxProvider handles both the initial attempt and retry scheduling,
+  // and — on any successful init (initial or retry) — runs the F01-01
+  // reconciliation phase inline before flipping `sandboxState.reconciled`.
+  // The outer `.then()` is kept purely as a safety net: if the provider is
+  // still null after the promise resolves (e.g., all retries exhausted and
+  // the retry chain gave up), leave `reconciled` as-is so the readiness
+  // gate correctly reports "not ready". Only flip it here if the provider
+  // actually came up AND reconciliation was skipped for some reason.
+  initSandboxProvider(
+    database.db,
+    services,
+    sandboxState,
+    config.sandboxInitTimeoutMs,
+    config.dbMode
+  )
+    .then(() => {
+      if (sandboxState.provider !== null && !sandboxState.reconciled) {
+        // Defensive: initSandboxProvider should already have set this on
+        // success. If it didn't, the provider is up but reconciliation
+        // didn't run — mark ready so /health unblocks (best-effort).
+        log.warn(
+          'Sandbox provider initialized but reconciliation flag still false — flipping to ready'
+        );
+        sandboxState.reconciled = true;
+      }
+    })
+    .catch((err) => {
       log.error('Sandbox provider initialization failed:', {
         error: err instanceof Error ? err.message : String(err),
       });
-    }
-  );
+    });
 }
