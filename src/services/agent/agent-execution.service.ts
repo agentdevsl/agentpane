@@ -1,5 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
+import type { TaskColumn } from '../../db/schema';
 import { agentRuns, agents, codespaces, sessions, tasks, worktrees } from '../../db/schema';
 import { handleAgentError } from '../../lib/agents/recovery.js';
 import { runAgentExecution, runAgentPlanning } from '../../lib/agents/stream-handler.js';
@@ -1400,6 +1401,116 @@ export class AgentExecutionService {
         )
       );
     return ok(result?.count ?? 0);
+  }
+
+  /**
+   * theme-03 F6: host-mode plan rejection.
+   *
+   * Atomically:
+   *   1. Stop the running agent (abort controller + status → idle),
+   *   2. CAS-move the task to backlog where `lastAgentStatus='planning'`,
+   *      clearing plan/planOptions/worktreeId/branch,
+   *   3. Remove the worktree (best-effort).
+   *
+   * Returns `PLAN_NOT_FOUND` when the task is not in a rejectable state so
+   * the API layer can mirror the container-mode 404. Mirrors the CAS from
+   * PlanApprovalService.rejectPlan — both paths refuse to reject a task
+   * that has already moved on.
+   */
+  async rejectPlanForTask(
+    taskId: string,
+    reason?: string
+  ): Promise<Result<void, { code: string; message: string; status: number }>> {
+    const task = await this.db.query.tasks.findFirst({
+      where: eq(tasks.id, taskId),
+    });
+
+    if (!task || !task.plan || task.lastAgentStatus !== 'planning') {
+      return err({
+        code: 'PLAN_NOT_FOUND',
+        message: `No pending plan for task ${taskId}`,
+        status: 404,
+      });
+    }
+
+    const worktreeIdToClean = task.worktreeId ?? null;
+    const agentId = task.agentId ?? null;
+
+    // Stop the host-mode agent first so its background executeAgentAsync does
+    // not race with the DB update. stop() is best-effort — if the agent is
+    // already gone (crashed / never started) we proceed with cleanup anyway.
+    if (agentId && this.runningAgents.has(agentId)) {
+      const controller = this.runningAgents.get(agentId);
+      controller?.abort();
+      this.runningAgents.delete(agentId);
+      this.agentStartTimes.delete(agentId);
+      this.preToolHooks.delete(agentId);
+      this.postToolHooks.delete(agentId);
+      try {
+        await this.db
+          .update(agents)
+          .set({
+            status: 'idle',
+            currentTaskId: null,
+            currentSessionId: null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(agents.id, agentId));
+      } catch (agentErr) {
+        log.warn('Failed to reset agent state on plan reject (continuing)', {
+          error: agentErr instanceof Error ? agentErr.message : String(agentErr),
+          data: { agentId, taskId },
+        });
+      }
+    }
+
+    // CAS-move: only reject if the task is still in the `planning` status.
+    try {
+      const [updated] = await this.db
+        .update(tasks)
+        .set({
+          column: 'backlog' as TaskColumn,
+          plan: null,
+          planOptions: null,
+          lastAgentStatus: null,
+          rejectionReason: reason ?? null,
+          worktreeId: null,
+          branch: null,
+        })
+        .where(and(eq(tasks.id, taskId), eq(tasks.lastAgentStatus, 'planning')))
+        .returning();
+
+      if (!updated) {
+        return err({
+          code: 'PLAN_NOT_FOUND',
+          message: `Plan rejection failed — task ${taskId} no longer in planning state`,
+          status: 404,
+        });
+      }
+    } catch (dbErr) {
+      const errorMsg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      log.error('Failed to reject plan (host-mode)', { data: { taskId, error: errorMsg } });
+      return err({
+        code: 'PLAN_REJECTION_FAILED',
+        message: `Failed to reject plan for task ${taskId}: ${errorMsg}`,
+        status: 500,
+      });
+    }
+
+    // Remove the worktree (best-effort, fire-and-forget)
+    if (worktreeIdToClean) {
+      this.worktreeService.remove(worktreeIdToClean, true).catch((rmErr) => {
+        log.warn('Failed to remove worktree on host-mode plan reject', {
+          error: rmErr instanceof Error ? rmErr.message : String(rmErr),
+          data: { taskId, worktreeId: worktreeIdToClean },
+        });
+      });
+    }
+
+    log.info('Plan rejected (host-mode)', {
+      data: { taskId, reason: reason ?? null, worktreeRemoved: !!worktreeIdToClean },
+    });
+    return ok(undefined);
   }
 
   /**

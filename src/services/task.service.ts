@@ -106,6 +106,15 @@ export interface ContainerAgentTrigger {
  */
 export interface AgentExecutionTrigger {
   resume: (agentId: string, feedback?: string) => Promise<Result<unknown, unknown>>;
+  /**
+   * theme-03 F6: host-mode plan rejection. Stops any host-mode agent running
+   * for the task, moves the task back to backlog, clears plan state, and
+   * removes the worktree.
+   */
+  rejectPlanForTask?: (
+    taskId: string,
+    reason?: string
+  ) => Promise<Result<void, { code: string; message: string; status: number }>>;
 }
 
 export class TaskService {
@@ -296,28 +305,46 @@ export class TaskService {
 
   /**
    * Reject a pending plan for a task and move it back to backlog.
+   *
+   * theme-03 F6: falls back to host-mode rejection (agentExecutionService)
+   * when the container agent service is not configured, so deployments
+   * running host-mode agents can still reach the `plan → backlog` edge of
+   * the state machine.
    */
   async rejectPlan(taskId: string, reason?: string): Promise<Result<void, TaskError>> {
-    if (!this.containerAgentService) {
-      return err({
-        code: 'CONTAINER_AGENT_SERVICE_UNAVAILABLE',
-        message: 'Container agent service is not configured',
-        status: 503,
-      });
+    // Container mode: delegate to the container agent service.
+    if (this.containerAgentService) {
+      const result = await this.containerAgentService.rejectPlan(taskId, reason);
+      if (!result.ok) {
+        // Propagate the actual error — distinguish PLAN_NOT_FOUND from PLAN_REJECTION_FAILED
+        const errorObj = result.error;
+        return err({
+          code: errorObj?.code ?? 'PLAN_REJECTION_FAILED',
+          message: errorObj?.message ?? `Failed to reject plan for task ${taskId}`,
+          status: errorObj?.status ?? 500,
+        });
+      }
+      return ok(undefined);
     }
 
-    const result = await this.containerAgentService.rejectPlan(taskId, reason);
-    if (!result.ok) {
-      // Propagate the actual error — distinguish PLAN_NOT_FOUND from PLAN_REJECTION_FAILED
-      const errorObj = result.error;
-      return err({
-        code: errorObj?.code ?? 'PLAN_REJECTION_FAILED',
-        message: errorObj?.message ?? `Failed to reject plan for task ${taskId}`,
-        status: errorObj?.status ?? 500,
-      });
+    // theme-03 F6: host-mode fallback.
+    if (this.agentExecutionService?.rejectPlanForTask) {
+      const result = await this.agentExecutionService.rejectPlanForTask(taskId, reason);
+      if (!result.ok) {
+        return err({
+          code: result.error.code,
+          message: result.error.message,
+          status: result.error.status,
+        });
+      }
+      return ok(undefined);
     }
 
-    return ok(undefined);
+    return err({
+      code: 'NO_EXECUTION_SERVICE',
+      message: 'No execution service available for plan rejection',
+      status: 503,
+    });
   }
 
   /**
