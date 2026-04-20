@@ -35,7 +35,7 @@
   - **XL** — > 2 weeks
 - **File refs** use `path:line` format; line numbers were verified against the branch head (`f9605383`). Where a finding cites multiple files, the master table lists the primary reference.
 - **Cross-links** to prior reviews — consolidated against `specs/events_review/` (streaming) and `specs/release_plan/` (01 test-suite, 02 security, 03 observability, 04 release, 05 error-resilience, 06 database-integrity, 08 frontend). See the "What this supersedes" table below.
-- **Anchor format** — GitHub renders `### F06-02: Title` as `#f06-02-title`. Short `#f06-02` anchors are used in the master table where themes used plain numeric anchors (03, 04 use `#f1`..`#f17` / `#p0-01` etc.); full title slugs are used where the theme file uses the `### FXX-NN: Title` format.
+- **Anchor format** — GitHub renders `### F06-02: Title` as a full slug anchor like `#f06-02--title-words`. The master table uses full title slugs for consistency with how GitHub actually renders headings. Themes 03 and 04 use non-standard anchor conventions internally (03 uses `#f1`..`#f17`, 04 uses `#p0-01`/`#p1-03` etc.); links into those files respect each file's actual heading format.
 
 ## Executive summary
 

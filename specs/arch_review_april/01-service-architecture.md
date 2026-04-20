@@ -1,12 +1,12 @@
 # Service Architecture
 
 ## Summary
-The service layer is reasonably well-organised: the recent facade split for `AgentService` (CRUD / Execution / Queue) and `ContainerAgentService` (state / worktree / exec / plan-approval / agentcore bridge) and the proper dependency ordering in `service-container.ts` have eliminated the old "stub-then-patch" TaskService pattern. However, four architectural habits now dominate the code and deserve attention: (1) heavy use of in-memory `Map` state with no reconciliation path on crash/restart, (2) late-binding optional setters on `TaskService`, (3) a monolithic `TaskCreationService` (~2,600 LOC) that skipped the facade treatment, and (4) a 6-phase bootstrap whose background sandbox retry and API-key resolution have subtle "server up but broken" failure modes.
+The service layer is reasonably well-organised: the recent facade split for `AgentService` (CRUD / Execution / Queue) and `ContainerAgentService` (state / worktree / exec / plan-approval / agentcore bridge) and the proper dependency ordering in `service-container.ts` have eliminated the old "stub-then-patch" TaskService pattern. However, four architectural habits now dominate the code and deserve attention: (1) heavy use of in-memory `Map` state with no reconciliation path on crash/restart, (2) late-binding optional setters on `TaskService`, (3) a monolithic `TaskCreationService` (~2,600 LOC) that skipped the facade treatment, and (4) a 9-step bootstrap whose background sandbox retry and API-key resolution have subtle "server up but broken" failure modes.
 
 ## Map
 | Layer | Files | Purpose |
 |-------|-------|---------|
-| Bootstrap orchestration | `src/server/bootstrap/server-bootstrap.ts`, `src/server/bootstrap/phases/*.ts`, `src/server/bootstrap/sandbox/*.ts` | 11-step pipeline: config -> db -> recovery -> services -> api key -> router -> serve -> schedulers -> sandbox (background) |
+| Bootstrap orchestration | `src/server/bootstrap/server-bootstrap.ts`, `src/server/bootstrap/phases/*.ts`, `src/server/bootstrap/sandbox/*.ts` | 9-step pipeline: config -> db -> recovery -> services -> api key -> router -> serve -> schedulers -> sandbox (background) |
 | Service container (DI) | `src/server/bootstrap/service-container.ts`, `src/server/bootstrap/types.ts` | Factory function builds all 30+ services in dependency order; a flat `ServiceContainer` interface is passed to routes |
 | Shutdown | `src/server/bootstrap/shutdown.ts` | LIFO cleanup registry with 30s force-exit guard |
 | Facade services | `src/services/agent.service.ts`, `src/services/session.service.ts`, `src/services/container-agent.service.ts`, `src/services/container-agent/container-agent.service.ts` | Delegate to focused sub-services under `src/services/{agent,session,container-agent}/` |

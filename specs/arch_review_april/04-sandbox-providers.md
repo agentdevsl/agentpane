@@ -141,7 +141,7 @@ The Zod schema (`types.ts:114`) accepts `networkMode`. Only `DockerProvider.crea
 
 ## Summary
 
-- **Findings**: 18 total
+- **Findings**: 21 total
 - **P0**: 1 (container image supply chain)
 - **P1**: 7 (provider-parity drift, AgentCore zombie, missing cleanup for K8s/Nomad, restart-dup bug, credential-in-argv, no network policy, no resource quotas)
 - **P2**: 8 (tmux duplication, shellEscape triplication, unused event types, short sandbox-ID slicing, silent cache eviction, three-way state duplication, shallow health checks, no-op `isImageAvailable` on K8s/Nomad)

@@ -10,7 +10,7 @@ The system has materially improved since the March 2026 `specs/events_review/` p
 
 What remains is the architectural tail: the 50-connection SSE cap is still hard-coded, presence/counters/retention are still split across `EventBus`, `CliMonitorService`, and Caddy-managed SSE, the dual-write is still best-effort (no outbox), there is no client-side gap detection on reconnect, the `MAX_CHUNKS=5000` client cap still drops history silently, Caddy SSE endpoints still have no authentication beyond network trust, and SQLite remains the single writer for every event. Stream-ID conventions are documented in `CLAUDE.md` but not enforced in code — a bare CUID published to `DurableStreamsService` for what should be a plan stream will land in `session_events` as a session event and never reach the plan SSE path. And the `droppedEventCount` counter on `PlanModeService` swallows publish failures silently, with no surfaced metric, no alert, and no export to an admin endpoint.
 
-This file consolidates the 19 work items from `specs/events_review/roadmap.md`, restates those still valid with their current disposition, and adds findings for issues that surfaced after that pass.
+This file consolidates 24 prior items from `specs/events_review/` (12 from `README.md` §§2–3, 9 from `hybrid-architecture.md`, 3 from `roadmap.md`), restates those still valid with their current disposition, and adds 6 new findings for issues that surfaced after that pass. See the "What this supersedes" table below for full dispositions.
 
 ## Map
 
