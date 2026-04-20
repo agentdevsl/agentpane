@@ -502,8 +502,13 @@ export class TaskService {
       return err(TaskErrors.INVALID_TRANSITION(task.column, column));
     }
 
-    // Guard: cannot move to verified when plan is pending (would skip execution phase)
-    if (column === 'verified' && task.lastAgentStatus === 'planning') {
+    // Guard: cannot move to verified when plan is pending (would skip execution phase).
+    // Includes 'agent_reviewing' — the automated review is a pre-approval state, not a
+    // completed plan.
+    if (
+      column === 'verified' &&
+      (task.lastAgentStatus === 'planning' || task.lastAgentStatus === 'agent_reviewing')
+    ) {
       return err(TaskErrors.PLAN_NOT_EXECUTED);
     }
 
@@ -832,8 +837,9 @@ export class TaskService {
       return err(TaskErrors.NOT_WAITING_APPROVAL(task.column));
     }
 
-    // Guard: cannot approve changes when task is pending plan approval (would skip execution)
-    if (task.lastAgentStatus === 'planning') {
+    // Guard: cannot approve changes when task is pending plan approval (would skip execution).
+    // 'agent_reviewing' is also a pre-approval transient state — block approval there too.
+    if (task.lastAgentStatus === 'planning' || task.lastAgentStatus === 'agent_reviewing') {
       return err(TaskErrors.PLAN_NOT_EXECUTED);
     }
 
