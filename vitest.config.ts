@@ -108,6 +108,7 @@ export default defineConfig({
             'tests/server/**/*.{test,spec}.{ts,tsx}',
             'tests/db/**/*.{test,spec}.{ts,tsx}',
             'tests/lib/agents/container-bridge.test.ts',
+            'tests/lib/agents/container-bridge-token-batch.test.ts',
             'tests/lib/utils/path-safety.test.ts',
             'src/lib/sandbox/__tests__/git-token-resolver.test.ts',
           ],

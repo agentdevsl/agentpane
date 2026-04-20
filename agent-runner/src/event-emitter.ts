@@ -15,6 +15,7 @@ import { writeSync } from 'node:fs';
 export type AgentEventType =
   | 'agent:started'
   | 'agent:token'
+  | 'agent:token:batch'
   | 'agent:turn'
   | 'agent:tool:start'
   | 'agent:tool:result'
@@ -154,10 +155,25 @@ export interface AgentPlanReadyData {
 const STDOUT_FD = 1;
 
 /**
+ * F05-11: Chunk-batch thresholds. Accumulate either TOKEN_BATCH_SIZE tokens or
+ * TOKEN_BATCH_FLUSH_MS (whichever comes first) into a single `agent:token:batch`
+ * line on stdout, so the host bridge can emit them as N individual events
+ * without paying N round-trips of readline + JSON.parse.
+ *
+ * These thresholds are educated guesses; tuning is a follow-up per the plan.
+ */
+const TOKEN_BATCH_SIZE = 10;
+const TOKEN_BATCH_FLUSH_MS = 50;
+
+/**
  * EventEmitter class for emitting agent events as JSON lines to stdout.
  * The host process reads these lines and bridges them to DurableStreams.
  */
 export class EventEmitter {
+  /** F05-11: token batching — accumulate deltas before emitting. */
+  private tokenBatch: AgentTokenData[] = [];
+  private tokenBatchTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(
     private readonly taskId: string,
     private readonly sessionId: string
@@ -210,16 +226,52 @@ export class EventEmitter {
 
   /**
    * Emit agent:token event (ASYNC - high frequency streaming).
-   * Uses buffered write for better performance during streaming.
+   *
+   * F05-11: batches tokens into `agent:token:batch` JSON-lines to reduce the
+   * host's readline + JSON.parse round-trip cost. The host bridge decodes the
+   * batch back into N individual events in order. On size or time threshold
+   * the batch flushes; the caller must also call `flushTokens()` at the end
+   * of a turn so the last partial batch is delivered.
    */
   token(data: AgentTokenData): void {
-    this.emit('agent:token', { ...data }, false);
+    this.tokenBatch.push({ ...data });
+    if (this.tokenBatch.length >= TOKEN_BATCH_SIZE) {
+      this.flushTokens();
+      return;
+    }
+    if (this.tokenBatchTimer === null) {
+      this.tokenBatchTimer = setTimeout(() => this.flushTokens(), TOKEN_BATCH_FLUSH_MS);
+      if (
+        this.tokenBatchTimer &&
+        typeof this.tokenBatchTimer === 'object' &&
+        'unref' in this.tokenBatchTimer
+      ) {
+        (this.tokenBatchTimer as { unref: () => void }).unref();
+      }
+    }
+  }
+
+  /**
+   * F05-11: Flush any accumulated token deltas. Safe to call at any time
+   * (no-op if batch is empty). Call before turn boundaries and on shutdown.
+   */
+  flushTokens(): void {
+    if (this.tokenBatchTimer !== null) {
+      clearTimeout(this.tokenBatchTimer);
+      this.tokenBatchTimer = null;
+    }
+    if (this.tokenBatch.length === 0) return;
+    const batch = this.tokenBatch;
+    this.tokenBatch = [];
+    // Single JSON-line carrying N token deltas.
+    this.emit('agent:token:batch', { deltas: batch }, false);
   }
 
   /**
    * Emit agent:turn event (SYNC - important progress indicator).
    */
   turn(data: AgentTurnData): void {
+    this.flushTokens(); // F05-11: preserve ordering vs batched tokens.
     this.emit('agent:turn', { ...data }, true);
   }
 
@@ -227,6 +279,7 @@ export class EventEmitter {
    * Emit agent:tool:start event (ASYNC - frequent during execution).
    */
   toolStart(data: AgentToolStartData): void {
+    this.flushTokens(); // F05-11
     this.emit('agent:tool:start', { ...data }, false);
   }
 
@@ -235,6 +288,7 @@ export class EventEmitter {
    * Changed to synchronous to ensure tool results are delivered before process exit.
    */
   toolResult(data: AgentToolResultData): void {
+    this.flushTokens(); // F05-11
     this.emit('agent:tool:result', { ...data }, true);
   }
 
@@ -242,6 +296,7 @@ export class EventEmitter {
    * Emit agent:message event (SYNC - important for conversation flow).
    */
   message(data: AgentMessageData): void {
+    this.flushTokens(); // F05-11
     this.emit('agent:message', { ...data }, true);
   }
 
@@ -250,6 +305,7 @@ export class EventEmitter {
    * This MUST be delivered immediately so the client knows the task is done.
    */
   complete(data: AgentCompleteData): void {
+    this.flushTokens(); // F05-11
     this.emit('agent:complete', { ...data }, true);
   }
 
@@ -258,6 +314,7 @@ export class EventEmitter {
    * This MUST be delivered immediately so the client can handle the error.
    */
   error(data: AgentErrorData): void {
+    this.flushTokens(); // F05-11
     this.emit('agent:error', { ...data }, true);
   }
 
