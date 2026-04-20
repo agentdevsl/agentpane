@@ -730,11 +730,30 @@ describe('Tools', () => {
 
 describe('Hooks', () => {
   describe('Tool Whitelist Hook', () => {
-    it('allows all tools when whitelist is empty', async () => {
+    it('F06-06: empty whitelist DENIES every tool (failure-closed default)', async () => {
       const { createToolWhitelistHook } = await import('@/lib/agents/hooks/tool-whitelist');
 
       const hook = createToolWhitelistHook([]);
       const result = await hook.hooks[0]({ tool_name: 'any_tool', tool_input: {} });
+
+      expect(result.decision).toBe('block');
+      expect(result.message).toContain('No tools are whitelisted');
+    });
+
+    it(`F06-06: ['*'] sentinel allows every tool (explicit open gate)`, async () => {
+      const { createToolWhitelistHook } = await import('@/lib/agents/hooks/tool-whitelist');
+
+      const hook = createToolWhitelistHook(['*']);
+      const result = await hook.hooks[0]({ tool_name: 'bash', tool_input: {} });
+
+      expect(result.decision).toBeUndefined();
+    });
+
+    it(`F06-06: ['*'] combined with a named tool still allows all`, async () => {
+      const { createToolWhitelistHook } = await import('@/lib/agents/hooks/tool-whitelist');
+
+      const hook = createToolWhitelistHook(['*', 'read_file']);
+      const result = await hook.hooks[0]({ tool_name: 'whatever_else', tool_input: {} });
 
       expect(result.decision).toBeUndefined();
     });
