@@ -1,5 +1,6 @@
 import { Code, Copy, DownloadSimple, FileCode, GitBranch, Sliders } from '@phosphor-icons/react';
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { HighlightedCode } from '@/app/components/ui/highlighted-code';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { parseHclVariables } from '@/lib/terraform/parse-hcl-variables';
@@ -233,19 +234,17 @@ function CodePreview({
         </div>
       </div>
 
-      {/* Code block with optional syntax highlighting */}
+      {/* Code block with optional syntax highlighting (F06-11) */}
       <div className="min-h-0 flex-1 overflow-auto">
-        {highlightedHtml ? (
-          <div
-            className="terraform-code-preview p-3 text-xs leading-relaxed [&_pre]:!bg-transparent [&_code]:font-mono"
-            // biome-ignore lint/security/noDangerouslySetInnerHtml: shiki escapes code input and produces safe HTML
-            dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-          />
-        ) : (
-          <pre className="p-3 font-mono text-xs leading-relaxed text-fg">
-            <code>{code}</code>
-          </pre>
-        )}
+        <HighlightedCode
+          html={highlightedHtml}
+          className="terraform-code-preview p-3 text-xs leading-relaxed [&_pre]:!bg-transparent [&_code]:font-mono"
+          fallback={
+            <pre className="p-3 font-mono text-xs leading-relaxed text-fg">
+              <code>{code}</code>
+            </pre>
+          }
+        />
       </div>
     </div>
   );

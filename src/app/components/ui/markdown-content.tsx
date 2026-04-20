@@ -9,6 +9,7 @@ import { isValidElement, type ReactNode, useState } from 'react';
 import Markdown from 'react-markdown';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
+import { HighlightedCode } from './highlighted-code';
 
 const shikiPromise = import('shiki');
 
@@ -74,20 +75,16 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }): React.JSX.Ele
     };
   }, [code, language]);
 
-  if (highlightedHtml) {
-    return (
-      <div
-        className="overflow-x-auto rounded-md border border-border bg-surface-muted p-3 text-xs leading-relaxed [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_code]:font-mono"
-        // biome-ignore lint/security/noDangerouslySetInnerHtml: shiki escapes code input and returns safe HTML
-        dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-      />
-    );
-  }
-
   return (
-    <pre className="overflow-x-auto rounded-md border border-border bg-surface-muted p-3 font-mono text-xs">
-      <code>{code}</code>
-    </pre>
+    <HighlightedCode
+      html={highlightedHtml}
+      className="overflow-x-auto rounded-md border border-border bg-surface-muted p-3 text-xs leading-relaxed [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_code]:font-mono"
+      fallback={
+        <pre className="overflow-x-auto rounded-md border border-border bg-surface-muted p-3 font-mono text-xs">
+          <code>{code}</code>
+        </pre>
+      }
+    />
   );
 }
 
