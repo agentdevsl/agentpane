@@ -10,7 +10,6 @@ import { resolveApiKey } from './phases/api-key-resolution.js';
 import { tryInitializeDatabase } from './phases/database.js';
 import { runRecovery } from './phases/recovery.js';
 import { createAppRouter } from './phases/router.js';
-import { reconcileSandboxes } from './phases/sandbox-reconciliation.js';
 import { startSchedulers } from './phases/schedulers.js';
 import { createServiceContainer } from './phases/services.js';
 import { initSandboxProvider } from './sandbox/sandbox-init.js';
@@ -113,7 +112,13 @@ export async function run(): Promise<void> {
     if (!sandboxState.provider && isDev && !sandboxState.retryTimer && !sandboxState.initializing) {
       sandboxState.initializing = true;
       // Trigger async retry - will be picked up on next call
-      initSandboxProvider(database.db, services, sandboxState, config.sandboxInitTimeoutMs)
+      initSandboxProvider(
+        database.db,
+        services,
+        sandboxState,
+        config.sandboxInitTimeoutMs,
+        config.dbMode
+      )
         .finally(() => {
           sandboxState.initializing = false;
         })
@@ -236,21 +241,30 @@ export async function run(): Promise<void> {
   // Phase 10: Schedulers (registers own cleanups; F01-05 applies)
   applyPhaseResult('schedulers', await startSchedulers(database.db, services, shutdown));
 
-  // Phase 11: Sandbox provider (background, non-blocking)
-  initSandboxProvider(database.db, services, sandboxState, config.sandboxInitTimeoutMs)
-    .then(async () => {
-      // Phase 11b: Once the provider is up, reconcile live sandboxes against
-      // the DB (F01-01). Runs AFTER recovery & BEFORE any meaningful traffic
-      // (readiness gate in F01-03 holds health at 503 until this completes).
-      try {
-        await reconcileSandboxes(database.db, sandboxState, services, undefined, config.dbMode);
-        sandboxState.reconciled = true;
-      } catch (err) {
-        log.error('Sandbox reconciliation failed (continuing)', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-        // Still mark reconciled so /health unblocks — reconciliation is
-        // best-effort and should not keep the server perpetually unready.
+  // Phase 11: Sandbox provider (background, non-blocking).
+  // initSandboxProvider handles both the initial attempt and retry scheduling,
+  // and — on any successful init (initial or retry) — runs the F01-01
+  // reconciliation phase inline before flipping `sandboxState.reconciled`.
+  // The outer `.then()` is kept purely as a safety net: if the provider is
+  // still null after the promise resolves (e.g., all retries exhausted and
+  // the retry chain gave up), leave `reconciled` as-is so the readiness
+  // gate correctly reports "not ready". Only flip it here if the provider
+  // actually came up AND reconciliation was skipped for some reason.
+  initSandboxProvider(
+    database.db,
+    services,
+    sandboxState,
+    config.sandboxInitTimeoutMs,
+    config.dbMode
+  )
+    .then(() => {
+      if (sandboxState.provider !== null && !sandboxState.reconciled) {
+        // Defensive: initSandboxProvider should already have set this on
+        // success. If it didn't, the provider is up but reconciliation
+        // didn't run — mark ready so /health unblocks (best-effort).
+        log.warn(
+          'Sandbox provider initialized but reconciliation flag still false — flipping to ready'
+        );
         sandboxState.reconciled = true;
       }
     })

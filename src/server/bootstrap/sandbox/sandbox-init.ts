@@ -15,7 +15,8 @@ import * as sqliteSchema from '../../../db/schema/sqlite/index.js';
 import { createLogger } from '../../../lib/logging/logger.js';
 import { createContainerAgentService } from '../../../services/container-agent.service.js';
 import type { Database } from '../../../types/database.js';
-import type { SandboxState, ServiceContainer } from '../types.js';
+import { reconcileSandboxes } from '../phases/sandbox-reconciliation.js';
+import type { SandboxState, ServerConfig, ServiceContainer } from '../types.js';
 import { initDockerProvider } from './docker-init.js';
 import { startK8sHealInterval, startNomadHealInterval } from './heal-intervals.js';
 import { initK8sProvider } from './k8s-init.js';
@@ -172,12 +173,43 @@ function onSandboxProviderReady(db: Database, sandboxState: SandboxState): void 
 }
 
 /**
+ * Run the F01-01 sandbox reconciliation phase once the provider is
+ * ready. Flips `sandboxState.reconciled` to `true` whether reconciliation
+ * succeeded or failed — reconciliation is best-effort and should not
+ * hold the `/api/health` readiness gate at 503 indefinitely. Shared by
+ * the initial init path and the retry path so a provider that only
+ * came up on retry still gets reconciled.
+ */
+async function runSandboxReconciliation(
+  db: Database,
+  services: ServiceContainer,
+  sandboxState: SandboxState,
+  dbMode: ServerConfig['dbMode']
+): Promise<void> {
+  try {
+    await reconcileSandboxes(db, sandboxState, services, undefined, dbMode);
+  } catch (err) {
+    log.error('Sandbox reconciliation failed (continuing)', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  } finally {
+    sandboxState.reconciled = true;
+  }
+}
+
+/**
  * Schedule a retry of sandbox initialization with exponential backoff.
+ *
+ * When a retry attempt succeeds, reconciliation is invoked on the retry
+ * path too — otherwise a server whose sandbox provider only came up on
+ * retry would never reconcile stale DB rows (the initial init promise's
+ * `.then()` has already resolved). See issue addressed in F01-01.
  */
 function scheduleSandboxRetry(
   db: Database,
   services: ServiceContainer,
-  sandboxState: SandboxState
+  sandboxState: SandboxState,
+  dbMode: ServerConfig['dbMode']
 ): void {
   const isDev = process.env.NODE_ENV === 'development';
   const maxRetries = isDev ? 0 : 10;
@@ -207,14 +239,15 @@ function scheduleSandboxRetry(
       if (sandboxState.provider) {
         log.info('Sandbox provider initialized on retry');
         onSandboxProviderReady(db, sandboxState);
+        await runSandboxReconciliation(db, services, sandboxState, dbMode);
       } else {
-        scheduleSandboxRetry(db, services, sandboxState);
+        scheduleSandboxRetry(db, services, sandboxState, dbMode);
       }
     } catch (err) {
       log.warn('Sandbox provider retry failed:', {
         error: err instanceof Error ? err.message : String(err),
       });
-      scheduleSandboxRetry(db, services, sandboxState);
+      scheduleSandboxRetry(db, services, sandboxState, dbMode);
     }
   }, delay);
   sandboxState.retryTimer.unref(); // Don't prevent process exit
@@ -225,12 +258,20 @@ function scheduleSandboxRetry(
  *
  * Wraps the entire initialization in Promise.race with SANDBOX_INIT_TIMEOUT_MS.
  * Runs in the background (non-blocking) after server starts.
+ *
+ * On success, runs the F01-01 sandbox reconciliation phase inline and
+ * sets `sandboxState.reconciled = true`. Retry attempts that eventually
+ * succeed also trigger reconciliation — otherwise a server whose
+ * provider only came up on retry would never reconcile, leaving the
+ * readiness gate stuck (fixed alongside the `.then()` guard in
+ * server-bootstrap.ts).
  */
 export async function initSandboxProvider(
   db: Database,
   services: ServiceContainer,
   sandboxState: SandboxState,
-  timeoutMs: number
+  timeoutMs: number,
+  dbMode: ServerConfig['dbMode'] = 'sqlite'
 ): Promise<void> {
   const initPromise = initSandboxProviderCore(db, services, sandboxState);
 
@@ -247,8 +288,9 @@ export async function initSandboxProvider(
     if (timeoutTimer) clearTimeout(timeoutTimer);
     if (sandboxState.provider) {
       onSandboxProviderReady(db, sandboxState);
+      await runSandboxReconciliation(db, services, sandboxState, dbMode);
     } else {
-      scheduleSandboxRetry(db, services, sandboxState);
+      scheduleSandboxRetry(db, services, sandboxState, dbMode);
     }
   } catch (err) {
     if (timeoutTimer) clearTimeout(timeoutTimer);
@@ -256,7 +298,7 @@ export async function initSandboxProvider(
       error: err instanceof Error ? err.message : String(err),
     });
     if (!sandboxState.provider) {
-      scheduleSandboxRetry(db, services, sandboxState);
+      scheduleSandboxRetry(db, services, sandboxState, dbMode);
     }
   }
 }
