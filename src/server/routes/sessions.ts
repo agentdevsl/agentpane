@@ -236,7 +236,7 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
           error: {
             code: 'INVALID_PARAMS',
             message:
-              'Use only one of: offset, afterEventId, beforeOffset, or (fromOffset + toOffset)',
+              'Use either offset, afterEventId, beforeOffset, or (fromOffset + toOffset) — not multiple',
           },
         },
         400
