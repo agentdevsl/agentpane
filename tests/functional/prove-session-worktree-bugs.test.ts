@@ -302,7 +302,10 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
       const result1 = await streamService.persistEvent(session.id, event1);
       expect(result1.ok).toBe(true);
 
-      // Delete the session directly from DB (bypassing the service)
+      // TEST-SETUP: out-of-band corruption is the *subject* of this test —
+      // we're proving the knownSessionIds cache can go stale when another
+      // process / admin operation deletes the session. Routing the delete
+      // through SessionService would clear the cache and hide the bug.
       await db.delete(sessions).where(eq(sessions.id, session.id));
 
       // Verify session is gone
@@ -450,8 +453,11 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
 
       const _streamService = new SessionStreamService(db, trackingStreams);
 
-      // Delete the session so persist will fail (session doesn't exist
-      // for a fresh service instance with no cache)
+      // TEST-SETUP: proving that publish() still contacts the stream even
+      // when persist fails due to a missing session. The delete simulates
+      // out-of-band corruption (another process removed the session);
+      // routing through SessionService would be wrong — we need the DB
+      // gone but the service's cache still hot.
       const freshService = new SessionStreamService(db, trackingStreams);
       await db.delete(sessions).where(eq(sessions.id, session.id));
 
@@ -536,7 +542,9 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
 
       const anchorId = eventIds[2]!;
 
-      // Delete the anchor event directly from DB
+      // TEST-SETUP: proving afterEventId behaviour when the anchor event
+      // no longer exists (retention cleanup, admin pruning). No service API
+      // for deleting an individual event — direct write is intentional.
       await db.delete(sessionEvents).where(eq(sessionEvents.id, anchorId));
 
       // Query with afterEventId pointing to the deleted event
@@ -791,10 +799,12 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
       // Enable FK for cascade behavior
       execRawSql('PRAGMA foreign_keys = ON');
       try {
-        // Delete session events explicitly (no FK cascade from sessions)
+        // TEST-SETUP: this test targets Drizzle cascade semantics at the DB
+        // layer. It must bypass the service (which cleans events explicitly
+        // before delete) to exercise the raw ON DELETE CASCADE definitions.
         await db.delete(sessionEvents).where(eq(sessionEvents.sessionId, session.id));
 
-        // Delete codespace
+        // Delete codespace — FK cascade is the assertion target
         await db.delete(codespaces).where(eq(codespaces.id, codespace.id));
 
         // Verify cascade: sessions should be gone
@@ -870,7 +880,10 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
 
       execRawSql('PRAGMA foreign_keys = ON');
       try {
-        // Delete should succeed even with running agent data
+        // TEST-SETUP: targets raw FK cascade behaviour on codespace delete
+        // when child agent/session/task rows are present. CodespaceService's
+        // delete pre-cleans children, which would bypass the cascade we're
+        // asserting here. Direct write is the correct probe.
         await db.delete(codespaces).where(eq(codespaces.id, codespace.id));
 
         // Codespace and all children gone
@@ -1051,8 +1064,10 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
         path: '/tmp/db-fail-worktree',
       });
 
-      // Insert a worktree record directly with a known branch name
-      // to simulate the DB constraint violation scenario
+      // TEST-SETUP: simulating a pre-existing duplicate-branch worktree row
+      // to probe WorktreeService.create()'s UNIQUE-constraint behaviour.
+      // WorktreeService doesn't expose an API that produces a duplicate;
+      // the direct insert is the minimum arrangement.
       await db.insert(worktrees).values({
         codespaceId: codespace.id,
         branch: 'test-branch-dup',
@@ -1075,8 +1090,9 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
       // This test documents that the worktree service does NOT have a cleanup
       // mechanism for the gap between git worktree add and DB insert.
 
-      // Verify: if we delete the DB record, the orphaned git worktree
-      // would have no corresponding DB entry to reference.
+      // TEST-SETUP: orphaning the DB record so the on-disk worktree has no
+      // DB entry — documenting the gap. No service API for "delete DB row
+      // without cleaning the filesystem worktree".
       await db.delete(worktrees).where(eq(worktrees.codespaceId, codespace.id));
       const after = await db.query.worktrees.findMany({
         where: eq(worktrees.codespaceId, codespace.id),

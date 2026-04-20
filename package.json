@@ -33,6 +33,7 @@
     "mutate": "npx stryker run",
     "mutate:state-machines": "npx stryker run --mutate 'src/lib/state-machines/**/machine.ts,src/lib/state-machines/**/guards.ts,src/lib/state-machines/**/actions.ts'",
     "mutate:rbac": "npx stryker run --mutate 'src/services/rbac.service.ts,src/services/rbac-token.service.ts,src/lib/api/auth-middleware.ts,src/lib/api/rbac-middleware.ts'",
+    "mutate:security": "npx stryker run --mutate 'src/lib/crypto/server-encryption.ts,src/lib/crypto/token-encryption.ts,src/services/github-token.service.ts'",
     "mutate:incremental": "npx stryker run --incremental",
     "semgrep": "semgrep scan --config .semgrep/rules/ src/ agent-runner/src/ packages/ --exclude 'tests/**' --exclude '**/__tests__/**' --exclude '**/*.test.ts' --exclude '**/*.spec.ts' --exclude 'node_modules/**' --exclude 'dist/**' --exclude '.worktrees/**'",
     "semgrep:error": "semgrep scan --config .semgrep/rules/ --severity ERROR --error src/ agent-runner/src/ packages/ --exclude 'tests/**' --exclude '**/__tests__/**' --exclude '**/*.test.ts' --exclude '**/*.spec.ts' --exclude 'node_modules/**' --exclude 'dist/**' --exclude '.worktrees/**'",

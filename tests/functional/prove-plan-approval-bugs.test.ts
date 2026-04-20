@@ -325,6 +325,10 @@ describe('Prove/Disprove Plan Approval Bugs', () => {
         column: 'waiting_approval',
         title: 'Task not in in_progress',
       });
+      // TEST-SETUP: explicitly testing the column-guard branch inside
+      // updateTaskOnAgentComplete. The arrangement needs a task in
+      // waiting_approval with a non-terminal lastAgentStatus — reachable only
+      // by direct write since no service API produces that exact combo.
       await db.update(tasks).set({ lastAgentStatus: 'planning' }).where(eq(tasks.id, task.id));
 
       // completed should return false — task is not in in_progress

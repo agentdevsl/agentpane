@@ -402,6 +402,11 @@ describe('Advanced Task Lifecycle Scenarios', () => {
       column: 'waiting_approval',
       title: 'Task with merge conflict',
     });
+    // TEST-SETUP: this test targets `approve()` merge-failure handling and
+    // needs lastAgentStatus='completed' as a precondition. Driving it via
+    // updateTaskOnAgentComplete() would require also starting the agent
+    // through moveColumn() + mocks, which pulls in the full lifecycle harness
+    // and obscures the approve-only assertion. Direct write is intentional.
     await db.update(tasks).set({ lastAgentStatus: 'completed' }).where(eq(tasks.id, task.id));
 
     // Create worktree linked to the task

@@ -144,6 +144,9 @@ describe('Functional E2E: Real Service Transitions', () => {
     };
     taskService.setContainerAgentService(mockContainerAgent);
 
+    // TEST-SETUP: settings are infrastructure config (no service API for seeding);
+    // direct write is intentional — see tests/functional/AGENTS.md for the rule
+    // and CLAUDE.md §"Functional Tests: Real Service Transitions".
     await db.insert(settings).values({
       key: 'sandbox.defaults',
       value: JSON.stringify({ enabled: true, mode: 'shared' }),
