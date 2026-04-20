@@ -1,0 +1,121 @@
+# Operations & Deployment
+
+## Summary
+CI has matured: the pipeline at `.github/workflows/ci.yml` now fans out across `install -> {build, lint-and-typecheck, test[x3], semgrep} -> integration-test[x2]` with concurrency cancellation, a shared composite action (`.github/actions/setup-bun-env`), and a `CACHE_VERSION: v2` token for manual cache busting. PRs #160 and #161 repaired the cache-hit / composite-action regression, so CI is green and reproducible. **CD remains entirely absent.** No workflow builds or publishes the Docker image, no Helm chart gets packaged, and no release is cut. The existing `specs/release_plan/04-release-deployment.md` findings on CD absence, versioning, Docker/Helm divergence, and PostgreSQL migration lag all reproduce at HEAD. Graceful shutdown exists as an LIFO registry (`src/server/bootstrap/shutdown.ts`) but does not flush in-flight agent sessions or signal agent-runner sidecars. Database backup scripts exist (`scripts/backup-db.sh`, `scripts/backup-db-pg.sh`) but are never invoked by any schedule or pre-upgrade hook. No P0: CI is stable, secrets are correctly sourced from K8s Secrets in Helm, and the `package.json` version hasn't shipped yet so a missing rollback doesn't imperil live users.
+
+## Map
+| Layer | Files | Purpose |
+|-------|-------|---------|
+| CI workflow | `.github/workflows/ci.yml`, `.github/actions/setup-bun-env/action.yml`, `.github/workflows/mutation-testing.yml` | 6 jobs + mutation job; sharded tests; semgrep ERROR blocking, WARNING non-blocking |
+| Docker runtime | `docker/Dockerfile`, `docker/Dockerfile.agent-sandbox`, `docker/Dockerfile.agentcore`, `docker/start.sh`, `docker/entrypoint.sh`, `Caddyfile` | App image (Caddy + Bun, tini PID 1); sandbox image extends `srlynch1/terraform-ai-tools:latest` |
+| Compose | `docker/docker-compose.yml`, `docker/docker-compose.postgres.yml`, `docker/docker-compose.memory.yml` | Dev/demo only; hardcoded `agentpane_dev` Postgres password |
+| Helm chart | `charts/agentpane/{Chart.yaml,values.yaml,templates/*}`, `charts/agentpane/charts/` (Bitnami PG subchart) | 17 templates; `appVersion: 1.0.0`; image repo `agentpane/agentpane` placeholder |
+| K8s manifests | `k8s/manifests/{crds,agentpane-sandbox-template,agentpane-warm-pool,namespace,limit-range,runtime-class-gvisor}.yaml` | Sandbox CRDs + warm pool; applied manually, outside Helm lifecycle |
+| Shutdown | `src/server/bootstrap/shutdown.ts` | LIFO cleanup registry, 30s force-exit |
+| Migrations | `src/lib/bootstrap/migrations/*` (SQLite, 23 versions), `src/db/migrations-pg/` (Postgres, 4 versions), `scripts/check-schema-drift.ts` | Run at app startup (`phases/database.ts`) |
+| Backup scripts | `scripts/backup-db.sh`, `scripts/backup-db-pg.sh` | Manual; cron-ready but no CronJob template |
+| CLI monitor publish | `packages/cli-monitor/package.json` (`prepublishOnly`), CLAUDE.md publishing steps | Manual `npm publish`; token in `/specs/CLI_monitor/.env` |
+| Pre-commit / pre-push | `.pre-commit-config.yaml` (referenced in CLAUDE.md), `package.json:prepare` (echoes reminder) | Biome + tsc + detect-secrets; not installed by default |
+
+## What's working
+- CI concurrency group cancels superseded runs, and the test shards (`1/3 2/3 3/3`) plus integration shards (`1/2 2/2`) keep wall-clock under 30 minutes.
+- Composite action `setup-bun-env` centralises Bun install, `node_modules` cache, and Bun package cache, so regressions like the #161 breakage stay isolated.
+- Schema-drift check runs on every PR as part of `lint-and-typecheck`.
+- Semgrep is wired with a custom ruleset at `.semgrep/rules/` and correctly splits ERROR (blocking) vs WARNING (continue-on-error).
+- `GracefulShutdown` registers LIFO and sets an unref'd force-exit timer, matching canonical shutdown patterns. Signal handlers for SIGINT and SIGTERM are installed centrally.
+- Helm chart has genuine production bones: Pod Security Standard `restricted` on the sandbox namespace, `runAsNonRoot`, `readOnlyRootFilesystem`, seccomp `RuntimeDefault`, config/secret checksum annotations for rollout on change, Bitnami Postgres `existingSecret` support, and Gateway API / OpenShift Route coverage.
+- Both backup scripts are defensive: `pg_dump --dbname=` avoids flag injection, `umask 077` locks backup perms, and the Postgres script verifies via `pg_restore --list` before rotating.
+- Multi-arch support via `TARGETARCH` in the app Dockerfile.
+
+## Findings
+
+### F11-01: No CD pipeline — zero automated path from main to a running image
+- **Priority**: P1
+- **Observation**: `.github/workflows/` contains `ci.yml` and `mutation-testing.yml` only. No job builds the production image, scans it, pushes to a registry, tags a release, or triggers a `helm upgrade`. The Helm chart's `image.repository: agentpane/agentpane` is a placeholder with no registry behind it. No git tags exist and `package.json` is pinned at `1.0.0`. Cross-reference `specs/release_plan/04-release-deployment.md` "Missing CD Pipeline" section — all six gaps (build/push, release workflow, deployment trigger, environment promotion, canary, smoke test) still apply.
+- **Risk**: Every deployment is a manual `docker build && docker push && helm upgrade`, which means no audit trail, no reproducibility, and no rollback by digest. A production environment built this way cannot credibly meet SOC2 / ISO change-control controls.
+- **Recommendation**: Add a `release.yml` workflow triggered on `push: tags: ['v*']` that builds multi-arch with buildx, runs Trivy with a severity gate, pushes `ghcr.io/agentdevsl/agentpane:${git_sha}` + `:v${semver}`, packages the Helm chart via `helm package charts/agentpane`, and uploads both to a GitHub Release. Separately, add an `auto-tag.yml` using release-please or Changesets to generate tags/CHANGELOG from conventional commits. Document a `helm rollback` runbook in `specs/application/operations/deployment.md`.
+
+### F11-02: Docker image and Helm chart expose divergent runtime architectures
+- **Priority**: P1
+- **Observation**: `docker/start.sh` runs Caddy (durable-streams-server) on port 3000 as parent process and `bun src/server/api.ts` on 3001 as a child. `docker-compose.yml` exposes only port 3000. The Helm `deployment.yaml` (line 41-44) sets `containerPort: 3001` and has no sidecar for durable streams. This means the K8s deployment bypasses Caddy entirely — SSE streaming through the durable-streams-server binary is unavailable unless deployed externally. Feature parity tests do not exist, so regressions land silently per environment.
+- **Risk**: Durable stream resume (`offset=` replay, ephemeral terraform streams) works in `docker compose up` and fails in K8s without anyone noticing until a user hits an SSE disconnect. The "stream endpoints have no auth at the Caddy level" mitigation relies on network isolation that K8s does not enforce when Caddy is absent.
+- **Recommendation**: Ship durable-streams-server as a named sidecar in the Helm chart (same container image, different command), add a service port for `/v1/stream`, and run a Helm test that hits `/v1/stream/healthz`. Alternatively, remove Caddy from the app image, ship it as a separate chart dependency, and have the API always talk to it via a ClusterIP — same architecture in both topologies.
+
+### F11-03: Graceful shutdown does not flush in-flight agent runs or sandbox containers
+- **Priority**: P1
+- **Observation**: `GracefulShutdown` calls registered cleanups in LIFO order and hard-exits after 30s. A scan of the bootstrap phases shows no cleanup that writes pending `agent_runs` rows, marks running agents as `interrupted`, or signals agent-runner containers to checkpoint. Running sub-processes (Docker agent-runner, K8s sandbox pods) have their own lifecycle detached from the API process, so a SIGTERM on the API pod during a rolling upgrade leaves orphaned containers running against a DB that no longer believes they exist. The recovery phase (`phases/recovery.ts`) resets stale agents on next boot, but there is no window where a running plan can save its state before the pod dies.
+- **Risk**: Deploying during active agent work loses partial progress, leaves orphan Docker containers on the host, and confuses the Kanban UI (task shows `in_progress` but no agent is alive). With the planned auto-deploy-on-merge, every merge during business hours risks interrupting a user's agent.
+- **Recommendation**: Add a cleanup that: (1) sets all `agent_status='running'` rows to `interrupted` with a shutdown reason, (2) writes a pre-shutdown session event so the UI can show "restarting", (3) best-effort calls `sandboxProvider.stop()` for tracked containers, (4) waits up to N seconds for in-flight SSE flushes. Set `terminationGracePeriodSeconds: 60` in the Helm chart to match.
+
+### F11-04: PostgreSQL migrations are 19 versions behind SQLite
+- **Priority**: P1
+- **Observation**: `src/lib/bootstrap/migrations/index.ts` has 23 SQLite migrations (v1-v23). `src/db/migrations-pg/` has 4 Drizzle-generated files (0000-0003). Per `specs/release_plan/06-database-integrity.md` F#CRITICAL, PG migrations still reference `projects` table, lack RBAC / events / memory tables, and would produce a broken schema on fresh deploy. The `check-schema-drift.ts` script only compares module exports — it does not catch missing migrations.
+- **Risk**: Any Helm-based deployment (the only K8s path) against a fresh Postgres instance will fail at runtime — not at migrate time, because Drizzle will "succeed" applying its four stale files, then the app will issue queries against tables that don't exist. The blast radius hits the exact deployment target the Helm chart was built for.
+- **Recommendation**: Regenerate PG migrations from the current Drizzle schema (`drizzle-kit generate --config=drizzle.config.pg.ts`), verify the DDL matches all 23 SQLite migrations, and add a functional test that boots a fresh Postgres, runs `migratePg()`, and exercises the task -> agent -> session path. Add schema-parity enforcement to CI: compare `INFORMATION_SCHEMA` columns across both DBs after migrate.
+
+### F11-05: Migrations race on multi-replica rollouts
+- **Priority**: P1
+- **Observation**: `src/server/bootstrap/phases/database.ts` calls `migratePg()` (or the SQLite migration runner) at startup. The Helm chart supports `replicaCount` and HPA, meaning N pods call migrate in parallel on every rollout. Drizzle Kit uses advisory locks internally but the behaviour under parallel startup is not exercised in tests. No Helm pre-upgrade hook Job runs migrations out-of-band.
+- **Risk**: Partial migration state on rolling updates; deadlocks if the advisory lock path regresses upstream; flakes that only appear at replicaCount >= 2.
+- **Recommendation**: Add a Helm `pre-upgrade,pre-install` hook Job that runs `bun run migrate:pg` once. Switch app startup to verify (but not apply) migration state; if drift is detected, fail fast. Gate rollouts on the Job's success.
+
+### F11-06: Helm chart persists application data in `emptyDir`
+- **Priority**: P1
+- **Observation**: `charts/agentpane/templates/deployment.yaml:131-136` declares `volumes: - name: data, emptyDir: {}`. In Postgres mode this is fine because data lives in the subchart; in SQLite mode or for local durable-streams data it means every pod restart wipes state. The chart has no PVC template. No `PodDisruptionBudget`, no `Deployment.strategy` pinning (defaults to `RollingUpdate` with `maxUnavailable: 25%`).
+- **Risk**: If someone accidentally deploys `database.mode: sqlite`, they lose data on every rollout. Durable-streams backing files (if added per F11-02) would also die. Without a PDB, voluntary node drain can drop all replicas.
+- **Recommendation**: Add an optional PVC template guarded on `persistence.enabled`. Add a PDB template with `maxUnavailable: 0` default. Pin the deployment strategy to `RollingUpdate` with `maxSurge: 1, maxUnavailable: 0` explicitly, and document that SQLite mode is unsupported on K8s.
+
+### F11-07: Agent sandbox base image is a personal DockerHub tag with `:latest`
+- **Priority**: P1
+- **Observation**: `docker/Dockerfile.agent-sandbox:13-15` pins `BASE_IMAGE=srlynch1/terraform-ai-tools:latest`. `RUN npm install -g @anthropic-ai/claude-code` installs at build time with no version pin. No image scanning in CI. This is the image every user's agent actually executes in — the sandbox boundary.
+- **Risk**: Supply-chain risk — a personal account's compromised image ships as the default sandbox. `:latest` means reproducibility is impossible and a base-image refresh can silently change the tool surface. Cross-ref `specs/arch_review_april/06-security.md` for sandbox security coverage.
+- **Recommendation**: Mirror the base image into the agentdevsl org (`ghcr.io/agentdevsl/agent-sandbox-base:v1.x.y`), pin by digest, and pin `@anthropic-ai/claude-code` to a semver in the Dockerfile. Add Trivy to CI for both images with a MEDIUM severity gate.
+
+### F11-08: CLI monitor publishing puts the npm token in a spec directory
+- **Priority**: P1
+- **Observation**: CLAUDE.md "Publishing `@agentpane/cli-monitor` to npm" documents storing the npm access token at `/specs/CLI_monitor/.env` and passing it via `--//registry.npmjs.org/:_authToken=<token>`. The publish process is entirely manual (`npm version patch && npm publish`). The `prepublishOnly` script runs tests + build but there is no CI verification, no provenance, and no signed release. Cross-ref `specs/arch_review_april/06-security.md` for the secrets-handling theme.
+- **Risk**: A token kept under `/specs/` sits next to files routinely edited and committed — one `git add specs/` away from leaking. No npm 2FA / OIDC provenance means the package can be silently hijacked. Manual publishing offers no changelog or signature trail.
+- **Recommendation**: Move the token to a GitHub repo secret (`NPM_TOKEN`), add a `publish-cli-monitor.yml` workflow triggered on `packages/cli-monitor/package.json` version bumps (or a `cli-monitor-v*` tag), publish with `--provenance`, and require npm 2FA-required-for-publish. Delete `/specs/CLI_monitor/.env` and grep-sweep for any committed copies.
+
+### F11-09: Secret management differs between Compose and Helm with no parity
+- **Priority**: P2
+- **Observation**: `docker-compose.yml` passes `ANTHROPIC_API_KEY` / `CLAUDE_OAUTH_TOKEN` as `${VAR:-}` env passthrough from the host shell. `docker-compose.postgres.yml` hard-codes `POSTGRES_PASSWORD: agentpane_dev`. The Helm chart sources all three from K8s Secrets with `existingSecret` override. No `.env.example`, no documented list of required variables, and the project-root `.env` is effectively empty.
+- **Risk**: New contributors guess at env var names; staging vs prod drift because there is no shared source of truth; developers paste real keys into `.env` and risk checking them in.
+- **Recommendation**: Create `.env.example` enumerating every variable (`ANTHROPIC_API_KEY`, `CLAUDE_OAUTH_TOKEN`, `DATABASE_URL`, `DB_MODE`, `GITHUB_*`, `STREAMS_DATA_DIR`, `CADDY_STREAMS_URL`, `LOG_LEVEL`, `CORS_ORIGIN`). Add a Helm `values-production.yaml` that requires `existingSecret`. Document External Secrets Operator as the recommended prod path.
+
+### F11-10: Backup scripts exist but nothing runs them
+- **Priority**: P2
+- **Observation**: `scripts/backup-db.sh` (SQLite) issues `PRAGMA wal_checkpoint(TRUNCATE)` and copies the file, rotating to 7. `scripts/backup-db-pg.sh` uses `pg_dump --format=custom --compress=6` and verifies with `pg_restore --list`. Both are well-written. Neither is invoked: no Helm CronJob template, no docker-compose sidecar, no GitHub Actions schedule. The Helm `data` volume is `emptyDir` (F11-06) so even if someone ran the SQLite script there's nowhere to put the output. No documented restore procedure.
+- **Risk**: "We have backup scripts" creates a false sense of safety; in practice there are no backups. A DB migration that corrupts data (F11-04 made worse) has no rollback artefact.
+- **Recommendation**: Add a Helm CronJob template (`backup-cronjob.yaml`) that mounts a backup PVC and invokes `backup-db-pg.sh` daily with retention configurable via values. Document the restore flow. Also run the backup script as a Helm `pre-upgrade` hook so every migration has a known-good snapshot.
+
+### F11-11: Dependabot automation has no policy, producing churn
+- **Priority**: P2
+- **Observation**: Default branch shows 42 dependency vulnerabilities (2 critical) per Dependabot. Four open Dependabot PRs (#152, #153, #154, #159) are likely superseded by #160's bulk bump but have not been auto-closed. No `dependabot.yml` grouping or auto-merge configuration is present.
+- **Risk**: Maintainers spend time triaging obsolete PRs; critical CVEs sit unpatched while stale PRs age; the visible vuln count makes it hard to tell which need action.
+- **Recommendation**: Add `.github/dependabot.yml` with `groups:` entries (one per ecosystem + one for `@tanstack/*`, `@radix-ui/*`, `@durable-streams/*`), set `open-pull-requests-limit: 10`, and add a GitHub Action that auto-closes Dependabot PRs whose target version is already satisfied. Add `auto-merge` labels for patch-level updates once CI passes. Triage the 2 critical CVEs immediately.
+
+### F11-12: Semgrep policy is binary and undocumented
+- **Priority**: P2
+- **Observation**: `ci.yml` runs semgrep twice — ERROR blocking, WARNING non-blocking — against `src/ agent-runner/src/ packages/`. The `.semgrep/rules/` directory exists but the policy on promoting WARNING -> ERROR, suppressing false positives, or syncing with upstream `p/ci` is not documented. `tests/**` are excluded globally, but there is no rule for new test-adjacent scripts.
+- **Risk**: WARNING-severity findings accumulate unseen (no one reads `continue-on-error` logs); rules drift; suppression patterns vary per developer.
+- **Recommendation**: Document the rule-promotion and suppression policy in `specs/application/operations/deployment.md`. Add a scheduled workflow that posts a weekly WARNING report to Slack / an issue. Consider pulling in `p/typescript` and `p/react` rulesets once the baseline is clean.
+
+### F11-13: `prepare` script only reminds, never installs pre-commit hooks
+- **Priority**: P3
+- **Observation**: `package.json:50` sets `"prepare": "echo 'Run: pre-commit install --hook-type pre-commit --hook-type pre-push'"`. Fresh clones therefore have no hooks until each developer manually runs the command. Hooks that do install (Biome, tsc, detect-secrets) enforce real invariants, so the installed/uninstalled distinction matters.
+- **Risk**: New contributors land lint / secret-detection failures in CI that local hooks would have caught; CLAUDE.md's "pre-commit hooks (automatic)" line is subtly misleading.
+- **Recommendation**: Replace with `"prepare": "command -v pre-commit >/dev/null && pre-commit install --hook-type pre-commit --hook-type pre-push || echo 'Install pre-commit: pipx install pre-commit'"`. Document the Python-tool dependency in README. Consider migrating to husky + lint-staged to drop the Python requirement.
+
+### F11-14: No release notes, no CHANGELOG, no documented rollback
+- **Priority**: P3
+- **Observation**: No `CHANGELOG.md` at repo root. No git tags. The Helm chart stays at `0.1.0`. `specs/release_plan/04-release-deployment.md` already called this out and nothing changed. Rollback procedure for image, Helm release, and database migration is undefined anywhere.
+- **Risk**: Users and operators have no artefact describing what ships in a given build; incident response has no rollback runbook.
+- **Recommendation**: When F11-01 lands the CD pipeline, seed a CHANGELOG generated by release-please from conventional commits, auto-bump `Chart.yaml` / `package.json` versions, and add an operator runbook at `specs/application/operations/deployment.md` covering `helm rollback`, image-tag revert, and the Postgres restore path (depends on F11-10).
+
+## Cross-links
+- `specs/release_plan/04-release-deployment.md` — consolidated here; all gaps from that document reproduce.
+- `specs/release_plan/06-database-integrity.md` — PostgreSQL migration lag (F11-04), schema drift tooling limits.
+- `specs/arch_review_april/06-security.md` — sandbox base image supply chain (F11-07), CLI monitor token storage (F11-08).
+- `specs/arch_review_april/04-sandbox-providers.md` — graceful shutdown coordination with Docker / K8s providers (F11-03).
+- `specs/application/operations/deployment.md` — target home for the CD / rollback / backup runbook additions recommended here.
