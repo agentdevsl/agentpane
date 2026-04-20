@@ -19,6 +19,7 @@ vi.mock('../../../lib/utils/resolve-anthropic-key.js', () => ({
   readCredentialsFile: vi.fn(async () => null),
 }));
 
+import { BackgroundJobRegistry } from '../../../lib/background/job.js';
 import { resolveAnthropicApiKey } from '../../../lib/utils/resolve-anthropic-key.js';
 import { resolveApiKey } from '../phases/api-key-resolution.js';
 import { startSchedulers } from '../phases/schedulers.js';
@@ -143,6 +144,44 @@ describe('F01-05: BootstrapPhaseResult shape and orchestrator policy', () => {
     if (!result.ok) {
       expect(result.fatal).toBe(true);
     }
+  });
+
+  it('startSchedulers: BackgroundJob registry is started even when task scheduler fails', async () => {
+    // Devin-red regression: previously `registry.startAll()` was called
+    // *after* the scheduler try/catch, so a scheduler failure returned early
+    // and EventCleanupService (registered before the scheduler) silently
+    // never started. This test pins the corrected ordering: registered
+    // non-scheduler jobs must start regardless of scheduler outcome.
+    process.env.NODE_ENV = 'development';
+    const shutdownRegister = vi.fn();
+    const shutdown = { register: shutdownRegister } as unknown as GracefulShutdown;
+
+    const services: ServiceContainer = {
+      templateService: {} as never,
+      terraformRegistryService: {} as never,
+      settingsService: {} as never,
+      dreamService: null as never,
+      schedulerService: {
+        start: vi.fn().mockRejectedValue(new Error('scheduler-boom')),
+        stop: vi.fn(),
+      } as never,
+    } as unknown as ServiceContainer;
+
+    const registry = new BackgroundJobRegistry();
+    const startAllSpy = vi.spyOn(registry, 'startAll');
+    const db = {} as never;
+
+    const result = await startSchedulers(db, services, shutdown, registry);
+
+    // Phase result still reports the failure, but the registry was started
+    // and the shutdown drain was wired up before the scheduler attempt.
+    expect(result.ok).toBe(false);
+    expect(startAllSpy).toHaveBeenCalledTimes(1);
+    expect(shutdownRegister).toHaveBeenCalledWith('backgroundJobRegistry', expect.any(Function));
+
+    // Drain registered jobs so the test doesn't leak EventCleanup's
+    // 60s setTimeout across the vitest run.
+    await registry.stopAll();
   });
 
   // ── applyPhaseResult semantics ──

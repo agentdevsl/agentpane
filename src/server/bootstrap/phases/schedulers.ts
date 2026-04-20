@@ -53,12 +53,28 @@ export async function startSchedulers(
   const eventCleanup = new EventCleanupService(db, services.settingsService);
   registry.register(eventCleanup satisfies BackgroundJob);
 
+  // Register the registry drain with the shutdown handler *before* any
+  // scheduler-start failure can return early. Without this, a task scheduler
+  // start failure would short-circuit the function and leave `eventCleanup`
+  // registered-but-undrained — the timers would simply stop being tracked.
+  // `stopAll()` is idempotent, so calling it after a successful run is safe.
+  shutdown.register('backgroundJobRegistry', () => registry.stopAll());
+
   // Dream scheduler (legacy — returns its own stop fn)
   if (services.dreamService) {
     const stopDreamScheduler = startDreamScheduler(services.dreamService, services.settingsService);
     shutdown.register('dreamScheduler', stopDreamScheduler);
     log.info('Dream scheduler started');
   }
+
+  // Start non-scheduler BackgroundJob-shaped services *before* the task
+  // scheduler. Previously these lived after the try/catch below, so a
+  // scheduler start failure returned early and EventCleanupService (and any
+  // future registered job) silently never started. Scheduler failure is
+  // non-fatal in dev, and the server is still useful for UI/API work even
+  // if scheduling is degraded — but events would accumulate forever without
+  // this cleanup running.
+  await registry.startAll();
 
   // Task scheduler: we still start() it explicitly so an initialisation
   // failure (schedule recovery throws) can be reported as a phase result.
@@ -73,16 +89,12 @@ export async function startSchedulers(
     log.error('Failed to start scheduler', { error });
     // Non-fatal in non-production: the server is still useful for UI/API work
     // even if background scheduling is degraded. Operators see the log.
+    // NOTE: the registry was already started above, so EventCleanupService
+    // runs even when this path is taken.
     const fatal = process.env.NODE_ENV === 'production';
     return { ok: false, fatal, error };
   }
 
-  // Start remaining BackgroundJob-shaped services (scheduler was started above).
-  // `startAll()` catches per-job errors so a single failure does not abort the loop.
-  await registry.startAll();
-
-  // Single LIFO-ordered drain: the registry handles per-job errors internally.
-  shutdown.register('backgroundJobRegistry', () => registry.stopAll());
   log.info(`Background job registry started with ${registry.size()} job(s)`);
 
   return { ok: true };
