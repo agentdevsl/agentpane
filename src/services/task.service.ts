@@ -1,5 +1,5 @@
 import { createId } from '@paralleldrive/cuid2';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Task, TaskColumn } from '../db/schema';
 import { codespaces, sessions, settings, tasks } from '../db/schema';
 import { getFullModelId } from '../lib/constants/models.js';
@@ -59,6 +59,16 @@ export type ListTasksOptions = {
   offset?: number;
   orderBy?: 'position' | 'createdAt' | 'updatedAt';
   orderDirection?: 'asc' | 'desc';
+  /**
+   * F07-01: cursor-based pagination. When supplied, the service queries
+   * `limit + 1` rows strictly after the cursor position using a compound
+   * `(sortValue, id)` comparison. `offset` is ignored when `cursor` is
+   * present.
+   */
+  cursor?: {
+    sortValue: string | number | null;
+    id: string;
+  };
 };
 
 export type ApproveInput = {
@@ -465,11 +475,31 @@ export class TaskService {
       filters.push(eq(tasks.agentId, options.agentId));
     }
 
+    // F07-01: cursor-based pagination. When supplied, append a compound
+    // `(sortValue, id)` tuple comparison filter and fetch `limit + 1` rows.
+    const cursor = options?.cursor;
+    let fetchLimit = limit;
+    let fetchOffset = offset;
+    if (cursor) {
+      const sortVal = cursor.sortValue;
+      const primary =
+        direction === 'desc' ? sql`${orderColumn} < ${sortVal}` : sql`${orderColumn} > ${sortVal}`;
+      const tiebreak =
+        direction === 'desc'
+          ? sql`(${orderColumn} = ${sortVal} AND ${tasks.id} < ${cursor.id})`
+          : sql`(${orderColumn} = ${sortVal} AND ${tasks.id} > ${cursor.id})`;
+      filters.push(sql`(${primary} OR ${tiebreak})`);
+      fetchLimit = limit + 1;
+      fetchOffset = 0;
+    }
+
     const items = await this.db.query.tasks.findMany({
       where: filters.length > 1 ? and(...filters) : filters[0],
-      orderBy: (direction === 'asc' ? [orderColumn] : [desc(orderColumn)]) as never,
-      limit,
-      offset,
+      orderBy: (direction === 'asc'
+        ? [orderColumn, tasks.id]
+        : [desc(orderColumn), desc(tasks.id)]) as never,
+      limit: fetchLimit,
+      offset: fetchOffset,
     });
 
     return ok(items);

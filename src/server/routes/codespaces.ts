@@ -418,6 +418,11 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
   });
 
   // GET /api/codespaces/:id/skills - List available skills for a codespace
+  //
+  // F07-03: never mask an infrastructure failure as `{ok:true, data:[]}`.
+  // Template merge errors propagate as `{ok:false, error}` so the UI can
+  // distinguish "no skills configured" from "sync broken" and surface a
+  // recovery signal.
   app.get('/:id/skills', async (c) => {
     const { id: codespaceId, error } = validateIdParam(c, 'id');
     if (error) return error;
@@ -425,13 +430,22 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
     const result = await templateService.getMergedConfig(codespaceId);
 
     if (!result.ok) {
-      // No templates configured for this codespace — return empty skills list
-      // This is expected when a codespace has no template associations
-      return json({ ok: true, data: [] });
-    }
-
-    if (result.value.skills.length === 0) {
-      return json({ ok: true, data: [] });
+      // F07-03: previously this path returned `{ok:true, data:[]}` which
+      // silently hid template parse/network failures. Propagate as an error
+      // so the client can surface a degraded state.
+      logger.error('Failed to load merged template config for skills list', {
+        data: { codespaceId, error: result.error },
+      });
+      return json(
+        {
+          ok: false,
+          error: {
+            code: result.error.code ?? 'TEMPLATE_CONFIG_ERROR',
+            message: result.error.message ?? 'Failed to load skills for codespace',
+          },
+        },
+        result.error.status ?? 500
+      );
     }
 
     const skills = result.value.skills.map((skill) => ({

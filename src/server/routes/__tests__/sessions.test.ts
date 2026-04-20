@@ -71,7 +71,15 @@ describe('Sessions API Routes', () => {
 
       await request(app, 'GET', '/api/sessions?limit=10&offset=20');
 
-      expect(sessionService.list).toHaveBeenCalledWith({ limit: 10, offset: 20 });
+      // F07-01: global sessions list defaults to updatedAt desc (with id as
+      // tiebreaker) so cursor semantics are stable even when no cursor is
+      // supplied on the first page.
+      expect(sessionService.list).toHaveBeenCalledWith({
+        limit: 10,
+        offset: 20,
+        orderBy: 'updatedAt',
+        orderDirection: 'desc',
+      });
     });
 
     it('returns 500 when service fails', async () => {

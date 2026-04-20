@@ -64,7 +64,14 @@ describe('Sessions Routes (IT-1250)', () => {
     expect(body.data).toHaveLength(2);
     expect(body.pagination.limit).toBe(50);
     expect(body.pagination.offset).toBe(0);
-    expect(mockService.list).toHaveBeenCalledWith({ limit: 50, offset: 0 });
+    // F07-01: global sessions list fixes sort direction so cursor-based
+    // pagination is stable. Without a cursor it falls back to offset+limit.
+    expect(mockService.list).toHaveBeenCalledWith({
+      limit: 50,
+      offset: 0,
+      orderBy: 'updatedAt',
+      orderDirection: 'desc',
+    });
   });
 
   it('IT-1251: GET / respects limit and offset params', async () => {
@@ -72,7 +79,13 @@ describe('Sessions Routes (IT-1250)', () => {
 
     await app.request('http://localhost/?limit=10&offset=20');
 
-    expect(mockService.list).toHaveBeenCalledWith({ limit: 10, offset: 20 });
+    // F07-01: same fixed sort as above.
+    expect(mockService.list).toHaveBeenCalledWith({
+      limit: 10,
+      offset: 20,
+      orderBy: 'updatedAt',
+      orderDirection: 'desc',
+    });
   });
 
   it('IT-1252: GET / returns error on service failure', async () => {

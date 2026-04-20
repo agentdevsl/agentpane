@@ -436,14 +436,20 @@ export const apiClient = {
   },
 
   tasks: {
-    list: (codespaceId: string, params?: { status?: string; limit?: number }) => {
+    list: (codespaceId: string, params?: { status?: string; limit?: number; cursor?: string }) => {
       const searchParams = new URLSearchParams();
       searchParams.set('codespaceId', codespaceId);
       if (params?.status) searchParams.set('status', params.status);
       if (params?.limit) searchParams.set('limit', String(params.limit));
-      return apiServerFetch<{ items: unknown[]; totalCount: number }>(
-        `/api/tasks?${searchParams.toString()}`
-      );
+      if (params?.cursor) searchParams.set('cursor', params.cursor);
+      // F07-01: canonical cursor envelope. `totalCount` is no longer
+      // returned (it was always equal to `items.length`, which masked a
+      // true totals query).
+      return apiServerFetch<{
+        items: unknown[];
+        nextCursor: string | null;
+        hasMore: boolean;
+      }>(`/api/tasks?${searchParams.toString()}`);
     },
 
     get: (id: string) => apiServerFetch<unknown>(`/api/tasks/${id}`),

@@ -495,7 +495,10 @@ describe('Codespaces Routes (IT-1150)', () => {
     expect(body.data[0].content).toBeUndefined();
   });
 
-  it('IT-1170: GET /:id/skills returns empty array when no templates', async () => {
+  it('IT-1170: GET /:id/skills propagates upstream failure (F07-03)', async () => {
+    // F07-03: the skills handler must NOT mask a template-service failure
+    // as an empty list. Propagate as `{ok:false, error}` so clients can
+    // surface a degraded state instead of an indistinguishable empty one.
     mockTemplateService.getMergedConfig.mockResolvedValue({
       ok: false,
       error: { code: 'NOT_FOUND', message: 'No templates', status: 404 },
@@ -503,10 +506,10 @@ describe('Codespaces Routes (IT-1150)', () => {
 
     const res = await app.request('http://localhost/cs-1/skills');
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(404);
     const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.data).toEqual([]);
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe('NOT_FOUND');
   });
 
   it('IT-1171: GET /:id/skills returns empty when skills array is empty', async () => {

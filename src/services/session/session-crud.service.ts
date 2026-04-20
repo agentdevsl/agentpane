@@ -110,10 +110,37 @@ export class SessionCrudService {
 
     const orderColumn = orderBy === 'createdAt' ? sessions.createdAt : sessions.updatedAt;
 
+    // F07-01: when a cursor is supplied, query `limit + 1` rows strictly after
+    // the cursor position using a compound `(sortValue, id)` comparison. The
+    // route handler slices the overflow row to detect `hasMore`.
+    const cursor = options?.cursor;
+    let where: ReturnType<typeof and> | undefined;
+    let fetchLimit = limit;
+    let fetchOffset = offset;
+    if (cursor) {
+      const sortVal = cursor.sortValue;
+      // Compound tuple comparison:
+      //   desc: (col, id) < (sortVal, cursorId)
+      //   asc : (col, id) > (sortVal, cursorId)
+      // SQL: `(col < v) OR (col = v AND id < cursorId)` (flip < for asc).
+      const primary =
+        direction === 'desc' ? sql`${orderColumn} < ${sortVal}` : sql`${orderColumn} > ${sortVal}`;
+      const tiebreak =
+        direction === 'desc'
+          ? sql`(${orderColumn} = ${sortVal} AND ${sessions.id} < ${cursor.id})`
+          : sql`(${orderColumn} = ${sortVal} AND ${sessions.id} > ${cursor.id})`;
+      where = and(sql`(${primary} OR ${tiebreak})`) as ReturnType<typeof and>;
+      fetchLimit = limit + 1;
+      fetchOffset = 0;
+    }
+
     const items = await this.db.query.sessions.findMany({
-      orderBy: (direction === 'asc' ? [orderColumn] : [desc(orderColumn)]) as never,
-      limit,
-      offset,
+      where,
+      orderBy: (direction === 'asc'
+        ? [orderColumn, sessions.id]
+        : [desc(orderColumn), desc(sessions.id)]) as never,
+      limit: fetchLimit,
+      offset: fetchOffset,
     });
 
     return ok(
