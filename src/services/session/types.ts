@@ -67,6 +67,16 @@ export type ListSessionsOptions = {
   offset?: number;
   orderBy?: 'createdAt' | 'updatedAt';
   orderDirection?: 'asc' | 'desc';
+  /**
+   * F07-01: cursor-based pagination. When supplied, the service queries
+   * `limit + 1` rows starting strictly after the cursor position using a
+   * `(sortValue, id)` compound comparison. `offset` is ignored when
+   * `cursor` is present.
+   */
+  cursor?: {
+    sortValue: string | number | null;
+    id: string;
+  };
 };
 
 export type PresenceUpdate = {

@@ -1,5 +1,5 @@
 import { createId } from '@paralleldrive/cuid2';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Task, TaskColumn } from '../db/schema';
 import { codespaces, sessions, settings, tasks } from '../db/schema';
 import { getFullModelId } from '../lib/constants/models.js';
@@ -59,6 +59,16 @@ export type ListTasksOptions = {
   offset?: number;
   orderBy?: 'position' | 'createdAt' | 'updatedAt';
   orderDirection?: 'asc' | 'desc';
+  /**
+   * F07-01: cursor-based pagination. When supplied, the service queries
+   * `limit + 1` rows strictly after the cursor position using a compound
+   * `(sortValue, id)` comparison. `offset` is ignored when `cursor` is
+   * present.
+   */
+  cursor?: {
+    sortValue: string | number | null;
+    id: string;
+  };
 };
 
 export type ApproveInput = {
@@ -465,11 +475,39 @@ export class TaskService {
       filters.push(eq(tasks.agentId, options.agentId));
     }
 
+    // F07-01: cursor-based pagination. When supplied, append a compound
+    // `(sortValue, id)` tuple comparison filter. The route handler is
+    // responsible for passing `limit + 1` and slicing the overflow row via
+    // `paginate()` to detect `hasMore` — this method does NOT add a
+    // redundant `+ 1` on top.
+    //
+    // Precondition: sort columns (`tasks.position`, `tasks.createdAt`,
+    // `tasks.updatedAt`) are declared `.notNull()` in the SQLite and
+    // Postgres schemas, so the compound `col < v` comparison always yields
+    // a boolean (never NULL). If a nullable sort column is ever added,
+    // wrap with COALESCE or use explicit NULL ordering so pagination does
+    // not silently break.
+    const cursor = options?.cursor;
+    let fetchOffset = offset;
+    if (cursor) {
+      const sortVal = cursor.sortValue;
+      const primary =
+        direction === 'desc' ? sql`${orderColumn} < ${sortVal}` : sql`${orderColumn} > ${sortVal}`;
+      const tiebreak =
+        direction === 'desc'
+          ? sql`(${orderColumn} = ${sortVal} AND ${tasks.id} < ${cursor.id})`
+          : sql`(${orderColumn} = ${sortVal} AND ${tasks.id} > ${cursor.id})`;
+      filters.push(sql`(${primary} OR ${tiebreak})`);
+      fetchOffset = 0;
+    }
+
     const items = await this.db.query.tasks.findMany({
       where: filters.length > 1 ? and(...filters) : filters[0],
-      orderBy: (direction === 'asc' ? [orderColumn] : [desc(orderColumn)]) as never,
+      orderBy: (direction === 'asc'
+        ? [orderColumn, tasks.id]
+        : [desc(orderColumn), desc(tasks.id)]) as never,
       limit,
-      offset,
+      offset: fetchOffset,
     });
 
     return ok(items);

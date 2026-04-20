@@ -5,6 +5,7 @@
 import { Hono } from 'hono';
 import type { SessionStatus } from '../../db/schema/shared/enums.js';
 import { SESSION_STATUS } from '../../db/schema/shared/enums.js';
+import { decodeRequestCursor, paginate } from '../../lib/api/pagination.js';
 import type { SessionService } from '../../services/session.service.js';
 import { errorResponse, json, parseLimit, parseOffset, validateIdParam } from '../shared.js';
 import { createSessionSchema, exportSessionSchema, parseJsonBody } from '../validation.js';
@@ -132,6 +133,15 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
   const app = new Hono();
 
   // GET /api/sessions
+  //
+  // F07-01: two modes:
+  //   (a) Filtered mode (when `codespaceId` is supplied): keeps the existing
+  //       offset/total shape because the UI explicitly relies on `total` for
+  //       badges and filter-count readouts. This path is documented as the
+  //       legacy offset path in specs/application/api/pagination.md.
+  //   (b) Global list (no `codespaceId`): cursor-paginated, sorted by
+  //       `updatedAt` desc with `id` as tiebreaker. Returns the canonical
+  //       `{ items, nextCursor, hasMore }` envelope.
   app.get('/', async (c) => {
     const codespaceId = c.req.query('codespaceId');
     const limit = parseLimit(c);
@@ -174,19 +184,69 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
       });
     }
 
-    // Fallback: no codespaceId filter (existing behavior)
-    const result = await sessionService.list({ limit, offset });
+    // F07-01: cursor-based pagination for the global session list.
+    //
+    // Backward-compatible envelope: `data` stays a flat array (so
+    // `apiServerFetch<Session[]>` keeps working) and `pagination` exposes
+    // the opaque `nextCursor` + `hasMore` flags alongside the legacy
+    // `limit`/`offset`.
+    //
+    // Bug fix: previously only requests that carried an inbound `cursor`
+    // query param went through `paginate()`; the first page (no cursor) fell
+    // back to the legacy offset branch and never emitted `nextCursor`,
+    // leaving clients with no way to advance beyond page 1. We now always
+    // fetch `limit + 1` and run through `paginate()` so the first page
+    // returns a valid `nextCursor` whenever there are more rows.
+    const sortField = 'updatedAt' as const;
+    const order = 'desc' as const;
+    const rawCursor = c.req.query('cursor') || undefined;
+    const cursorResult = decodeRequestCursor(rawCursor, { sortField, order });
+    if (!cursorResult.ok) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'INVALID_CURSOR',
+            message: 'Invalid or malformed cursor. Restart pagination from the beginning.',
+          },
+        },
+        400
+      );
+    }
+    const cursorPayload = cursorResult.value;
+
+    const result = await sessionService.list({
+      // F07-01: fetch `limit + 1` so `paginate()` can detect `hasMore`
+      // without a count query. When a cursor is supplied we do not apply an
+      // offset (the cursor itself positions the page); when absent we keep
+      // the legacy `offset` semantics so pre-cursor clients that still pass
+      // `offset` continue to work.
+      limit: limit + 1,
+      offset: cursorPayload ? 0 : offset,
+      orderBy: sortField,
+      orderDirection: order,
+      ...(cursorPayload
+        ? {
+            cursor: {
+              sortValue: cursorPayload.sortValue,
+              id: cursorPayload.id,
+            },
+          }
+        : {}),
+    });
     if (!result.ok) {
       return errorResponse(result);
     }
 
+    const body = paginate(result.value, { limit, sortField, order });
     return json({
       ok: true,
-      data: result.value,
+      data: body.items,
       pagination: {
         limit,
-        offset,
-        hasMore: result.value.length === limit,
+        offset: cursorPayload ? 0 : offset,
+        nextCursor: body.nextCursor,
+        hasMore: body.hasMore,
       },
     });
   });

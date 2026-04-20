@@ -3,16 +3,10 @@
  */
 
 import { Hono } from 'hono';
+import { decodeRequestCursor, paginate } from '../../lib/api/pagination.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { TaskService } from '../../services/task.service.js';
-import {
-  errorResponse,
-  json,
-  parseLimit,
-  parseOffset,
-  requireQueryId,
-  validateIdParam,
-} from '../shared.js';
+import { errorResponse, json, parseLimit, requireQueryId, validateIdParam } from '../shared.js';
 import {
   createTaskSchema,
   moveTaskSchema,
@@ -31,6 +25,11 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
   const app = new Hono();
 
   // GET /api/tasks
+  //
+  // F07-01: cursor-paginated list endpoint. The canonical envelope is
+  //   { data: { items: Task[], nextCursor: string|null, hasMore: boolean } }
+  // sorted by `position` asc with `id` as the tiebreaker. Request a next page
+  // by passing the opaque `cursor` query param from the previous response.
   app.get('/', async (c) => {
     const { id: codespaceId, error: csError } = requireQueryId(c, 'codespaceId');
     if (csError) return csError;
@@ -54,23 +53,50 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
       column = parsed.data;
     }
     const limit = parseLimit(c);
-    const offset = parseOffset(c);
+    const rawCursor = c.req.query('cursor') || undefined;
 
-    const result = await taskService.list(codespaceId, { column, limit, offset });
+    // F07-01: fixed sort for cursor stability. The route always sorts by
+    // `position` asc; if we later expose a `sort` query param it must be
+    // validated against the cursor's embedded sortField.
+    const sortField = 'position' as const;
+    const order = 'asc' as const;
+
+    const cursorResult = decodeRequestCursor(rawCursor, { sortField, order });
+    if (!cursorResult.ok) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'INVALID_CURSOR',
+            message: 'Invalid or malformed cursor. Restart pagination from the beginning.',
+          },
+        },
+        400
+      );
+    }
+    const cursorPayload = cursorResult.value;
+
+    const result = await taskService.list(codespaceId, {
+      column,
+      limit: limit + 1, // F07-01: fetch limit+1 so `paginate` can detect hasMore.
+      orderBy: sortField,
+      orderDirection: order,
+      ...(cursorPayload
+        ? {
+            cursor: {
+              sortValue: cursorPayload.sortValue,
+              id: cursorPayload.id,
+            },
+          }
+        : {}),
+    });
 
     if (!result.ok) {
       return errorResponse(result);
     }
 
-    return json({
-      ok: true,
-      data: {
-        items: result.value,
-        nextCursor: null,
-        hasMore: false,
-        totalCount: result.value.length,
-      },
-    });
+    const body = paginate(result.value, { limit, sortField, order });
+    return json({ ok: true, data: body });
   });
 
   // POST /api/tasks

@@ -201,3 +201,114 @@ describe('rateLimiter', () => {
     expect(res.status).toBe(429);
   });
 });
+
+// ---------------------------------------------------------------------------
+// F07-04: key-derivation tests — authenticated users are rate-limited on
+// their userId, not their IP. Separate users from the same NAT get
+// separate buckets; a single user rotating IPs shares the same bucket.
+// ---------------------------------------------------------------------------
+
+describe('F07-04 rate limiter key derivation', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function makeAuthApp(authCtx: { userId: string } | null, opts?: { max: number }) {
+    const app = new Hono();
+    // Simulate enrichAuthContext: set `auth` on the context before the limiter.
+    app.use('/*', async (c, next) => {
+      if (authCtx) c.set('auth' as never, authCtx as never);
+      await next();
+    });
+    app.use('/*', rateLimiter({ max: opts?.max ?? 2, windowMs: 60_000 }));
+    app.get('/test', (c) => c.json({ ok: true }));
+    return app;
+  }
+
+  it('rate-limits the same authenticated user across different IPs', async () => {
+    const app = makeAuthApp({ userId: 'user-alice' });
+
+    // Alice from IP A, then IP B — same user should share the bucket.
+    const r1 = await app.request('/test', { headers: { 'x-real-ip': '10.0.0.1' } });
+    expect(r1.status).toBe(200);
+    const r2 = await app.request('/test', { headers: { 'x-real-ip': '10.0.0.2' } });
+    expect(r2.status).toBe(200);
+
+    // Third request from either IP is blocked.
+    const r3 = await app.request('/test', { headers: { 'x-real-ip': '10.0.0.3' } });
+    expect(r3.status).toBe(429);
+  });
+
+  it('rate-limits two authenticated users independently behind the same IP', async () => {
+    // Alice gets her own bucket; Bob gets his own. Both share one NAT IP
+    // but each bucket is per-user.
+    const headers = { 'x-real-ip': '10.0.0.1' };
+
+    const aliceApp = makeAuthApp({ userId: 'user-alice' });
+    await aliceApp.request('/test', { headers });
+    await aliceApp.request('/test', { headers });
+    const aliceThird = await aliceApp.request('/test', { headers });
+    expect(aliceThird.status).toBe(429);
+
+    // A fresh app instance for Bob — this simulates a different user
+    // context. In production, enrichAuthContext sets the correct userId.
+    const bobApp = makeAuthApp({ userId: 'user-bob' });
+    const bobFirst = await bobApp.request('/test', { headers });
+    expect(bobFirst.status).toBe(200);
+  });
+
+  it('falls back to IP when no auth context is present', async () => {
+    const app = makeAuthApp(null);
+
+    // Without auth, the limiter keys on IP.
+    const r1 = await app.request('/test', { headers: { 'x-real-ip': '5.5.5.5' } });
+    expect(r1.status).toBe(200);
+    const r2 = await app.request('/test', { headers: { 'x-real-ip': '5.5.5.5' } });
+    expect(r2.status).toBe(200);
+    const r3 = await app.request('/test', { headers: { 'x-real-ip': '5.5.5.5' } });
+    expect(r3.status).toBe(429);
+
+    // Different IP bypasses.
+    const r4 = await app.request('/test', { headers: { 'x-real-ip': '6.6.6.6' } });
+    expect(r4.status).toBe(200);
+  });
+
+  it('keyOnToken mode skips requests with no token (session/dev auth)', async () => {
+    // With keyOnToken, a session-authenticated request (no tokenScope)
+    // should pass through unlimited on this specific middleware.
+    const app = new Hono();
+    app.use('/*', async (c, next) => {
+      c.set('auth' as never, { userId: 'alice' } as never); // session auth: no tokenScope
+      await next();
+    });
+    app.use('/*', rateLimiter({ max: 1, windowMs: 60_000, keyOnToken: true }));
+    app.get('/test', (c) => c.json({ ok: true }));
+
+    // 10 session-auth requests all pass — the limiter skips them.
+    for (let i = 0; i < 10; i++) {
+      const r = await app.request('/test');
+      expect(r.status).toBe(200);
+    }
+  });
+
+  it('custom keyFrom can scope to a per-source slug (webhook case)', async () => {
+    const app = new Hono();
+    app.use(
+      '/hooks/:slug',
+      rateLimiter({
+        max: 2,
+        windowMs: 60_000,
+        keyFrom: (c) => `webhook:${c.req.param('slug')}`,
+      })
+    );
+    app.get('/hooks/:slug', (c) => c.json({ ok: true }));
+
+    // Two requests per slug allowed.
+    expect((await app.request('/hooks/github')).status).toBe(200);
+    expect((await app.request('/hooks/github')).status).toBe(200);
+    expect((await app.request('/hooks/github')).status).toBe(429);
+
+    // Different slug has its own bucket.
+    expect((await app.request('/hooks/stripe')).status).toBe(200);
+  });
+});

@@ -28,12 +28,14 @@ The HTTP surface totals ~240 endpoints across **39 Hono route modules** (the "35
 
 ## Findings
 
-### F07-01 — Pagination: cursor spec vs offset reality
+### F07-01 — Pagination: cursor spec vs offset reality — **RESOLVED (April 2026, theme 07)**
 
 - **Priority:** P1
 - **Observation:** `specs/application/api/pagination.md` declares cursor-based as the primary strategy with Base64 payloads. In reality almost every list endpoint uses `parseLimit`/`parseOffset`: bare array (`/api/memory/insights`), `{items, totalCount}` without cursor (`/api/sandbox-configs`), or a degenerate `{items, nextCursor:null, hasMore:false, totalCount}` (`/api/tasks`). `memory.ts:48` even defines its own `parsePagination(page, size)` that collides with `shared.ts:40`. `events.ts:1419` is the only module with real `cursor`/`hasMore` wiring.
 - **Risk:** Deep-page offset scans degrade as data grows; insert/delete during scroll causes skip/dup; cursor-scroll UIs are unreachable.
 - **Recommendation:** Pick one strategy. Introduce a `paginate<T>()` helper emitting `{items, nextCursor, hasMore}` and migrate sessions, tasks, events.log first; or rewrite `pagination.md` to match code.
+- **Resolution:** Added `paginate<T>()` + `decodeRequestCursor()` helpers in `src/lib/api/pagination.ts`. Migrated the three highest-traffic list routes — `GET /api/tasks`, `GET /api/sessions` (global list), `GET /api/events/log` — to the canonical cursor envelope. Extended `TaskService.list()` and `SessionCrudService.list()` to accept an optional `cursor` option that translates to a compound `(sortValue, id)` tuple comparison. Rewrote `specs/application/api/pagination.md` to describe both cursor (canonical) and offset (legacy) styles and annotate which endpoints live in each camp. Added `src/lib/api/__tests__/paginate-helper.test.ts` with a round-trip test that paginates through 100 rows and asserts no duplicates and no skips.
+- **Follow-up:** Remaining offset endpoints can migrate opportunistically when their service methods are next touched.
 - **Effort:** L.
 - **Links:** [`specs/application/api/pagination.md`](../application/api/pagination.md).
 
@@ -45,29 +47,33 @@ The HTTP surface totals ~240 endpoints across **39 Hono route modules** (the "35
 - **Recommendation:** Define `ListResponse<T> = {items: T[], nextCursor: string|null, hasMore: boolean}` and enforce it for every list endpoint. Generate frontend types from schemas (F07-06).
 - **Effort:** M.
 
-### F07-03 — `{ok:true, data:[]}` used to mask infrastructure failures
+### F07-03 — `{ok:true, data:[]}` used to mask infrastructure failures — **RESOLVED (April 2026, theme 07)**
 
 - **Priority:** P1
 - **Observation:** `CLAUDE.md` explicitly warns against this pattern, yet `src/server/routes/codespaces.ts:430,434` does it in `GET /api/codespaces/:id/skills`: when `templateService.getMergedConfig` fails (repo unreachable, parse error), the handler returns an empty list instead of `{ok:false, error}`. Same shape in `events.ts:193,675,682` when plugin directories are missing.
 - **Risk:** UI cannot distinguish "no skills" from "sync broken"; users see empty state with no recovery signal.
 - **Recommendation:** Return `{data:{items:[], source:'empty'|'degraded', degradedReason?}}` or propagate `{ok:false, error}`. Audit every `ok:true, data:[]` return.
+- **Resolution:** `codespaces.ts` skills handler now propagates `templateService.getMergedConfig` failures as `{ok:false, error}` instead of masking as empty. The five `events.ts` empty-list returns (all legitimate "user has no teams / no sources" states, not failure masks) now carry `source: 'empty'` so a future `source: 'degraded'` variant can signal an upstream outage without breaking clients. Added `src/server/routes/__tests__/codespaces-skills.test.ts` to pin the non-ok response.
 - **Effort:** S.
 
-### F07-04 — Rate limit is per-IP, in-process, multiplies across instances
+### F07-04 — Rate limit is per-IP, in-process, multiplies across instances — **RESOLVED (April 2026, theme 07, partial — backend-pluggable)**
 
 - **Priority:** P1
 - **Observation:** `rate-limiter.ts:6-13` admits "each instance maintains its own counters." Global IP limit 200/min, per-token 100/min, webhooks 60/min. A corporate NAT bottlenecks all users behind one IP; distributed attackers from many IPs are unthrottled. Session-cookie auth bypasses the per-token limiter entirely.
 - **Risk:** DoS exposure, noisy-neighbour issues, throttling of legitimate teams behind proxies.
 - **Recommendation:** Swap in Redis-backed counters keyed primarily on `userId`, with IP fallback for unauthenticated endpoints. Webhook routes should key on source slug.
+- **Resolution:** Refactored `src/lib/api/rate-limiter.ts` to (a) derive keys via a pluggable `keyFrom(ctx)` function preferring `userId` → `tokenId` → trusted-proxy-aware IP, (b) expose a `RateLimitBackend` interface so the in-memory store can be swapped for Redis in one line without touching any middleware call site, (c) log a one-time startup warning when using the in-memory backend so operators running multi-instance deployments see the caveat. Did not introduce the Redis dependency — deferred to the operations-hardening workstream — but the drop-in shape is captured in the JSDoc example on `rateLimiter()`. Custom `keyFrom` lets webhook routes key on source slug (e.g. `webhook:github`) without reworking middleware. Added `F07-04` rate-limiter key-derivation tests in `src/lib/api/__tests__/rate-limiter.test.ts`.
+- **Follow-up:** Provide a Redis `RateLimitBackend` (single file, ~30 LOC) and wire it under a `REDIS_URL` env gate.
 - **Effort:** M.
 - **Links:** [`specs/release_plan/02-security-hardening.md`](../release_plan/02-security-hardening.md).
 
-### F07-05 — Request-ID never reaches services or event payloads
+### F07-05 — Request-ID never reaches services or event payloads — **RESOLVED (April 2026, theme 07)**
 
 - **Priority:** P1
 - **Observation:** `requestIdMiddleware` generates `req-{ts}-{counter}`, stores it via `requestContextStorage.run`, and echoes `X-Request-Id`. Only **7 callsites** use `getRequestId` across `src/` (router, logger×2, api/middleware×2, context file×2) — **zero in `src/services/`**. Detached tasks (`queueMicrotask`, `setImmediate`, stream handlers) lose AsyncLocalStorage. DurableStream event payloads carry no `requestId`.
 - **Risk:** No correlation between an API request and the agent run, stream event, or DB write it triggered; when a 500 is reported, the trace chain is broken.
 - **Recommendation:** Add `requestId` to the logger context unconditionally; thread it as an explicit field on service calls that publish events; add a regression test asserting `X-Request-Id` appears in at least one downstream log line.
+- **Resolution:** Theme 10 F10-03 already plumbed `correlationId` into the durable-streams envelope via `createSessionEventMetadata(...)` — which reads from `getRequestId()` (AsyncLocalStorage) when no explicit id is supplied. Theme 07 verified this end-to-end: added `src/lib/api/__tests__/request-id-propagation.test.ts` which asserts (a) `getRequestId()` picks up the ambient request id, (b) nested async boundaries keep the same id, (c) the structured logger stamps it into output, (d) `createSessionEventMetadata` defaults `correlationId` to the current request id, (e) the "full loop" — response header == logger line == event envelope `correlationId` — holds for a single request. Because `createLogger` already pulls `getRequestId()` on every `.info/.error` call, no per-service wiring is required as long as services run under the AsyncLocalStorage frame the router establishes.
 - **Effort:** M.
 - **Links:** [`specs/release_plan/03-observability.md`](../release_plan/03-observability.md).
 
