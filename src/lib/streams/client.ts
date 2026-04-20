@@ -763,6 +763,18 @@ export interface SessionCallbacks {
   onConnectionStateChange?: (state: ConnectionState) => void;
   onReconnect?: () => void;
   onDisconnect?: () => void;
+  /**
+   * F05-06: fired when a reconnect detects an offset gap relative to the
+   * last event received before disconnect. The caller should call
+   * `fetchGapEvents(sessionId, from, to)` to back-fill.
+   */
+  onGapDetected?: (gap: { fromOffset: number; toOffset: number }) => void;
+  /**
+   * F05-15: fired when the reconnect budget (MAX_RECONNECT_ATTEMPTS) is
+   * exhausted and no further automatic retries will happen. The caller
+   * should render a "Reconnect" UI prompting a manual restart.
+   */
+  onTerminalDisconnect?: () => void;
 }
 
 /**
@@ -809,6 +821,10 @@ export class DurableStreamsClient {
     let hasConnected = false;
     let reconnectCount = 0;
     let reconnectTimerId: ReturnType<typeof setTimeout> | null = null;
+    /** F05-06: offset snapshotted just before a disconnect so reconnect can detect gaps. */
+    let offsetBeforeDisconnect: number | null = null;
+    /** F05-06: guard so gap detection runs only once per reconnect cycle. */
+    let gapCheckArmed = false;
 
     const setConnectionState = (nextState: ConnectionState) => {
       if (state === nextState) {
@@ -896,6 +912,20 @@ export class DurableStreamsClient {
             lastCursor = chunk.offset;
           }
 
+          // F05-06: first chunk after a reconnect — check for gaps.
+          if (gapCheckArmed && offsetBeforeDisconnect !== null) {
+            gapCheckArmed = false;
+            const firstOffsetAfter = cursorToApproxOffset(lastCursor) ?? 0;
+            const expectedNext = offsetBeforeDisconnect + 1;
+            if (firstOffsetAfter > expectedNext) {
+              callbacks.onGapDetected?.({
+                fromOffset: expectedNext,
+                toOffset: firstOffsetAfter - 1,
+              });
+            }
+            offsetBeforeDisconnect = null;
+          }
+
           const items = parseStreamChunkItems(chunk.text);
           if (!items) {
             return;
@@ -937,14 +967,20 @@ export class DurableStreamsClient {
             if (isUnsubscribed) return;
             setConnectionState('disconnected');
             callbacks.onDisconnect?.();
+            // F05-06: snapshot the last known offset so we can detect gaps on reconnect.
+            offsetBeforeDisconnect = cursorToApproxOffset(lastCursor) ?? null;
             // Auto-reconnect on clean closure (server restart, proxy timeout)
             // unless the stream was explicitly closed or we've been unsubscribed
             if (!response.streamClosed && reconnectCount < MAX_RECONNECT_ATTEMPTS) {
+              gapCheckArmed = true;
               const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
               reconnectCount++;
               reconnectTimerId = setTimeout(() => {
                 if (!isUnsubscribed) void connect();
               }, delay);
+            } else if (!response.streamClosed) {
+              // F05-15: reconnect budget exhausted — surface a terminal signal.
+              callbacks.onTerminalDisconnect?.();
             }
           })
           .catch((err) => {
@@ -1452,6 +1488,37 @@ function routeEventToCallback(event: TypedSessionEvent, callbacks: SessionCallba
 }
 
 /**
+ * F05-06: fetch a contiguous range of missed events from the REST API.
+ * Called from `onGapDetected` after a reconnect observes a gap.
+ *
+ * Returns the parsed event list on success; throws on network or parse failure.
+ */
+export async function fetchGapEvents(
+  sessionId: string,
+  fromOffset: number,
+  toOffset: number,
+  options?: { signal?: AbortSignal; fetchImpl?: typeof fetch }
+): Promise<Array<{ id: string; type: string; timestamp: number; data: unknown }>> {
+  const impl = options?.fetchImpl ?? fetch;
+  const params = new URLSearchParams({
+    fromOffset: String(fromOffset),
+    toOffset: String(toOffset),
+    limit: String(Math.max(1, toOffset - fromOffset + 1)),
+  });
+  const res = await impl(`/api/sessions/${encodeURIComponent(sessionId)}/events?${params}`, {
+    signal: options?.signal,
+  });
+  if (!res.ok) {
+    throw new Error(`Gap-fill fetch failed: ${res.status} ${res.statusText}`);
+  }
+  const body = (await res.json()) as { ok: boolean; data?: unknown };
+  if (!body.ok || !Array.isArray(body.data)) {
+    throw new Error('Gap-fill fetch returned malformed body');
+  }
+  return body.data as Array<{ id: string; type: string; timestamp: number; data: unknown }>;
+}
+
+/**
  * Streams availability flag — set by bootstrap, checked before connecting.
  * When false (e.g. Caddy not running in dev), subscriptions are skipped
  * to avoid exhausting the browser's HTTP/1.1 connection limit with retries.
@@ -1559,6 +1626,8 @@ export function subscribeToSession(sessionId: string, callbacks: SessionCallback
       'onConnectionStateChange',
       'onReconnect',
       'onDisconnect',
+      'onGapDetected',
+      'onTerminalDisconnect',
     ];
 
     for (const key of callbackKeys) {
