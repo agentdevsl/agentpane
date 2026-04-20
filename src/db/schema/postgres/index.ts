@@ -10,6 +10,7 @@ export * from './codespace-tags';
 export * from './codespaces';
 export * from './dream-sessions';
 export * from './event-log';
+export * from './event-outbox';
 export * from './event-sources';
 export * from './event-subscriptions';
 export * from './folder-members';
