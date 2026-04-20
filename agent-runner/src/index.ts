@@ -77,18 +77,22 @@ async function loadAgentDefinitions(
         const frontmatter = match[1];
         const body = match[2]?.trim() ?? '';
 
-        // Simple YAML parsing for key fields
-        const name = frontmatter.match(/^name:\s*(.+)$/m)?.[1]?.trim();
-        const description = frontmatter.match(/^description:\s*(.+)$/m)?.[1]?.trim();
-        const model = frontmatter.match(/^model:\s*(.+)$/m)?.[1]?.trim();
+        // Simple YAML parsing for key fields. Strip surrounding quotes so
+        // `name: "my-agent"` is read as `my-agent`, matching how the SDK supplies
+        // subagent_type values.
+        const unquote = (v: string | undefined): string | undefined =>
+          v?.replace(/^['"]|['"]$/g, '').trim();
+        const name = unquote(frontmatter.match(/^name:\s*(.+)$/m)?.[1]?.trim());
+        const description = unquote(frontmatter.match(/^description:\s*(.+)$/m)?.[1]?.trim());
+        const model = unquote(frontmatter.match(/^model:\s*(.+)$/m)?.[1]?.trim());
 
         // Parse tools array
         const toolsMatch = frontmatter.match(/^tools:\n((?:\s+-\s+.+\n?)*)/m);
         const tools = toolsMatch
           ? toolsMatch[1]
               .split('\n')
-              .map((l) => l.replace(/^\s+-\s+/, '').trim())
-              .filter(Boolean)
+              .map((l) => unquote(l.replace(/^\s+-\s+/, '').trim()))
+              .filter((v): v is string => Boolean(v))
           : undefined;
 
         if (!name || !description) continue;
