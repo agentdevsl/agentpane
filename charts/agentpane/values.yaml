@@ -193,6 +193,103 @@ gateway:
   tls: {}
 
 # -----------------------------------------------------------------------------
+# Persistence (F11-06)
+# -----------------------------------------------------------------------------
+# Application data lives in an emptyDir by default. For any deployment where
+# data must survive a rollout, set `persistence.enabled: true` to create a
+# PersistentVolumeClaim that is mounted at /app/data.
+#
+# IMPORTANT: Running with DB_MODE=sqlite on Kubernetes is unsupported — SQLite
+# does not tolerate concurrent replicas sharing a RWO volume, and the current
+# Helm chart has no StatefulSet option. Use the Bitnami Postgres subchart
+# (database.internal.enabled) or an external Postgres (database.external).
+persistence:
+  # -- Enable a PersistentVolumeClaim for /app/data
+  enabled: false
+  # -- Storage class (empty = cluster default)
+  storageClass: ""
+  # -- Access mode for the PVC
+  accessMode: ReadWriteOnce
+  # -- PVC size (durable streams + local scratch)
+  size: 10Gi
+  # -- Additional annotations for the PVC
+  annotations: {}
+
+# -----------------------------------------------------------------------------
+# PodDisruptionBudget (F11-06)
+# -----------------------------------------------------------------------------
+# Without a PDB, voluntary disruption (node drain, autoscaler) can evict all
+# replicas at once. Default of maxUnavailable=0 keeps at least one pod available
+# during voluntary operations at replicaCount >= 2.
+#
+# IMPORTANT: A PDB of `maxUnavailable: 0` with `replicaCount: 1` (or autoscaling
+# minReplicas: 1) makes the pod unkillable — node drains and cluster upgrades
+# will block indefinitely. The template therefore SKIPS PDB rendering whenever
+# the effective replica count is 1, even if `enabled: true` here. To get a PDB
+# rendered you must either scale to >= 2 replicas, or set autoscaling.minReplicas
+# >= 2.
+podDisruptionBudget:
+  # -- Create a PodDisruptionBudget for the Deployment. Ignored when the
+  # effective replica count is 1 (see note above).
+  enabled: true
+  # -- Maximum number of pods that may be unavailable during voluntary disruptions
+  maxUnavailable: 0
+  # -- Minimum available pods (mutually exclusive with maxUnavailable)
+  minAvailable: ""
+
+# -----------------------------------------------------------------------------
+# Deployment Strategy (F11-06)
+# -----------------------------------------------------------------------------
+deploymentStrategy:
+  # -- RollingUpdate parameters. Default is surge-then-terminate so pods drain
+  # gracefully without dropping availability.
+  type: RollingUpdate
+  maxSurge: 1
+  maxUnavailable: 0
+
+# -----------------------------------------------------------------------------
+# Pre-upgrade Migration Hook (F11-05)
+# -----------------------------------------------------------------------------
+# A Helm pre-upgrade/pre-install Job applies migrations once before the
+# Deployment rollout. App pods then only verify the schema is current — they
+# do not apply migrations — avoiding the race at replicaCount >= 2.
+migrationJob:
+  # -- Create a pre-upgrade/pre-install Job that runs migrate:run-only
+  enabled: true
+  # -- Deadline for the migration Job (Helm waits for it to complete before rolling out)
+  activeDeadlineSeconds: 900
+  # -- Number of times the Job is retried on failure
+  backoffLimit: 2
+  # -- Resource requests/limits for the migration Pod (small, one-shot)
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# -----------------------------------------------------------------------------
+# Durable Streams Sidecar (F11-02)
+# -----------------------------------------------------------------------------
+# The app image starts Caddy (`durable-streams-server`) and the Bun API as two
+# processes inside the same container (see `docker/start.sh`). In Kubernetes we
+# keep the same topology but expose port 3000 (Caddy) on the Service so SSE
+# resume / replay is reachable. When `durableStreams.sidecar.enabled` is true
+# the Service targets port 3000 and liveness/readiness/startup probes against
+# the app container continue to hit the Bun API on 3001. Disable only if you
+# run durable-streams-server as a separate chart.
+durableStreams:
+  sidecar:
+    # -- Include durable-streams-server (ships inside the app image) in the
+    # Service topology. Default true to match the Docker Compose behaviour.
+    enabled: true
+    # -- Port the durable-streams-server (Caddy) listens on inside the container
+    port: 3000
+    # -- Data directory passed as STREAMS_DATA_DIR to the app container
+    dataDir: /app/data/streams
+
+# -----------------------------------------------------------------------------
 # Resources
 # -----------------------------------------------------------------------------
 resources:

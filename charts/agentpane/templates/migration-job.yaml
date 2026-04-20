@@ -1,0 +1,80 @@
+{{- if .Values.migrationJob.enabled }}
+{{- /*
+F11-05: Pre-upgrade/pre-install migration Job.
+
+Runs `bun run migrate:run-only` exactly once before the Deployment is rolled
+out. Helm waits for this Job to report Complete before proceeding to the app
+pods, so replicaCount >= 2 deployments never race on migrate().
+
+App pods run `bun run migrate:check-only` as part of their startup (see the
+Deployment startupProbe / bootstrap flow) and refuse to serve if the schema
+is behind — this Job is the only path that mutates the schema.
+*/ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "agentpane.fullname" . }}-migrate
+  labels:
+    {{- include "agentpane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrationJob.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrationJob.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "agentpane.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "agentpane.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "agentpane.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command: ["bun", "run", "migrate:run-only"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "agentpane.fullname" . }}
+          env:
+            {{- if and .Values.database.external.enabled .Values.database.external.existingSecret }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.external.existingSecret }}
+                  key: {{ .Values.database.external.secretKeys.urlKey | default "DATABASE_URL" }}
+            {{- else }}
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agentpane.database.secretName" . }}
+                  key: {{ include "agentpane.database.passwordKey" . }}
+            - name: DATABASE_URL
+              value: {{ include "agentpane.database.url" . | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.migrationJob.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
