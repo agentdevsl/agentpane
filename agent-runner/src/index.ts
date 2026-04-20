@@ -887,25 +887,10 @@ async function runPlanningPhase(): Promise<void> {
         // Assistant message means all previous tools have completed
         emitAllToolResults();
 
-        // Capture subagent_type from Agent tool_use content blocks.
-        // The SDK doesn't expose subagent_type via canUseTool or task_started,
-        // so we intercept it from the model's tool_use output before the SDK processes it.
-        const assistantContent = (
-          msg as {
-            message?: {
-              content?: Array<{ type: string; name?: string; input?: Record<string, unknown> }>;
-            };
-          }
-        ).message?.content;
-        if (Array.isArray(assistantContent)) {
-          for (const block of assistantContent) {
-            if (block.type === 'tool_use' && block.name === 'Agent' && block.input?.subagent_type) {
-              const subagentType = String(block.input.subagent_type);
-              topology.pendingSubagentTypes.push(subagentType);
-              console.error(`[agent-runner] Captured subagent_type from tool_use: ${subagentType}`);
-            }
-          }
-        }
+        // Note: subagent_type is captured in the canUseTool callback (see ~line 566).
+        // The assistant-message content is not re-scanned to avoid a double-push into
+        // topology.pendingSubagentTypes, which would misalign subsequent local_agent
+        // substitutions.
 
         // Accumulate token usage from assistant messages
         const assistantMsg = msg as {
@@ -1387,23 +1372,9 @@ async function runExecutionPhase(): Promise<void> {
         // Assistant message means all previous tools have completed
         emitAllToolResults();
 
-        // Capture subagent_type from Agent tool_use content blocks
-        const assistantContent = (
-          msg as {
-            message?: {
-              content?: Array<{ type: string; name?: string; input?: Record<string, unknown> }>;
-            };
-          }
-        ).message?.content;
-        if (Array.isArray(assistantContent)) {
-          for (const block of assistantContent) {
-            if (block.type === 'tool_use' && block.name === 'Agent' && block.input?.subagent_type) {
-              const subagentType = String(block.input.subagent_type);
-              topology.pendingSubagentTypes.push(subagentType);
-              console.error(`[agent-runner] Captured subagent_type from tool_use: ${subagentType}`);
-            }
-          }
-        }
+        // Note: subagent_type is captured in the canUseTool callback (see ~line 1126).
+        // The assistant-message content is not re-scanned to avoid a double-push into
+        // topology.pendingSubagentTypes.
 
         // Accumulate token usage from assistant messages
         const assistantMsg = msg as {
@@ -1451,12 +1422,10 @@ async function runExecutionPhase(): Promise<void> {
         if (result.is_error) {
           const errorText = result.text ?? 'Task ended with error';
           console.error(`[agent-runner] SDK error result: ${errorText}`);
-          // Emit dedicated error event so the error is visible in session events
-          events.error({
-            error: errorText,
-            code: 'SDK_ERROR',
-            turnCount: turn,
-          });
+          // Emit a single terminal event. The host maps status:'error' to the
+          // error-handling path (agent:error semantics) and does not need a separate
+          // agent:error event. Emitting both caused a race between handleAgentError
+          // and handleAgentComplete.
           events.complete({
             status: 'error',
             turnCount: turn,

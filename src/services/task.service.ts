@@ -559,7 +559,12 @@ export class TaskService {
           column,
           position: newPosition,
           updatedAt: new Date().toISOString(),
-          ...(column === 'in_progress' ? { startedAt: new Date().toISOString() } : {}),
+          // On move to in_progress, clear any stale lastAgentStatus from a prior run.
+          // Without this, UI badge logic (getCardBadgeKind, isAgentRunning) mis-identifies
+          // the task as terminal and hides the running indicator on re-run.
+          ...(column === 'in_progress'
+            ? { startedAt: new Date().toISOString(), lastAgentStatus: null }
+            : {}),
           ...(column === 'verified' ? { completedAt: new Date().toISOString() } : {}),
           // Include sessionId in the update so it's returned to frontend
           ...(sessionId ? { sessionId } : {}),
