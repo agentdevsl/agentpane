@@ -57,6 +57,13 @@
       "when": 1744070400000,
       "tag": "0016_add_agent_approval_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1745251200000,
+      "tag": "0017_add_token_rotation_columns",
+      "breakpoints": true
     }
   ]
 }

@@ -25,6 +25,7 @@ export const apiTokens = pgTable('api_tokens', {
   }),
   status: text('status').$type<ApiTokenStatus>().default('active').notNull(),
   expiresAt: timestamp('expires_at', { mode: 'string' }),
+  rotatedAt: timestamp('rotated_at', { mode: 'string' }),
   useCount: integer('use_count').default(0),
   lastUsedAt: timestamp('last_used_at', { mode: 'string' }),
   revokedAt: timestamp('revoked_at', { mode: 'string' }),

@@ -815,3 +815,86 @@ describe('DELETE /tokens/:id', () => {
     expect(body.error.code).toBe('INVALID_ID');
   });
 });
+
+// ─── F06-09: GET /tokens/rotation-due ──────────────────────────────────────────
+
+describe('GET /tokens/rotation-due', () => {
+  it('F06-09: returns tokens expiring within the default 30-day window', async () => {
+    const db = createMockDb();
+    const expiringSoon = makeToken({
+      id: 'token-soon',
+      name: 'expires-soon',
+      expiresAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    mockSelectChain(db, [expiringSoon]);
+    const rbacService = createMockRbacService();
+    const app = buildApp(makeAuth(), db, rbacService);
+
+    const res = await app.request('/tokens/rotation-due');
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.data.items).toHaveLength(1);
+    expect(body.data.items[0].id).toBe('token-soon');
+    expect(body.data.windowDays).toBe(30);
+  });
+
+  it('F06-09: accepts custom `days` window (clamped 1..365)', async () => {
+    const db = createMockDb();
+    mockSelectChain(db, []);
+    const rbacService = createMockRbacService();
+    const app = buildApp(makeAuth(), db, rbacService);
+
+    const res = await app.request('/tokens/rotation-due?days=7');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.windowDays).toBe(7);
+  });
+
+  it('F06-09: rejects non-numeric `days`', async () => {
+    const db = createMockDb();
+    mockSelectChain(db, []);
+    const rbacService = createMockRbacService();
+    const app = buildApp(makeAuth(), db, rbacService);
+
+    const res = await app.request('/tokens/rotation-due?days=not-a-number');
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('F06-09: with ?teamId requires admin role', async () => {
+    const db = createMockDb();
+    mockSelectChain(db, []);
+    const rbacService = createMockRbacService({
+      resolveTeamRole: vi.fn().mockResolvedValue('viewer'),
+      hasMinimumRole: vi.fn().mockReturnValue(false),
+    });
+    const app = buildApp(makeAuth({ authMethod: 'session' }), db, rbacService);
+
+    const res = await app.request('/tokens/rotation-due?teamId=team-001');
+    expect(res.status).toBe(403);
+  });
+
+  it('F06-09: with ?teamId and admin role returns team-wide rotation list', async () => {
+    const db = createMockDb();
+    const tokens = [
+      makeToken({
+        id: 'token-1',
+        expiresAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
+      }),
+    ];
+    mockSelectChain(db, tokens);
+    const rbacService = createMockRbacService({
+      resolveTeamRole: vi.fn().mockResolvedValue('admin'),
+      hasMinimumRole: vi.fn().mockReturnValue(true),
+    });
+    const app = buildApp(makeAuth({ authMethod: 'session' }), db, rbacService);
+
+    const res = await app.request('/tokens/rotation-due?teamId=team-001');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.items).toHaveLength(1);
+  });
+});

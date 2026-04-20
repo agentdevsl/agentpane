@@ -23,6 +23,9 @@ export const githubTokens = sqliteTable('github_tokens', {
   // Status (SQLite uses 0/1 for boolean)
   isValid: integer('is_valid', { mode: 'boolean' }).default(true),
   lastValidatedAt: text('last_validated_at'),
+  // F06-09: rotation-tracking columns. Null = not tracked (legacy rows).
+  expiresAt: text('expires_at'),
+  rotatedAt: text('rotated_at'),
   // Timestamps
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
   updatedAt: text('updated_at')
