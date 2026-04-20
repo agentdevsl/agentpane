@@ -1619,7 +1619,6 @@ describe('Cross-service: State Manager + DB consistency (IT-309)', () => {
       sdkSessionId: 'sdk-1',
       createdAt: new Date(),
       allowedPrompts: [{ tool: 'Bash', prompt: 'npm test' }],
-      launchSwarm: false,
     };
 
     // Store plan

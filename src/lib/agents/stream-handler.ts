@@ -94,12 +94,9 @@ export interface StreamHandlerOptions {
 
 export interface ExitPlanModeOptions {
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  pushToRemote?: boolean;
   remoteSessionId?: string;
   remoteSessionUrl?: string;
   remoteSessionTitle?: string;
-  launchSwarm?: boolean;
-  teammateCount?: number;
 }
 
 export interface SkillCallRecord {

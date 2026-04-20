@@ -54,8 +54,6 @@ export class AgentCoreBridgeService {
         turnCount: number;
         sdkSessionId: string;
         allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-        launchSwarm?: boolean;
-        teammateCount?: number;
       }
     ) => Promise<void>,
     private onAgentCompleteCallback?: () =>

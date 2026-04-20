@@ -75,8 +75,6 @@ function makePlanData(overrides: Record<string, unknown> = {}) {
     turnCount: (overrides.turnCount as number) ?? 3,
     sdkSessionId: (overrides.sdkSessionId as string) ?? 'sdk-session-1',
     allowedPrompts: overrides.allowedPrompts as Array<{ tool: 'Bash'; prompt: string }> | undefined,
-    launchSwarm: overrides.launchSwarm as boolean | undefined,
-    teammateCount: overrides.teammateCount as number | undefined,
   };
 }
 

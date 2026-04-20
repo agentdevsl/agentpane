@@ -59,11 +59,8 @@ AgentPane runs Claude agents through two nearly-parallel pipelines: a **host-mod
 ### F3 — Plan-option fields (`launchSwarm`, `teammateCount`) are carried end-to-end but never acted on
 
 **Priority:** P1
-**Observation:** `ExitPlanModeOptions` (`stream-handler.ts:92`) declares `launchSwarm` and `teammateCount`; `PlanReadyData`/`PlanData`/`AgentCorePlanReadyData` propagate them (`container-bridge.ts:51`, `agentcore-bridge.ts:38`, `container-agent/types.ts:93`, `plan-approval.service.ts:95`, `durable-streams.service.ts:219`). Plan approval logs them but passes only `prompt`, `phase`, `sdkSessionId` to `startAgentFn` (`plan-approval.service.ts:330`). `runAgentExecution` never reads these fields. Nothing in `container-exec.service.ts` spawns multiple `agent-runner` processes. Meanwhile `.claude/CLAUDE.md` "Team Mode" section states this is a live feature.
-**Risk:** Documentation fiction; agents that call `ExitPlanMode({ launchSwarm: true })` get no parallelism, users see single-agent execution. CLAUDE.md misleads future contributors. The SDK's own subagent spawning (`task_started` system messages) is what actually provides concurrency — it does not depend on these fields.
-**Recommendation:** Either delete the fields from the type chain and update CLAUDE.md to describe the actual SDK-driven topology, or implement a worktree-per-teammate fan-out in `PlanApprovalService.approvePlan`. Given the existing SDK subagent support, deletion is cheaper.
-**Effort:** S (delete) / XL (implement).
-**Links:** `.claude/CLAUDE.md` "Team Mode" section; `specs/application/state-machines/agent-lifecycle.md`.
+**Status:** Resolved (theme-03). Fields `launchSwarm`, `teammateCount`, and `pushToRemote` deleted from `ExitPlanModeOptions`, `PlanData`, `PlanReadyData`, `AgentCorePlanReadyData`, `ContainerAgentPlanReadyEvent`, `AgentPlanReadyData`, and the in-flight `handlePlanReady` callback shapes on both `container-agent.service.ts` and `container-exec.service.ts`. The SDK's own `task_started` subagent spawning continues to provide concurrency. CLAUDE.md "Team Mode" documentation is out of scope for this worktree; flagged as a follow-up doc fix.
+**Observation (archived):** `ExitPlanModeOptions` (`stream-handler.ts:92`) declared `launchSwarm` and `teammateCount`; `PlanReadyData`/`PlanData`/`AgentCorePlanReadyData` propagated them. Plan approval logged them but passed only `prompt`, `phase`, `sdkSessionId` to `startAgentFn`. `runAgentExecution` never read these fields. Nothing in `container-exec.service.ts` spawned multiple `agent-runner` processes.
 
 ### F4 — `allowedPrompts` are captured but never added to the execution `allowedTools`
 

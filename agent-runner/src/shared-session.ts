@@ -142,9 +142,6 @@ export function extractFileChange(
 /** ExitPlanMode options captured from the tool call. */
 export interface ExitPlanModeOptions {
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  launchSwarm?: boolean;
-  teammateCount?: number;
-  pushToRemote?: boolean;
   remoteSessionId?: string;
   remoteSessionUrl?: string;
   remoteSessionTitle?: string;

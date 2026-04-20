@@ -171,7 +171,9 @@ describe('PlanApprovalService — full service integration (IT-220)', () => {
       expect(dbTask?.plan).toBeNull();
     });
 
-    it('IT-221d: stores launchSwarm and teammateCount for team mode', async () => {
+    it('IT-221d: accepts allowedPrompts from ExitPlanMode options', async () => {
+      // theme-03 F3: launchSwarm/teammateCount removed as they were dead data.
+      // allowedPrompts remains a live field used by downstream permission logic.
       const project = await createTestProject();
       const task = await createTestTask(project.id, { column: 'in_progress' });
       const session = await createTestSession(project.id, { taskId: task.id });
@@ -189,17 +191,16 @@ describe('PlanApprovalService — full service integration (IT-220)', () => {
         phase: 'plan',
       });
 
+      const allowedPrompts = [{ tool: 'Bash' as const, prompt: 'ls -la' }];
       await service.handlePlanReady(task.id, session.id, project.id, {
         plan: 'Multi-agent plan',
         turnCount: 8,
         sdkSessionId: 'sdk-team',
-        launchSwarm: true,
-        teammateCount: 4,
+        allowedPrompts,
       });
 
       const plan = state.getPendingPlan(task.id);
-      expect(plan?.launchSwarm).toBe(true);
-      expect(plan?.teammateCount).toBe(4);
+      expect(plan?.allowedPrompts).toEqual(allowedPrompts);
     });
   });
 

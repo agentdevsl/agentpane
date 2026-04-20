@@ -280,7 +280,7 @@ describe('AgentExecutionService', () => {
         status: 'planning',
         turnCount: 5,
         plan: 'Step 1: Refactor module\nStep 2: Add tests',
-        planOptions: { launchSwarm: false },
+        planOptions: { allowedPrompts: [] },
       });
 
       const { agent, task } = await setupStartPrerequisites();
