@@ -25,6 +25,7 @@ import { getAgentMaxRuntimeMs, getGlobalDefaultModel } from '../settings.service
 import type { ContainerExecService } from './container-exec.service.js';
 import type { SandboxStateManager } from './sandbox-state.js';
 import {
+  resolveOAuthExpiresAtMs,
   resolveOAuthToken,
   updateAgentStatus,
   updateTaskOnAgentComplete,
@@ -232,6 +233,10 @@ export class AgentCoreBridgeService {
       return err(SandboxErrors.API_KEY_NOT_CONFIGURED);
     }
 
+    // theme-03 F11: resolve real OAuth expiry alongside the token so AgentCore
+    // does not write a fabricated 24h lifetime into the credentials file.
+    const oauthExpiresAtMs = await resolveOAuthExpiresAtMs(db);
+
     // Build invocation payload
     const payload: Record<string, unknown> = {
       prompt,
@@ -241,6 +246,7 @@ export class AgentCoreBridgeService {
       maxTurns: agentConfig.maxTurns,
       phase,
       oauthToken,
+      ...(oauthExpiresAtMs ? { oauthExpiresAt: oauthExpiresAtMs } : {}),
       cwd: '/workspace',
       ...(sdkSessionId ? { sdkSessionId } : {}),
     };
