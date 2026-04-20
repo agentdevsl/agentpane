@@ -25,6 +25,7 @@
  */
 
 import { inArray } from 'drizzle-orm';
+import * as pgSchema from '../../../db/schema/postgres/index.js';
 import * as sqliteSchema from '../../../db/schema/sqlite/index.js';
 import { createLogger } from '../../../lib/logging/logger.js';
 import type {
@@ -33,13 +34,32 @@ import type {
 } from '../../../lib/sandbox/providers/sandbox-provider.js';
 import type { SandboxInfo, SandboxStatus } from '../../../lib/sandbox/types.js';
 import type { Database } from '../../../types/database.js';
-import type { SandboxState, ServiceContainer } from '../types.js';
+import type { SandboxState, ServerConfig, ServiceContainer } from '../types.js';
 
 const log = createLogger('SandboxReconciliation');
 
-const schemaTables = {
-  sandboxInstances: sqliteSchema.sandboxInstances,
-};
+/**
+ * Resolve the `sandbox_instances` table reference for the active DB mode.
+ *
+ * Mirrors the DB-mode dispatch pattern used in `database.ts` so queries
+ * built here target the correct driver schema. The Drizzle SQL surface is
+ * identical across drivers, and the app's `Database` type is canonicalised
+ * to `SqliteDatabase` (see `src/types/database.ts`) — the PG driver is
+ * cast into that shape at creation time so the same query builder
+ * works across both backends. The cast to `typeof sqliteSchema.xxx`
+ * below mirrors that convention: column metadata differs structurally
+ * between dialects, but the runtime SQL emitted by Drizzle is
+ * driver-aware and uses the correct quoting / parameter binding.
+ */
+function resolveSchemaTables(dbMode: ServerConfig['dbMode'] = 'sqlite') {
+  if (dbMode === 'postgres') {
+    return {
+      sandboxInstances:
+        pgSchema.sandboxInstances as unknown as typeof sqliteSchema.sandboxInstances,
+    };
+  }
+  return { sandboxInstances: sqliteSchema.sandboxInstances };
+}
 
 /**
  * Shape returned by the reconciliation step. Exposed for tests so the
@@ -48,7 +68,7 @@ const schemaTables = {
 export interface ReconciliationReport {
   /** Live sandboxes seen from the provider. */
   providerCount: number;
-  /** Sandbox rows in the DB (any status except already-terminated). */
+  /** Sandbox rows in the DB with an active status (creating/running/idle/stopping). */
   dbCount: number;
   /** Live sandboxes with no matching DB row — adopted into the DB. */
   adoptedCount: number;
@@ -80,14 +100,20 @@ type ListableProvider = Pick<SandboxProvider, 'list' | 'name'>;
  *   signature lets callers wire it once and forget.
  * @param providerOverride Optional provider to use in tests. Falls back
  *   to `sandboxState.provider`.
+ * @param dbMode The active database mode — used to pick the correct
+ *   Drizzle schema table objects. Defaults to `'sqlite'` so existing
+ *   call sites and tests (which were written against SQLite) continue
+ *   to work without changes.
  */
 export async function reconcileSandboxes(
   db: Database,
   sandboxState: Pick<SandboxState, 'provider'>,
   // biome-ignore lint/correctness/noUnusedFunctionParameters: reserved for future invariants
   _services?: ServiceContainer,
-  providerOverride?: ListableProvider
+  providerOverride?: ListableProvider,
+  dbMode: ServerConfig['dbMode'] = 'sqlite'
 ): Promise<ReconciliationReport> {
+  const schemaTables = resolveSchemaTables(dbMode);
   const provider: ListableProvider | null =
     providerOverride ?? (sandboxState.provider as EventEmittingSandboxProvider | null);
 
@@ -126,7 +152,11 @@ export async function reconcileSandboxes(
   report.providerCount = liveSandboxes.length;
   const liveById = new Map(liveSandboxes.map((s) => [s.id, s] as const));
 
-  // Step 2: Enumerate DB state — only rows not already in a terminal state.
+  // Step 2: Enumerate DB state — only rows in an active status. Terminal
+  // rows (`stopped`, `error`) are historical and don't participate in
+  // reconciliation; filtering them at the DB lets the query use the
+  // status index and avoids a full table scan on large deployments.
+  const activeStatuses: SandboxStatus[] = ['creating', 'running', 'idle', 'stopping'];
   const dbRows = await db
     .select({
       id: schemaTables.sandboxInstances.id,
@@ -138,7 +168,8 @@ export async function reconcileSandboxes(
       cpuCores: schemaTables.sandboxInstances.cpuCores,
       idleTimeoutMinutes: schemaTables.sandboxInstances.idleTimeoutMinutes,
     })
-    .from(schemaTables.sandboxInstances);
+    .from(schemaTables.sandboxInstances)
+    .where(inArray(schemaTables.sandboxInstances.status, activeStatuses));
   report.dbCount = dbRows.length;
   const dbById = new Map(dbRows.map((r) => [r.id, r] as const));
 
@@ -175,12 +206,11 @@ export async function reconcileSandboxes(
   }
 
   // Step 4: Terminate DB rows whose referenced sandbox is gone from the
-  // provider. We only touch rows that claim to be running/idle/creating —
-  // rows already in `stopped`/`error` states are left as historical records.
-  const activeStatuses: SandboxStatus[] = ['creating', 'running', 'idle', 'stopping'];
-  const orphanDbIds = dbRows
-    .filter((r) => activeStatuses.includes(r.status) && !liveById.has(r.id))
-    .map((r) => r.id);
+  // provider. We only consider the active statuses selected in Step 2 —
+  // rows already in `stopped`/`error` states are left as historical
+  // records (they were filtered out by the `where(inArray(status, ...))`
+  // clause above).
+  const orphanDbIds = dbRows.filter((r) => !liveById.has(r.id)).map((r) => r.id);
 
   if (orphanDbIds.length > 0) {
     try {

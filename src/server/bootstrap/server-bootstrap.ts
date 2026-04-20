@@ -243,7 +243,7 @@ export async function run(): Promise<void> {
       // the DB (F01-01). Runs AFTER recovery & BEFORE any meaningful traffic
       // (readiness gate in F01-03 holds health at 503 until this completes).
       try {
-        await reconcileSandboxes(database.db, sandboxState, services);
+        await reconcileSandboxes(database.db, sandboxState, services, undefined, config.dbMode);
         sandboxState.reconciled = true;
       } catch (err) {
         log.error('Sandbox reconciliation failed (continuing)', {
