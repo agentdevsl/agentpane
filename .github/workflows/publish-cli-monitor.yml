@@ -1,0 +1,78 @@
+# F11-08: Publish @agentpane/cli-monitor to npm.
+#
+# Replaces the manual `npm publish` flow that previously required a token
+# stored at /specs/CLI_monitor/.env — a location one `git add specs/` away
+# from leaking. The token is now held as the repo secret `NPM_PUBLISH_TOKEN`.
+#
+# Triggers:
+#   - `workflow_dispatch` — operator explicitly requests a publish, with an
+#     optional version bump.
+#   - `push` of a tag matching `cli-monitor-v*` — for automated publishing
+#     after a merged version bump PR.
+#
+# The workflow publishes with `--provenance` so the release is attested to
+# this repository/workflow, making hijack attacks visible on npm.
+
+name: Publish CLI Monitor
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Dry-run (skip actual publish)'
+        required: false
+        default: 'false'
+  push:
+    tags:
+      - 'cli-monitor-v*'
+
+permissions:
+  contents: read
+  id-token: write      # npm provenance requires OIDC
+
+concurrency:
+  group: publish-cli-monitor-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.10'
+
+      - name: Set up Node (for npm publish)
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          always-auth: true
+
+      - name: Install CLI monitor dependencies
+        working-directory: packages/cli-monitor
+        run: bun install --frozen-lockfile
+
+      - name: Run tests
+        working-directory: packages/cli-monitor
+        run: bun test
+
+      - name: Build
+        working-directory: packages/cli-monitor
+        run: bun run build:js
+
+      - name: Check package contents
+        working-directory: packages/cli-monitor
+        run: npm pack --dry-run
+
+      - name: Publish to npm (with provenance)
+        if: ${{ github.event.inputs.dry-run != 'true' }}
+        working-directory: packages/cli-monitor
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
+        run: npm publish --access public --provenance

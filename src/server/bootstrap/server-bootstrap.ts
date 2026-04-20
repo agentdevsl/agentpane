@@ -6,6 +6,7 @@
  */
 
 import { createLogger } from '../../lib/logging/logger.js';
+import { flushRunningAgents } from './phases/agent-shutdown.js';
 import { resolveApiKey } from './phases/api-key-resolution.js';
 import { tryInitializeDatabase } from './phases/database.js';
 import { runRecovery } from './phases/recovery.js';
@@ -233,6 +234,26 @@ export async function run(): Promise<void> {
       );
       await Promise.allSettled(stopPromises);
       sandboxState.containerAgentService.dispose();
+    }
+  });
+
+  // F11-03: registered LAST so it runs FIRST on shutdown (LIFO). We get ~10s
+  // of the overall 30s budget to: mark running agents as paused, emit
+  // agent:interrupted session events (so the UI can show "restarting"),
+  // and best-effort stop their backing sandboxes. Any failure is logged but
+  // does not block subsequent cleanups.
+  shutdown.register('flushRunningAgents', async () => {
+    try {
+      const count = await flushRunningAgents({
+        db: database.db,
+        sessionService: services.sessionService,
+        getSandboxProvider,
+      });
+      log.info(`flushRunningAgents interrupted ${count} agent(s)`);
+    } catch (err) {
+      log.warn('flushRunningAgents failed', {
+        error: err instanceof Error ? err : new Error(String(err)),
+      });
     }
   });
 

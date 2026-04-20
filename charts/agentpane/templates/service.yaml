@@ -11,5 +11,13 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    {{- if .Values.durableStreams.sidecar.enabled }}
+    # F11-02: expose the durable-streams-server port so SSE resume / replay is
+    # reachable in-cluster (matches the Docker Compose topology).
+    - port: {{ .Values.durableStreams.sidecar.port }}
+      targetPort: streams
+      protocol: TCP
+      name: streams
+    {{- end }}
   selector:
     {{- include "agentpane.selectorLabels" . | nindent 4 }}

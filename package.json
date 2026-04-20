@@ -46,6 +46,8 @@
     "db:studio:pg": "drizzle-kit studio --config=drizzle.config.pg.ts",
     "db:migrate:sqlite-to-pg": "bun scripts/migrate-sqlite-to-pg.ts",
     "db:check-migration-parity": "bun scripts/check-migration-parity.ts",
+    "migrate:run-only": "bun scripts/migrate-run-only.ts",
+    "migrate:check-only": "bun scripts/migrate-check-only.ts",
     "docker:pg": "docker compose -f docker/docker-compose.postgres.yml up -d",
     "docker:pg:down": "docker compose -f docker/docker-compose.postgres.yml down",
     "prepare": "echo 'Run: pre-commit install --hook-type pre-commit --hook-type pre-push'"
