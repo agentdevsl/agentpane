@@ -1,4 +1,8 @@
-import { type CanUseTool, unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
+import {
+  type CanUseTool,
+  unstable_v2_createSession,
+  unstable_v2_resumeSession,
+} from '@anthropic-ai/claude-agent-sdk';
 import { createId } from '@paralleldrive/cuid2';
 import { createLogger } from '../../lib/logging/logger.js';
 import { createSessionEventWithMetadata } from '../../services/session/event-metadata.js';
@@ -64,6 +68,28 @@ function createMetadataEvent(params: {
   };
 }
 
+/**
+ * theme-03 F2: pre-tool-use hook signature used by the host-mode stream
+ * handler. Returning `{deny:true, reason?}` blocks the tool invocation —
+ * the SDK is told via `canUseTool` that the tool is not permitted and the
+ * reason (if any) is surfaced on a `tool:result` event with `isError:true`.
+ */
+export type StreamPreToolUseHook = (input: {
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+}) => Promise<{ deny?: boolean; reason?: string }>;
+
+/**
+ * theme-03 F2: post-tool-use hook signature. Runs after the SDK emits the
+ * `tool_use_summary` for a tracked tool. Errors are logged and do not
+ * propagate — hook failures must never abort the agent.
+ */
+export type StreamPostToolUseHook = (input: {
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  tool_response: { summary: string; is_error: boolean };
+}) => Promise<void>;
+
 export interface StreamHandlerOptions {
   agentId: string;
   sessionId: string;
@@ -78,6 +104,22 @@ export interface StreamHandlerOptions {
   /** Skill identity from the task — threaded into session events for replay context. */
   skillId?: string | null;
   skillName?: string | null;
+  /**
+   * theme-03 F5: When provided, `runAgentExecution` tries to resume the given
+   * Claude SDK session id via `unstable_v2_resumeSession`. On any failure the
+   * handler falls back to a fresh session with the full plan prompt — same
+   * defense-in-depth pattern the agent-runner uses.
+   */
+  sdkSessionId?: string;
+  /**
+   * theme-03 F2: pre/post tool-use hooks. Registered on the service per-agent
+   * and threaded through the options here. Pre-hooks run before each
+   * `canUseTool` decision and can block the tool. Post-hooks run after the
+   * SDK returns a `tool_use_summary` for that tool. All hook errors are
+   * logged and swallowed.
+   */
+  preToolUseHooks?: StreamPreToolUseHook[];
+  postToolUseHooks?: StreamPostToolUseHook[];
   sessionService: {
     publish: (sessionId: string, event: SessionEvent) => Promise<unknown>;
     persistOnly?: (sessionId: string, event: SessionEvent) => Promise<unknown>;
@@ -94,12 +136,9 @@ export interface StreamHandlerOptions {
 
 export interface ExitPlanModeOptions {
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  pushToRemote?: boolean;
   remoteSessionId?: string;
   remoteSessionUrl?: string;
   remoteSessionTitle?: string;
-  launchSwarm?: boolean;
-  teammateCount?: number;
 }
 
 export interface SkillCallRecord {
@@ -115,6 +154,12 @@ export interface AgentRunResult {
   result?: string;
   plan?: string;
   planOptions?: ExitPlanModeOptions;
+  /**
+   * theme-03 F5: Claude SDK session id captured during planning so the
+   * execution phase can resume the same conversation rather than paying the
+   * full-context cost of a fresh session.
+   */
+  sdkSessionId?: string;
   error?: string;
   metrics?: {
     totalCostUsd?: number;
@@ -471,6 +516,9 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   let turn = 0;
   let planContent = '';
   let exitPlanModeOptions: ExitPlanModeOptions | undefined;
+  // theme-03 F5: capture the SDK session id once the session is initialized
+  // so PlanApprovalService / TaskService.approvePlan can resume it on execute.
+  let capturedSdkSessionId: string | undefined;
 
   // Topology tracker for subagent lifecycle events during planning.
   // Skills can spawn subagents via the Agent tool, which emit task_started/progress/notification.
@@ -614,6 +662,19 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
 
     // Stream the planning response
     for await (const msg of session.stream()) {
+      // theme-03 F5: capture SDK session id as soon as it becomes available
+      // so it can be persisted in plan options and used to resume on approval.
+      if (!capturedSdkSessionId) {
+        try {
+          const sid = session.sessionId;
+          if (typeof sid === 'string' && sid.length > 0) {
+            capturedSdkSessionId = sid;
+          }
+        } catch {
+          // sessionId throws until the first message is received — retry on next iteration.
+        }
+      }
+
       // Check if abort signal or runtime timeout has been triggered
       if (signal?.aborted || timeoutController.signal.aborted) {
         clearTimeout(timeoutId);
@@ -891,6 +952,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
               runId,
               plan: planContent || accumulated,
               allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+              sdkSessionId: capturedSdkSessionId,
             },
           })
         );
@@ -901,6 +963,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           turnCount: turn,
           plan: planContent || accumulated,
           planOptions: exitPlanModeOptions,
+          sdkSessionId: capturedSdkSessionId,
           metrics: extractResultMetrics(result),
           skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
           fileChanges:
@@ -929,6 +992,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           runId,
           plan: planContent || accumulated,
           allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+          sdkSessionId: capturedSdkSessionId,
         },
       })
     );
@@ -939,6 +1003,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
       turnCount: turn,
       plan: planContent || accumulated || 'No plan generated',
       planOptions: exitPlanModeOptions,
+      sdkSessionId: capturedSdkSessionId,
       skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
       fileChanges:
         modifiedFiles.size > 0
@@ -1048,10 +1113,18 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     })
   );
 
-  // Track active tools by toolUseID for correlating with tool_use_summary
+  // Track active tools by toolUseID for correlating with tool_use_summary.
+  // theme-03 F2: `toolInput` is retained alongside the other tracking state
+  // so post-tool-use hooks can receive the original input when the summary
+  // arrives.
   const activeTools = new Map<
     string,
-    { toolName: string; startTime: number; skillName?: string }
+    {
+      toolName: string;
+      startTime: number;
+      skillName?: string;
+      toolInput: Record<string, unknown>;
+    }
   >();
 
   // Accumulate Skill tool calls for AgentRunResult
@@ -1061,14 +1134,67 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
   const modifiedFiles = new Set<string>();
 
   const canUseTool: CanUseTool = async (toolName, input, toolOptions) => {
-    const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
+    const toolInputRecord = (input ?? {}) as Record<string, unknown>;
+
+    // theme-03 F2: run each registered pre-tool-use hook. First hook that
+    // returns {deny:true} blocks the tool. Hook exceptions are logged and
+    // treated as "no opinion" so a buggy hook cannot silently allow/deny.
+    if (options.preToolUseHooks && options.preToolUseHooks.length > 0) {
+      for (const hook of options.preToolUseHooks) {
+        let hookResult: { deny?: boolean; reason?: string } = {};
+        try {
+          hookResult = await hook({ tool_name: toolName, tool_input: toolInputRecord });
+        } catch (hookErr) {
+          log.warn('Pre-tool-use hook threw, ignoring verdict', {
+            error: hookErr instanceof Error ? hookErr.message : String(hookErr),
+            data: { agentId, toolName },
+          });
+          continue;
+        }
+        if (hookResult.deny) {
+          const reason = hookResult.reason ?? `Tool "${toolName}" blocked by pre-tool-use hook`;
+          await sessionService.publish(
+            sessionId,
+            createMetadataEvent({
+              sessionId,
+              type: 'tool:result',
+              partType: 'tool_result',
+              blockId: toolOptions.toolUseID,
+              data: {
+                agentId,
+                toolId: toolOptions.toolUseID,
+                tool: toolName,
+                output: reason,
+                isError: true,
+              },
+            })
+          );
+          log.info('Pre-tool-use hook denied tool', {
+            data: { agentId, toolName, reason },
+          });
+          return {
+            behavior: 'deny' as const,
+            message: reason,
+            interrupt: false,
+          };
+        }
+      }
+    }
+
+    const toolEntry: {
+      toolName: string;
+      startTime: number;
+      skillName?: string;
+      toolInput: Record<string, unknown>;
+    } = {
       toolName,
       startTime: Date.now(),
+      toolInput: toolInputRecord,
     };
 
     // Enrich Skill tool calls with the invoked skill name for downstream tracking
     if (toolName === 'Skill') {
-      const skillInput = input as Record<string, unknown>;
+      const skillInput = toolInputRecord;
       const invokedSkillName = typeof skillInput.skill === 'string' ? skillInput.skill : undefined;
       if (invokedSkillName) {
         toolEntry.skillName = invokedSkillName;
@@ -1081,7 +1207,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
 
     // Capture subagent_type from Agent tool calls for topology grouping
     if (toolName === 'Agent') {
-      const agentInput = input as Record<string, unknown>;
+      const agentInput = toolInputRecord;
       const subagentType =
         typeof agentInput.subagent_type === 'string' ? agentInput.subagent_type : null;
       if (subagentType) {
@@ -1094,8 +1220,8 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     // Track file-modifying tools for file change metrics
     if (toolName === 'Write' || toolName === 'Edit' || toolName === 'NotebookEdit') {
       const filePath =
-        ((input as Record<string, unknown>).file_path as string | undefined) ??
-        ((input as Record<string, unknown>).notebook_path as string | undefined);
+        (toolInputRecord.file_path as string | undefined) ??
+        (toolInputRecord.notebook_path as string | undefined);
       if (filePath) modifiedFiles.add(filePath);
     }
 
@@ -1110,7 +1236,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           agentId,
           toolId: toolOptions.toolUseID,
           tool: toolName,
-          input: input as Record<string, unknown>,
+          input: toolInputRecord,
         },
       })
     );
@@ -1118,15 +1244,41 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     return { behavior: 'allow' as const, toolUseID: toolOptions.toolUseID };
   };
 
-  // Create Claude Agent SDK session for execution
-  const session = unstable_v2_createSession({
+  // theme-03 F5: try to resume the planning-phase SDK session when the
+  // caller supplied one. Mirrors the agent-runner flow: on resume failure
+  // (stale session, SDK error) we fall back to a fresh session with the
+  // full plan prompt. The fresh-session branch is the status quo behavior.
+  const sdkSessionOptions = {
     model,
     env: buildSdkEnv(),
     allowedTools,
-    permissionMode: 'acceptEdits', // Auto-accept edits for execution
+    permissionMode: 'acceptEdits' as const, // Auto-accept edits for execution
     executableArgs: ['--add-dir', cwd],
     canUseTool,
-  });
+  };
+
+  let session: ReturnType<typeof unstable_v2_createSession>;
+  let sessionResumed = false;
+  if (options.sdkSessionId) {
+    try {
+      session = unstable_v2_resumeSession(options.sdkSessionId, sdkSessionOptions);
+      sessionResumed = true;
+      log.info('SDK session resumed for execution', {
+        data: { agentId, sdkSessionId: options.sdkSessionId },
+      });
+    } catch (resumeErr) {
+      const msg = resumeErr instanceof Error ? resumeErr.message : String(resumeErr);
+      log.warn('SDK session resume failed, falling back to fresh session', {
+        data: { agentId, sdkSessionId: options.sdkSessionId, error: msg },
+      });
+      session = unstable_v2_createSession(sdkSessionOptions);
+    }
+  } else {
+    session = unstable_v2_createSession(sdkSessionOptions);
+  }
+  // Suppress unused-var warning in builds that don't strip it; sessionResumed
+  // is retained for possible future telemetry / tests.
+  void sessionResumed;
 
   const batcher = createChunkBatcher(sessionId, agentId, 'execution', sessionService);
 
@@ -1342,6 +1494,30 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
               },
             })
           );
+
+          // theme-03 F2: run post-tool-use hooks for this tool. Hooks are
+          // fire-and-forget — any thrown error is logged but never aborts
+          // the stream or replaces the already-published tool:result event.
+          if (options.postToolUseHooks && options.postToolUseHooks.length > 0) {
+            const hookPayload = {
+              tool_name: tracked.toolName,
+              tool_input: tracked.toolInput,
+              tool_response: {
+                summary: toolSummary.summary ?? '',
+                is_error: summaryIsError,
+              },
+            };
+            for (const hook of options.postToolUseHooks) {
+              try {
+                await hook(hookPayload);
+              } catch (hookErr) {
+                log.warn('Post-tool-use hook threw', {
+                  error: hookErr instanceof Error ? hookErr.message : String(hookErr),
+                  data: { agentId, toolName: tracked.toolName },
+                });
+              }
+            }
+          }
 
           // Accumulate Skill tool calls for metrics
           if (tracked.skillName) {

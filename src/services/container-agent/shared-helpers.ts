@@ -297,6 +297,32 @@ export async function resolveOAuthToken(apiKeyService: ApiKeyService): Promise<s
 }
 
 /**
+ * theme-03 F11: Resolve the persisted OAuth token expiry in ms since epoch.
+ *
+ * Reads `expiresAt` from the `api_keys` row for the `anthropic` service (stored
+ * as an ISO-8601 string per F06-09). Returns null when the row is missing or
+ * the column is null (legacy rows), in which case the agent-runner falls back
+ * to a far-future sentinel rather than fabricating a 24h expiry.
+ */
+export async function resolveOAuthExpiresAtMs(db: Database): Promise<number | null> {
+  try {
+    const { apiKeys } = await import('../../db/schema');
+    const row = await db.query.apiKeys.findFirst({
+      where: eq(apiKeys.service, 'anthropic'),
+    });
+    if (!row?.expiresAt) return null;
+    const ms = Date.parse(row.expiresAt);
+    if (!Number.isFinite(ms) || ms <= 0) return null;
+    return ms;
+  } catch (err) {
+    log.info('Failed to resolve OAuth expiresAt from database', {
+      data: { error: err instanceof Error ? err.message : String(err) },
+    });
+    return null;
+  }
+}
+
+/**
  * Update agent record status after completion or error.
  */
 export async function updateAgentStatus(

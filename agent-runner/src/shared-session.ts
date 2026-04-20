@@ -21,14 +21,40 @@ import type { AgentFileChangedData } from './event-emitter.js';
 // ---------------------------------------------------------------------------
 
 /**
- * Write OAuth credentials to ~/.claude/.credentials.json.
+ * Far-future sentinel (~year 5138) used when the host does not supply a real
+ * OAuth token expiry. theme-03 F11: the previous 24h fiction caused revoked
+ * tokens to appear valid to the SDK for up to a day.
+ */
+const OAUTH_EXPIRES_AT_SENTINEL = 100_000_000_000_000;
+
+/**
+ * Options accepted by `writeCredentialsFile`. All fields except `oauthToken`
+ * are optional; when absent a safe default is substituted.
+ */
+export interface WriteCredentialsOptions {
+  /** Real OAuth token expiry (ms since epoch). Defaults to a far-future sentinel. */
+  expiresAt?: number;
+  /** OAuth refresh token from the host. Defaults to null (SDK rejects empty string). */
+  refreshToken?: string | null;
+}
+
+/**
+ * Write OAuth credentials to `$HOME/.claude/.credentials.json`.
  * The Claude Agent SDK reads this file for authentication.
  * OAuth tokens passed via ANTHROPIC_API_KEY env var are blocked by the API.
  *
  * SC-014: The credentials file is written with mode 0o600 (owner-read-only)
  * to mitigate token exposure risk on shared filesystems.
+ *
+ * theme-03 F11: `expiresAt` and `refreshToken` are now threaded through from
+ * the host when available. `homedir()` (which reads `process.env.HOME`) is
+ * used so the host can place each concurrent agent-runner invocation under a
+ * distinct HOME and avoid interleaved writes to a shared credentials file.
  */
-export async function writeCredentialsFile(oauthToken: string): Promise<void> {
+export async function writeCredentialsFile(
+  oauthToken: string,
+  options: WriteCredentialsOptions = {}
+): Promise<void> {
   const home = homedir();
   const claudeDir = join(home, '.claude');
   const credentialsFile = join(claudeDir, '.credentials.json');
@@ -40,8 +66,8 @@ export async function writeCredentialsFile(oauthToken: string): Promise<void> {
   const credentials = {
     claudeAiOauth: {
       accessToken: oauthToken,
-      refreshToken: null,
-      expiresAt: Date.now() + 86_400_000, // 24h
+      refreshToken: options.refreshToken ?? null,
+      expiresAt: options.expiresAt ?? OAUTH_EXPIRES_AT_SENTINEL,
       scopes: ['user:inference', 'user:profile', 'user:sessions:claude_code'],
       subscriptionType: 'max',
     },
@@ -142,9 +168,6 @@ export function extractFileChange(
 /** ExitPlanMode options captured from the tool call. */
 export interface ExitPlanModeOptions {
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  launchSwarm?: boolean;
-  teammateCount?: number;
-  pushToRemote?: boolean;
   remoteSessionId?: string;
   remoteSessionUrl?: string;
   remoteSessionTitle?: string;

@@ -169,6 +169,17 @@ export class AgentService {
   }
 
   /**
+   * theme-03 F6: host-mode plan rejection fallback for TaskService.rejectPlan.
+   * Delegates to AgentExecutionService.rejectPlanForTask.
+   */
+  async rejectPlanForTask(
+    taskId: string,
+    reason?: string
+  ): Promise<Result<void, { code: string; message: string; status: number }>> {
+    return this.executionService.rejectPlanForTask(taskId, reason);
+  }
+
+  /**
    * Check if a codespace has availability for a new running agent.
    */
   async checkAvailability(codespaceId: string): Promise<Result<boolean, never>> {

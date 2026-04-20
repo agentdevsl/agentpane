@@ -14,11 +14,28 @@ const mockSessionCreate = vi.hoisted(() =>
       })()
     ),
     close: vi.fn(),
+    sessionId: 'sdk-session-mock-id',
+  })
+);
+
+// theme-03 F5: host-mode stream-handler now calls unstable_v2_resumeSession
+// when the caller supplies an sdkSessionId (mirroring the agent-runner).
+const mockSessionResume = vi.hoisted(() =>
+  vi.fn().mockReturnValue({
+    send: vi.fn(),
+    stream: vi.fn().mockReturnValue(
+      (async function* () {
+        // empty stream
+      })()
+    ),
+    close: vi.fn(),
+    sessionId: 'sdk-session-mock-resumed-id',
   })
 );
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   unstable_v2_createSession: mockSessionCreate,
+  unstable_v2_resumeSession: mockSessionResume,
 }));
 
 vi.mock('@/lib/topology/map-agent-role', () => ({
@@ -39,8 +56,10 @@ function createMockSession() {
       })()
     ),
     close: vi.fn(),
+    sessionId: 'sdk-session-mock-id',
   };
   mockSessionCreate.mockReturnValue(session);
+  mockSessionResume.mockReturnValue(session);
   return session;
 }
 
@@ -1307,6 +1326,426 @@ describe('runAgentExecution', () => {
     expect(result.status).toBe('completed');
     expect(result.turnCount).toBe(1);
     expect(result.result).toBe('Implementation done');
+  });
+});
+
+// =============================================================================
+// theme-03 F5: host-mode SDK session resume across plan approval
+// =============================================================================
+
+describe('F5: host-mode SDK session resume', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    createMockSession();
+  });
+
+  it('runAgentPlanning captures sdkSessionId from the session and returns it', async () => {
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockReturnValue(
+        yieldMessages([
+          {
+            type: 'result',
+            total_cost_usd: 0.01,
+            duration_ms: 1000,
+            num_turns: 1,
+            stop_reason: 'end_turn',
+          },
+        ])
+      ),
+      close: vi.fn(),
+      sessionId: 'captured-sdk-session-42',
+    };
+    mockSessionCreate.mockReturnValue(mockSession);
+
+    const sessionService = createMockSessionService();
+    const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+
+    const result = await runAgentPlanning(createDefaultOptions(sessionService));
+
+    expect(result.sdkSessionId).toBe('captured-sdk-session-42');
+  });
+
+  it('runAgentPlanning emits plan_ready event carrying captured sdkSessionId', async () => {
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockReturnValue(
+        yieldMessages([
+          {
+            type: 'result',
+            total_cost_usd: 0.01,
+            duration_ms: 1000,
+            num_turns: 1,
+            stop_reason: 'end_turn',
+          },
+        ])
+      ),
+      close: vi.fn(),
+      sessionId: 'planning-sdk-session-xyz',
+    };
+    mockSessionCreate.mockReturnValue(mockSession);
+
+    const sessionService = createMockSessionService();
+    const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+
+    await runAgentPlanning(createDefaultOptions(sessionService));
+
+    const call = findPublishedEvent(sessionService, 'agent:plan_ready');
+    expect(call).toBeDefined();
+    const event = call![1] as { data: Record<string, unknown> };
+    expect(event.data.sdkSessionId).toBe('planning-sdk-session-xyz');
+  });
+
+  it('runAgentExecution calls unstable_v2_resumeSession when sdkSessionId is provided', async () => {
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockReturnValue(
+        yieldMessages([
+          {
+            type: 'result',
+            total_cost_usd: 0.01,
+            duration_ms: 1000,
+            num_turns: 1,
+            stop_reason: 'end_turn',
+          },
+        ])
+      ),
+      close: vi.fn(),
+      sessionId: 'resumed-123',
+    };
+    mockSessionResume.mockReturnValue(mockSession);
+
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    await runAgentExecution(createDefaultOptions(sessionService, { sdkSessionId: 'plan-sdk-77' }));
+
+    expect(mockSessionResume).toHaveBeenCalledWith(
+      'plan-sdk-77',
+      expect.objectContaining({ permissionMode: 'acceptEdits' })
+    );
+    expect(mockSessionCreate).not.toHaveBeenCalled();
+  });
+
+  it('runAgentExecution skips resume and calls createSession when no sdkSessionId is provided', async () => {
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockReturnValue(
+        yieldMessages([
+          {
+            type: 'result',
+            total_cost_usd: 0.01,
+            duration_ms: 1000,
+            num_turns: 1,
+            stop_reason: 'end_turn',
+          },
+        ])
+      ),
+      close: vi.fn(),
+      sessionId: 'fresh-123',
+    };
+    mockSessionCreate.mockReturnValue(mockSession);
+
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    await runAgentExecution(createDefaultOptions(sessionService));
+
+    expect(mockSessionCreate).toHaveBeenCalledTimes(1);
+    expect(mockSessionResume).not.toHaveBeenCalled();
+  });
+
+  it('runAgentExecution falls back to createSession when resume throws', async () => {
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockReturnValue(
+        yieldMessages([
+          {
+            type: 'result',
+            total_cost_usd: 0.01,
+            duration_ms: 1000,
+            num_turns: 1,
+            stop_reason: 'end_turn',
+          },
+        ])
+      ),
+      close: vi.fn(),
+      sessionId: 'fallback-123',
+    };
+    mockSessionResume.mockImplementationOnce(() => {
+      throw new Error('session expired');
+    });
+    mockSessionCreate.mockReturnValue(mockSession);
+
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    const result = await runAgentExecution(
+      createDefaultOptions(sessionService, { sdkSessionId: 'stale-sdk' })
+    );
+
+    expect(mockSessionResume).toHaveBeenCalledWith('stale-sdk', expect.any(Object));
+    // Fallback to fresh session on resume failure
+    expect(mockSessionCreate).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe('completed');
+  });
+});
+
+// =============================================================================
+// theme-03 F2: pre/post tool-use hooks
+// =============================================================================
+
+describe('F2: tool-use hooks wired into runAgentExecution.canUseTool', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('invokes registered pre-tool-use hook before allowing a tool', async () => {
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
+    const messages: Array<Record<string, unknown>> = [];
+    async function* controlledStream() {
+      while (messages.length === 0) {
+        await new Promise((r) => setTimeout(r, 1));
+      }
+      for (const m of messages) yield m;
+    }
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockImplementation(() => controlledStream()),
+      close: vi.fn(),
+      sessionId: 'exec-pre',
+    };
+    mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
+      return mockSession;
+    });
+
+    const preHook = vi.fn().mockResolvedValue({ deny: false });
+
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    const promise = runAgentExecution(
+      createDefaultOptions(sessionService, { preToolUseHooks: [preHook] })
+    );
+    for (let i = 0; i < 100 && !capturedCanUseTool; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    expect(capturedCanUseTool).not.toBeNull();
+
+    const verdict = await capturedCanUseTool!(
+      'Read',
+      { file_path: '/x.ts' },
+      {
+        toolUseID: 'tu-pre-1',
+      }
+    );
+
+    // Close the stream
+    messages.push({
+      type: 'result',
+      total_cost_usd: 0,
+      duration_ms: 1,
+      num_turns: 0,
+      stop_reason: 'end_turn',
+    });
+
+    await promise;
+
+    expect(preHook).toHaveBeenCalledWith({
+      tool_name: 'Read',
+      tool_input: { file_path: '/x.ts' },
+    });
+    expect(verdict).toEqual(expect.objectContaining({ behavior: 'allow', toolUseID: 'tu-pre-1' }));
+  });
+
+  it('denies the tool when a pre-tool-use hook returns {deny:true}', async () => {
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
+    const messages: Array<Record<string, unknown>> = [];
+    async function* controlledStream() {
+      while (messages.length === 0) {
+        await new Promise((r) => setTimeout(r, 1));
+      }
+      for (const m of messages) yield m;
+    }
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockImplementation(() => controlledStream()),
+      close: vi.fn(),
+      sessionId: 'exec-deny',
+    };
+    mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
+      return mockSession;
+    });
+
+    const denyHook = vi.fn().mockResolvedValue({ deny: true, reason: 'tool disallowed by policy' });
+
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    const promise = runAgentExecution(
+      createDefaultOptions(sessionService, { preToolUseHooks: [denyHook] })
+    );
+    for (let i = 0; i < 100 && !capturedCanUseTool; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    expect(capturedCanUseTool).not.toBeNull();
+
+    const verdict = await capturedCanUseTool!(
+      'Bash',
+      { command: 'rm -rf /' },
+      {
+        toolUseID: 'tu-deny-1',
+      }
+    );
+
+    messages.push({
+      type: 'result',
+      total_cost_usd: 0,
+      duration_ms: 1,
+      num_turns: 0,
+      stop_reason: 'end_turn',
+    });
+
+    await promise;
+
+    expect(denyHook).toHaveBeenCalled();
+    expect(verdict).toEqual({
+      behavior: 'deny',
+      message: 'tool disallowed by policy',
+      interrupt: false,
+    });
+    // Denying should emit a tool:result with isError:true
+    const resultCall = findPublishedEvent(sessionService, 'tool:result');
+    expect(resultCall).toBeDefined();
+    const evt = resultCall![1] as { data: Record<string, unknown> };
+    expect(evt.data.isError).toBe(true);
+    expect(evt.data.output).toBe('tool disallowed by policy');
+  });
+
+  it('invokes post-tool-use hook after tool_use_summary', async () => {
+    // Pre-seed the activeTools map by invoking canUseTool BEFORE the stream
+    // yields the tool_use_summary. We build a stream that starts empty, then
+    // yield messages after the canUseTool call has registered the tool.
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
+    const messages: Array<Record<string, unknown>> = [];
+    async function* controlledStream() {
+      // Wait until the test has registered the tool before yielding the summary.
+      while (messages.length === 0) {
+        await new Promise((r) => setTimeout(r, 1));
+      }
+      for (const m of messages) yield m;
+    }
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockImplementation(() => controlledStream()),
+      close: vi.fn(),
+      sessionId: 'exec-post',
+    };
+    mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
+      return mockSession;
+    });
+
+    const postHook = vi.fn().mockResolvedValue(undefined);
+
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    const promise = runAgentExecution(
+      createDefaultOptions(sessionService, { postToolUseHooks: [postHook] })
+    );
+
+    // Poll until canUseTool has been captured from the session factory.
+    for (let i = 0; i < 100 && !capturedCanUseTool; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    expect(capturedCanUseTool).not.toBeNull();
+
+    // Register the tool via canUseTool so activeTools has the entry
+    await capturedCanUseTool!('Read', { file_path: '/a.ts' }, { toolUseID: 'tu-post-1' });
+
+    // Now provide the tool_use_summary + end-of-stream messages.
+    messages.push(
+      {
+        type: 'tool_use_summary',
+        summary: 'File read complete',
+        preceding_tool_use_ids: ['tu-post-1'],
+      },
+      {
+        type: 'result',
+        total_cost_usd: 0,
+        duration_ms: 1,
+        num_turns: 0,
+        stop_reason: 'end_turn',
+      }
+    );
+
+    await promise;
+
+    expect(postHook).toHaveBeenCalledWith({
+      tool_name: 'Read',
+      tool_input: { file_path: '/a.ts' },
+      tool_response: { summary: 'File read complete', is_error: false },
+    });
+  });
+
+  it('does not abort the stream if a post-tool-use hook throws', async () => {
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
+    const messages: Array<Record<string, unknown>> = [];
+    async function* controlledStream() {
+      while (messages.length === 0) {
+        await new Promise((r) => setTimeout(r, 1));
+      }
+      for (const m of messages) yield m;
+    }
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockImplementation(() => controlledStream()),
+      close: vi.fn(),
+      sessionId: 'exec-throw',
+    };
+    mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
+      return mockSession;
+    });
+
+    const throwHook = vi.fn().mockRejectedValue(new Error('hook boom'));
+
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    const promise = runAgentExecution(
+      createDefaultOptions(sessionService, { postToolUseHooks: [throwHook] })
+    );
+
+    for (let i = 0; i < 100 && !capturedCanUseTool; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    expect(capturedCanUseTool).not.toBeNull();
+
+    await capturedCanUseTool!('Read', { file_path: '/a.ts' }, { toolUseID: 'tu-throw-1' });
+
+    messages.push(
+      {
+        type: 'tool_use_summary',
+        summary: 'done',
+        preceding_tool_use_ids: ['tu-throw-1'],
+      },
+      {
+        type: 'result',
+        total_cost_usd: 0,
+        duration_ms: 1,
+        num_turns: 0,
+        stop_reason: 'end_turn',
+      }
+    );
+
+    const result = await promise;
+    expect(throwHook).toHaveBeenCalled();
+    // Hook failure must not fail the run
+    expect(result.status).toBe('completed');
   });
 });
 

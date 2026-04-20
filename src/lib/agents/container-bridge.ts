@@ -48,8 +48,6 @@ export interface PlanReadyData {
   turnCount: number;
   sdkSessionId: string;
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  launchSwarm?: boolean;
-  teammateCount?: number;
 }
 
 import type { AgentCompleteMetrics } from '../../services/container-agent/types.js';

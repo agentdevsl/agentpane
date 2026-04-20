@@ -8,6 +8,7 @@ import type {} from '../../src/services/container-agent/agentcore-bridge.service
 import type {} from '../../src/services/container-agent/container-exec.service';
 import { SandboxStateManager } from '../../src/services/container-agent/sandbox-state';
 import {
+  resolveOAuthExpiresAtMs,
   resolveOAuthToken,
   updateAgentStatus,
   updateTaskOnAgentComplete,
@@ -303,6 +304,77 @@ describe('Shared Helpers — resolveOAuthToken (IT-304)', () => {
       if (origKey !== undefined) process.env.ANTHROPIC_API_KEY = origKey;
       else delete process.env.ANTHROPIC_API_KEY;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// theme-03 F11: resolveOAuthExpiresAtMs (IT-304F)
+// ---------------------------------------------------------------------------
+
+describe('Shared Helpers — resolveOAuthExpiresAtMs (IT-304F)', () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+    // clearTestDatabase does not truncate api_keys (stable test fixture);
+    // delete the row ourselves so each F11 test sees a clean slate.
+    const db = getTestDb();
+    const { apiKeys } = await import('../../src/db/schema');
+    await db.delete(apiKeys).where(eq(apiKeys.service, 'anthropic'));
+  });
+
+  afterEach(async () => {
+    await clearTestDatabase();
+  });
+
+  it('IT-304F-a: returns null when no anthropic api key row exists', async () => {
+    const db = getTestDb();
+    const result = await resolveOAuthExpiresAtMs(db);
+    expect(result).toBeNull();
+  });
+
+  it('IT-304F-b: returns null when row exists but expiresAt is null (legacy)', async () => {
+    const db = getTestDb();
+    const { apiKeys } = await import('../../src/db/schema');
+    await db.insert(apiKeys).values({
+      id: createId(),
+      service: 'anthropic',
+      encryptedKey: 'enc',
+      maskedKey: 'sk-ant-...abc',
+      expiresAt: null,
+    });
+
+    const result = await resolveOAuthExpiresAtMs(db);
+    expect(result).toBeNull();
+  });
+
+  it('IT-304F-c: returns ms since epoch when expiresAt is a valid ISO string', async () => {
+    const db = getTestDb();
+    const { apiKeys } = await import('../../src/db/schema');
+    const iso = '2027-06-15T12:00:00.000Z';
+    await db.insert(apiKeys).values({
+      id: createId(),
+      service: 'anthropic',
+      encryptedKey: 'enc',
+      maskedKey: 'sk-ant-...abc',
+      expiresAt: iso,
+    });
+
+    const result = await resolveOAuthExpiresAtMs(db);
+    expect(result).toBe(Date.parse(iso));
+  });
+
+  it('IT-304F-d: returns null when expiresAt is unparseable', async () => {
+    const db = getTestDb();
+    const { apiKeys } = await import('../../src/db/schema');
+    await db.insert(apiKeys).values({
+      id: createId(),
+      service: 'anthropic',
+      encryptedKey: 'enc',
+      maskedKey: 'sk-ant-...abc',
+      expiresAt: 'not-a-date',
+    });
+
+    const result = await resolveOAuthExpiresAtMs(db);
+    expect(result).toBeNull();
   });
 });
 
@@ -1619,7 +1691,6 @@ describe('Cross-service: State Manager + DB consistency (IT-309)', () => {
       sdkSessionId: 'sdk-1',
       createdAt: new Date(),
       allowedPrompts: [{ tool: 'Bash', prompt: 'npm test' }],
-      launchSwarm: false,
     };
 
     // Store plan

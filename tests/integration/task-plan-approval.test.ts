@@ -32,9 +32,13 @@ function createMockContainerAgent(): ContainerAgentTrigger {
   };
 }
 
-function createMockAgentExecution(): AgentExecutionTrigger {
+function createMockAgentExecution(
+  overrides: Partial<AgentExecutionTrigger> = {}
+): AgentExecutionTrigger {
   return {
     resume: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+    rejectPlanForTask: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+    ...overrides,
   };
 }
 
@@ -128,21 +132,64 @@ describe('IT-041–045: Task Plan Approval and Rejection', () => {
       expect(containerAgent.rejectPlan).toHaveBeenCalledWith(task.id, 'bad plan');
     });
 
-    it('returns CONTAINER_AGENT_SERVICE_UNAVAILABLE when no containerAgentService is set', async () => {
+    // theme-03 F6: host-mode fallback for rejectPlan.
+    it('F6-a: falls back to agentExecutionService.rejectPlanForTask when container service is not set', async () => {
+      const codespace = await createTestProject();
+      const task = await createTestTask(codespace.id, { column: 'in_progress' });
+
+      const worktreeService = createMockWorktreeService();
+      const agentExecution = createMockAgentExecution();
+      const taskService = new TaskService(db as any, worktreeService);
+      // Do NOT set containerAgentService; set host-mode fallback only
+      taskService.setAgentExecutionService(agentExecution);
+
+      const result = await taskService.rejectPlan(task.id, 'stale plan');
+
+      expect(result.ok).toBe(true);
+      expect(agentExecution.rejectPlanForTask).toHaveBeenCalledWith(task.id, 'stale plan');
+    });
+
+    it('F6-b: returns NO_EXECUTION_SERVICE when neither service is set', async () => {
       const codespace = await createTestProject();
       const task = await createTestTask(codespace.id, { column: 'in_progress' });
 
       const worktreeService = createMockWorktreeService();
       const taskService = new TaskService(db as any, worktreeService);
-      // No containerAgentService set
+      // Neither containerAgentService nor agentExecutionService set
 
       const result = await taskService.rejectPlan(task.id, 'bad plan');
 
       expect(result.ok).toBe(false);
       if (result.ok) return;
 
-      expect(result.error.code).toBe('CONTAINER_AGENT_SERVICE_UNAVAILABLE');
+      expect(result.error.code).toBe('NO_EXECUTION_SERVICE');
       expect(result.error.status).toBe(503);
+    });
+
+    it('F6-c: propagates host-mode rejectPlanForTask errors to caller', async () => {
+      const codespace = await createTestProject();
+      const task = await createTestTask(codespace.id, { column: 'in_progress' });
+
+      const worktreeService = createMockWorktreeService();
+      const agentExecution = createMockAgentExecution({
+        rejectPlanForTask: vi.fn().mockResolvedValue({
+          ok: false,
+          error: {
+            code: 'PLAN_NOT_FOUND',
+            message: 'No pending plan for task',
+            status: 404,
+          },
+        }),
+      });
+      const taskService = new TaskService(db as any, worktreeService);
+      taskService.setAgentExecutionService(agentExecution);
+
+      const result = await taskService.rejectPlan(task.id, 'mistake');
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe('PLAN_NOT_FOUND');
+      expect(result.error.status).toBe(404);
     });
   });
 

@@ -216,8 +216,6 @@ export interface ContainerAgentPlanReadyEvent {
   turnCount: number;
   sdkSessionId: string;
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  launchSwarm?: boolean;
-  teammateCount?: number;
 }
 
 export interface ContainerAgentTaskUpdateFailedEvent {

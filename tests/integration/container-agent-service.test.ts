@@ -143,7 +143,7 @@ describe('ContainerAgentService — DB-level integration tests', () => {
       .update(tasks)
       .set({
         plan: 'Step 1: Implement feature\nStep 2: Write tests',
-        planOptions: { allowedPrompts: [], launchSwarm: false },
+        planOptions: { allowedPrompts: [] },
         lastAgentStatus: 'planning',
       })
       .where(eq(tasks.id, task.id));

@@ -255,9 +255,39 @@ function handleTopologySystemMsg(
 // Phase type
 type AgentPhase = 'plan' | 'execute';
 
+/**
+ * Parse CLAUDE_OAUTH_EXPIRES_AT env var.
+ *
+ * theme-03 F11: Accept a real token expiry from the host. When absent, fall
+ * back to a far-future sentinel so the SDK does not treat the token as expired
+ * but we avoid pretending to know a specific lifetime. The previous "+24h"
+ * default was a fiction — a token revoked externally still appeared valid to
+ * the SDK and surfaced as opaque 401s mid-stream.
+ */
+function parseOAuthExpiresAt(raw: string | undefined): number {
+  if (!raw) {
+    // Far-future sentinel (~year 5138). Signals "unknown expiry" to the SDK
+    // without masking real expirations when the host does supply them.
+    return 100_000_000_000_000;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.error(
+      `[agent-runner] CLAUDE_OAUTH_EXPIRES_AT is not a positive number ('${raw}'), using far-future default`
+    );
+    return 100_000_000_000_000;
+  }
+  return parsed;
+}
+
 // Configuration from environment (declared early for error handlers)
 const config = {
   oauthToken: process.env.CLAUDE_OAUTH_TOKEN,
+  // theme-03 F11: optional real OAuth metadata from the host. When absent the
+  // credentials file still gets written, but with a sentinel expiry rather
+  // than a fake Date.now()+24h value.
+  oauthExpiresAt: parseOAuthExpiresAt(process.env.CLAUDE_OAUTH_EXPIRES_AT),
+  oauthRefreshToken: process.env.CLAUDE_OAUTH_REFRESH_TOKEN ?? null,
   taskId: process.env.AGENT_TASK_ID,
   sessionId: process.env.AGENT_SESSION_ID,
   prompt: process.env.AGENT_PROMPT,
@@ -372,9 +402,21 @@ function validateConfig(): void {
 }
 
 /**
- * Write OAuth credentials to ~/.claude/.credentials.json
+ * Write OAuth credentials to $HOME/.claude/.credentials.json
  * The Claude Agent SDK reads this file for authentication.
  * OAuth tokens passed via ANTHROPIC_API_KEY env var are blocked by the API.
+ *
+ * theme-03 F11:
+ * - `homedir()` (which reads `process.env.HOME`) is used so that the host
+ *   can place each concurrent agent-runner invocation under a distinct HOME
+ *   (e.g. /tmp/agents/<taskId>) and avoid interleaved writes to a shared
+ *   `/home/node/.claude/.credentials.json`.
+ * - `expiresAt` is read from the host via `CLAUDE_OAUTH_EXPIRES_AT` when
+ *   available; otherwise a far-future sentinel is used. The previous
+ *   `Date.now() + 24h` fiction caused revoked tokens to appear valid to the
+ *   SDK for a day.
+ * - `refreshToken` is threaded through from `CLAUDE_OAUTH_REFRESH_TOKEN`
+ *   when the host has one; otherwise null (SDK rejects empty string).
  */
 async function writeCredentialsFile(): Promise<void> {
   const home = homedir();
@@ -385,18 +427,20 @@ async function writeCredentialsFile(): Promise<void> {
   console.error(`[agent-runner] Home directory: ${home}`);
   console.error(`[agent-runner] Credentials path: ${credentialsFile}`);
   console.error(`[agent-runner] Token received: ${config.oauthToken ? 'YES' : 'NONE'}`);
+  console.error(
+    `[agent-runner] Token expiresAt: ${process.env.CLAUDE_OAUTH_EXPIRES_AT ? 'from host' : 'sentinel (far-future)'}`
+  );
+  console.error(`[agent-runner] Refresh token: ${config.oauthRefreshToken ? 'provided' : 'none'}`);
 
   if (!config.oauthToken) {
     throw new Error('No OAuth token provided via CLAUDE_OAUTH_TOKEN environment variable');
   }
 
-  // Use null instead of empty string for refreshToken - SDK may reject empty string
-  // expiresAt as milliseconds (matching SDK's expected format from `claude login`)
   const credentials = {
     claudeAiOauth: {
       accessToken: config.oauthToken,
-      refreshToken: null,
-      expiresAt: Date.now() + 86400000, // 24h from now in milliseconds
+      refreshToken: config.oauthRefreshToken,
+      expiresAt: config.oauthExpiresAt,
       scopes: ['user:inference', 'user:profile', 'user:sessions:claude_code'],
       subscriptionType: 'max',
     },

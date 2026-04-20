@@ -107,11 +107,14 @@ describe('TaskService plan approval/rejection', () => {
   });
 
   describe('rejectPlan', () => {
-    it('returns 503 when no container agent service is configured', async () => {
+    it('returns NO_EXECUTION_SERVICE 503 when neither container nor host-mode service is configured', async () => {
+      // theme-03 F6: the error code is now NO_EXECUTION_SERVICE (was
+      // CONTAINER_AGENT_SERVICE_UNAVAILABLE) because rejectPlan now also
+      // supports a host-mode fallback via agentExecutionService.rejectPlanForTask.
       const result = await taskService.rejectPlan('any-task-id');
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('CONTAINER_AGENT_SERVICE_UNAVAILABLE');
+        expect(result.error.code).toBe('NO_EXECUTION_SERVICE');
         expect(result.error.status).toBe(503);
       }
     });

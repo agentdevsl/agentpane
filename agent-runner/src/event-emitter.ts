@@ -147,8 +147,6 @@ export interface AgentPlanReadyData {
   sdkSessionId: string;
   /** Allowed bash prompts from ExitPlanMode */
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  launchSwarm?: boolean;
-  teammateCount?: number;
   skillCalls?: SkillCallRecord[];
 }
 

@@ -71,6 +71,10 @@ interface InvocationPayload {
   cwd?: string;
   /** OAuth token for Claude authentication. */
   oauthToken?: string;
+  /** theme-03 F11: real OAuth expiry (ms since epoch) from the host registry. */
+  oauthExpiresAt?: number;
+  /** theme-03 F11: OAuth refresh token when the host has one. */
+  oauthRefreshToken?: string | null;
   /** Path to a sentinel file — when it exists the agent stops. */
   stopFile?: string;
 }
@@ -126,6 +130,8 @@ async function* handleInvocation(
     sdkSessionId,
     allowedPrompts,
     oauthToken,
+    oauthExpiresAt,
+    oauthRefreshToken,
     stopFile,
   } = payload;
 
@@ -155,7 +161,22 @@ async function* handleInvocation(
   }
 
   try {
-    await writeCredentialsFile(token);
+    // theme-03 F11: pass through real OAuth metadata from the host when
+    // available so the SDK does not see a fictitious 24h expiry. Prefer the
+    // per-invocation payload; fall back to process env vars for backwards
+    // compatibility with hosts that still propagate via env.
+    const rawEnvExpiresAt = process.env.CLAUDE_OAUTH_EXPIRES_AT;
+    const parsedEnvExpiresAt = rawEnvExpiresAt ? Number(rawEnvExpiresAt) : undefined;
+    const envExpiresAt =
+      parsedEnvExpiresAt && Number.isFinite(parsedEnvExpiresAt) && parsedEnvExpiresAt > 0
+        ? parsedEnvExpiresAt
+        : undefined;
+    const expiresAt =
+      oauthExpiresAt && Number.isFinite(oauthExpiresAt) && oauthExpiresAt > 0
+        ? oauthExpiresAt
+        : envExpiresAt;
+    const refreshToken = oauthRefreshToken ?? process.env.CLAUDE_OAUTH_REFRESH_TOKEN ?? null;
+    await writeCredentialsFile(token, { expiresAt, refreshToken });
   } catch (credErr) {
     yield evt('agent:error', {
       error: `Credential setup failed: ${credErr instanceof Error ? credErr.message : String(credErr)}`,
