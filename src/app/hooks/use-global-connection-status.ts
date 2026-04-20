@@ -69,8 +69,24 @@ export function useGlobalConnectionStatus(): ConnectionStatus {
         setStatus('connected');
         return;
       }
+      // Non-2xx from /api/health — server is reachable but reporting degraded.
+      // Log so operators/devs can see API-down scenarios in the browser console
+      // rather than only inferring them from the banner.
+      console.warn(
+        '[useGlobalConnectionStatus] /api/health returned non-ok status',
+        res.status,
+        res.statusText
+      );
       consecutiveFailuresRef.current += 1;
-    } catch {
+    } catch (err) {
+      // fetch() rejected: network error, CORS, abort (timeout), DNS, etc.
+      // Surface the reason so a stuck probe or misconfigured origin is
+      // debuggable without attaching a network inspector.
+      const isAbort = err instanceof DOMException && err.name === 'AbortError';
+      console.warn(
+        '[useGlobalConnectionStatus] /api/health probe failed',
+        isAbort ? `(timed out after ${HEALTH_TIMEOUT_MS}ms)` : err
+      );
       consecutiveFailuresRef.current += 1;
     } finally {
       clearTimeout(timeout);
