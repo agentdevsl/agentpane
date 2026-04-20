@@ -36,18 +36,25 @@ const log = createLogger('DockerProvider');
  * with zeros) + 2 trailing zero blocks. See `man tar(5)` or
  * https://www.gnu.org/software/tar/manual/html_node/Standard.html.
  */
-function buildSingleFileTar(name: string, content: Buffer, mode: number): Buffer {
-  if (name.length > 100) {
+function buildSingleFileTar(
+  name: string,
+  content: Buffer,
+  mode: number,
+  uid = 1000, // node user inside the agent-sandbox image
+  gid = 1000
+): Buffer {
+  const nameBytes = Buffer.byteLength(name, 'utf8');
+  if (nameBytes > 100) {
     // USTAR short-name field is 100 bytes; we could split into name/prefix but
     // no sandbox path needs it. Fail loud rather than silently truncating.
-    throw new Error(`writeFile: name too long for USTAR short-name (${name.length} > 100)`);
+    throw new Error(`writeFile: name too long for USTAR short-name (${nameBytes} bytes > 100)`);
   }
 
   const header = Buffer.alloc(512);
   header.write(name, 0, 100, 'utf8');
   header.write(mode.toString(8).padStart(7, '0') + '\0', 100, 8, 'ascii'); // mode
-  header.write('0000000\0', 108, 8, 'ascii'); // uid (0)
-  header.write('0000000\0', 116, 8, 'ascii'); // gid (0)
+  header.write(uid.toString(8).padStart(7, '0') + '\0', 108, 8, 'ascii'); // uid
+  header.write(gid.toString(8).padStart(7, '0') + '\0', 116, 8, 'ascii'); // gid
   header.write(content.length.toString(8).padStart(11, '0') + '\0', 124, 12, 'ascii'); // size
   header.write(
     Math.floor(Date.now() / 1000)
