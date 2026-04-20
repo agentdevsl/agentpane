@@ -6,6 +6,10 @@ inputs:
     description: Bun version to install
     required: false
     default: '1.3.10'
+  cache-version:
+    description: Cache version token; bump to invalidate stale caches
+    required: false
+    default: v2
 
 outputs:
   cache-hit:
@@ -25,14 +29,17 @@ runs:
       uses: actions/cache@v5
       with:
         path: node_modules
-        key: node-modules-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
-        restore-keys: |
-          node-modules-${{ runner.os }}-
+        key: node-modules-${{ inputs.cache-version }}-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
 
     - name: Restore Bun packages cache
       uses: actions/cache@v5
       with:
         path: ~/.bun/install/cache
-        key: bun-packages-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
+        key: bun-packages-${{ inputs.cache-version }}-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
         restore-keys: |
-          bun-packages-${{ runner.os }}-
+          bun-packages-${{ inputs.cache-version }}-${{ runner.os }}-
+
+    - name: Install dependencies (cache miss fallback)
+      if: steps.cache-modules.outputs.cache-hit != 'true'
+      shell: bash
+      run: bun install --frozen-lockfile
