@@ -13,7 +13,10 @@ on:
       - 'tests/lib/api/rbac-middleware.test.ts'
       - 'tests/routes/rbac-tokens.test.ts'
   schedule:
-    # Orchestration runs weekly on Mondays (more expensive); RBAC/state-machines run weekdays.
+    # All areas run at 04:00 UTC Mon–Fri. Orchestration is scheduled-only
+    # (skipped on pull_request events via matrix.schedule_only) to keep PR
+    # runtime bounded; state-machines and RBAC additionally gate PRs via
+    # the paths filter above.
     - cron: '0 4 * * 1-5'
   workflow_dispatch:
 

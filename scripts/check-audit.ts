@@ -56,12 +56,20 @@ function extractGhsaId(url: string | undefined): string | null {
   return match ? match[0] : null;
 }
 
+// Allowlist keys are `<ghsaId>:<package>` so an entry only waives the advisory
+// for the specific package it was justified against — prevents a single
+// allowlist entry from silently waiving a transitive CVE in an unrelated
+// package that happens to share the same GHSA ID.
+function allowKey(ghsaId: string, pkg: string): string {
+  return `${ghsaId}:${pkg}`;
+}
+
 function loadAllowlist(): Map<string, AllowEntry> {
   const raw = readFileSync(ALLOWLIST_PATH, 'utf-8');
   const parsed = JSON.parse(raw) as Allowlist;
   const map = new Map<string, AllowEntry>();
   for (const entry of parsed.allowed) {
-    map.set(entry.ghsaId, entry);
+    map.set(allowKey(entry.ghsaId, entry.package), entry);
   }
   return map;
 }
@@ -72,11 +80,25 @@ function runAudit(): AuditReport {
     encoding: 'utf-8',
     maxBuffer: 20 * 1024 * 1024,
   });
-  if (result.stdout.length === 0 && result.stderr.length > 0) {
-    console.error('[audit] npm audit failed:', result.stderr);
+  // `spawnSync` sets `.error` when the child couldn't be launched at all
+  // (e.g. ENOENT — npm not installed). In that case stdout/stderr are null,
+  // so check `error` before touching them.
+  if (result.error) {
+    console.error('[audit] could not run npm:', result.error.message);
     process.exit(2);
   }
-  return JSON.parse(result.stdout) as AuditReport;
+  const stdout = result.stdout ?? '';
+  const stderr = result.stderr ?? '';
+  if (stdout.length === 0 && stderr.length > 0) {
+    console.error('[audit] npm audit failed:', stderr);
+    process.exit(2);
+  }
+  try {
+    return JSON.parse(stdout) as AuditReport;
+  } catch (err) {
+    console.error('[audit] failed to parse npm audit output:', (err as Error).message);
+    process.exit(2);
+  }
 }
 
 function main(): void {
@@ -86,7 +108,7 @@ function main(): void {
   const now = new Date();
   const unlisted: Array<{ pkg: string; severity: Severity; ghsaId: string; title: string }> = [];
   const expired: AllowEntry[] = [];
-  const seenGhsa = new Set<string>();
+  const seenKeys = new Set<string>();
 
   for (const [pkg, vuln] of Object.entries(report.vulnerabilities)) {
     for (const via of vuln.via) {
@@ -96,9 +118,10 @@ function main(): void {
 
       const ghsaId = extractGhsaId(via.url);
       if (!ghsaId) continue;
-      seenGhsa.add(ghsaId);
+      const key = allowKey(ghsaId, pkg);
+      seenKeys.add(key);
 
-      const entry = allow.get(ghsaId);
+      const entry = allow.get(key);
       if (!entry) {
         unlisted.push({
           pkg,
@@ -110,20 +133,25 @@ function main(): void {
     }
   }
 
-  for (const entry of allow.values()) {
-    if (!seenGhsa.has(entry.ghsaId)) continue;
+  for (const [key, entry] of allow.entries()) {
+    if (!seenKeys.has(key)) continue;
     const expiry = new Date(entry.expiresAt);
     if (Number.isFinite(expiry.getTime()) && expiry < now) {
       expired.push(entry);
     }
   }
 
-  const obsolete = [...allow.values()].filter((e) => !seenGhsa.has(e.ghsaId));
+  const obsolete = [...allow.entries()]
+    .filter(([key]) => !seenKeys.has(key))
+    .map(([, entry]) => entry);
 
   if (unlisted.length === 0 && expired.length === 0) {
     console.log(
-      `[audit] OK — ${seenGhsa.size} gating advisories all allowlisted; ${obsolete.length} obsolete allowlist entries (remove from .github/audit-allowlist.json)`
+      `[audit] OK — ${seenKeys.size} gating advisories all allowlisted; ${obsolete.length} obsolete allowlist entries (remove from .github/audit-allowlist.json)`
     );
+    for (const e of obsolete) {
+      console.log(`  obsolete: ${e.ghsaId} (${e.package}) — reason: ${e.reason}`);
+    }
     process.exit(0);
   }
 
