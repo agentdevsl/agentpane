@@ -93,7 +93,7 @@
       }
     },
     {
-      "includes": ["agent-runner/**/*.ts", ".claude/skills/**/*.ts", "packages/**/*.ts"],
+      "includes": [".claude/skills/**/*.ts", "packages/**/*.ts"],
       "linter": {
         "rules": {
           "suspicious": {
