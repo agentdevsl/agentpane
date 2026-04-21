@@ -9,8 +9,8 @@
  * Usage: K8S_KUBECONFIG=/path/to/config bun scripts/test-k8s-provider.ts
  */
 
-import { getClusterInfo, loadKubeConfig } from '../src/lib/sandbox/providers/k8s-config.js';
-import { createK8sProvider, type K8sProvider } from '../src/lib/sandbox/providers/k8s-provider.js';
+import { getClusterInfo, loadKubeConfig } from '../src/lib/sandbox/providers/k8s-config';
+import { createK8sProvider, type K8sProvider } from '../src/lib/sandbox/providers/k8s-provider';
 
 // ANSI color codes for pretty output
 const colors = {

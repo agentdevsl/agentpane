@@ -28,7 +28,7 @@ rules:
       confidence: MEDIUM
 
   - id: agentpane.path-safety.missing-realpath-validation
-    severity: WARNING
+    severity: ERROR
     message: >
       Path validated with resolvePath() but validateRealPath() was not called.
       Symlinks can bypass string-based path validation. Call validateRealPath()

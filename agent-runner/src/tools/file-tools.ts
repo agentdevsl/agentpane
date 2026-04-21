@@ -156,6 +156,7 @@ export async function writeFileTool(
   context: ToolContext
 ): Promise<ToolResponse> {
   try {
+    // nosemgrep: agentpane.path-safety.missing-realpath-validation — validated below
     const filePath = resolvePath(args.path, context.cwd);
 
     // Validate parent real path to prevent symlink escapes for new files

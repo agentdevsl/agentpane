@@ -21,7 +21,19 @@
     "charts/**",
     "docker/**",
     "packages/**",
-    "app.config.timestamp_*.js"
+    "app.config.timestamp_*.js",
+    "src/app/components/features/agent-topology/mock/**",
+    "src/app/components/features/global-settings.tsx",
+    "src/app/components/features/session-history/components/index.ts",
+    "src/app/components/features/sidebar.tsx",
+    "src/app/components/features/task-detail-dialog/task-labels.tsx",
+    "src/app/components/features/task-detail-dialog/task-metadata.tsx",
+    "src/app/components/features/workflow-designer/NodeInspector.tsx",
+    "src/app/components/features/workflow-designer/SaveWorkflowDialog.tsx",
+    "src/app/components/features/workflow-designer/TemplatePicker.tsx",
+    "src/app/components/ui/claude-icon.tsx",
+    "src/app/hooks/use-task-operations.ts",
+    "src/app/services/runtime.ts"
   ],
   "ignoreDependencies": [
     "@agentpane/agent-sandbox-sdk",
@@ -29,7 +41,12 @@
     "@tanstack/router-core",
     "@tanstack/react-start",
     "@radix-ui/react-visually-hidden",
-    "agent-browser"
+    "agent-browser",
+    "@aws-sdk/client-sts",
+    "@radix-ui/react-popover",
+    "@biomejs/biome",
+    "@stryker-mutator/core"
   ],
+  "ignoreBinaries": ["vitest", "stryker", "vite", "tsc", "biome", "knip", "semgrep", "drizzle-kit"],
   "ignoreExportsUsedInFile": true
 }

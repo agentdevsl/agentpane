@@ -66,6 +66,12 @@ jobs:
       - name: Lint and Format Check
         run: bun run check
 
+      - name: Knip (unused files + dependencies)
+        run: bun run knip --include files --include dependencies
+
+      - name: Dependency audit (gated by allowlist)
+        run: bun scripts/check-audit.ts
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -80,10 +86,6 @@ jobs:
         uses: ./.github/actions/setup-bun-env
         with:
           bun-version: ${{ env.BUN_VERSION }}
-
-      - name: Dependency audit
-        run: bun pm audit 2>/dev/null || echo "::warning::Dependency audit found issues (non-blocking)"
-        continue-on-error: true
 
       - name: Test (shard ${{ matrix.shard }})
         run: bun vitest run --project unit --project jsdom --project db --shard=${{ matrix.shard }}
@@ -154,10 +156,49 @@ jobs:
             --exclude '.worktrees/**' \
             src/ agent-runner/src/ packages/
 
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: install
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup environment
+        uses: ./.github/actions/setup-bun-env
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: E2E smoke — task creation + agent auto-start golden path
+        run: bun vitest run --project functional tests/functional/smoke.test.ts
+
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: install
+    # Non-blocking for the first week of data; flip to hard gate once thresholds
+    # prove stable. See vitest.config.ts `thresholds` block.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup environment
+        uses: ./.github/actions/setup-bun-env
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Test with coverage (unit + jsdom + db)
+        run: bun vitest run --project unit --project jsdom --project db --coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
+
   integration-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [test, lint-and-typecheck, build, semgrep]
+    needs: [test, lint-and-typecheck, build, semgrep, e2e-smoke]
     strategy:
       fail-fast: false
       matrix:

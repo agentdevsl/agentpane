@@ -108,7 +108,6 @@ type ListableProvider = Pick<SandboxProvider, 'list' | 'name'>;
 export async function reconcileSandboxes(
   db: Database,
   sandboxState: Pick<SandboxState, 'provider'>,
-  // biome-ignore lint/correctness/noUnusedFunctionParameters: reserved for future invariants
   _services?: ServiceContainer,
   providerOverride?: ListableProvider,
   dbMode: ServerConfig['dbMode'] = 'sqlite'

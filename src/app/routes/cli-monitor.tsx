@@ -69,17 +69,17 @@ interface ErrorBoundaryState {
 }
 
 class CliMonitorErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false, error: null };
+  override state: ErrorBoundaryState = { hasError: false, error: null };
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
+  override componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[CliMonitor] Error boundary caught:', error, info.componentStack);
   }
 
-  render() {
+  override render() {
     if (this.state.hasError) {
       return (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">

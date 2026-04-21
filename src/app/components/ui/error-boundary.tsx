@@ -28,13 +28,13 @@ interface ErrorBoundaryState {
 }
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { error: null };
+  override state: ErrorBoundaryState = { error: null };
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo): void {
+  override componentDidCatch(error: Error, info: ErrorInfo): void {
     const tag = this.props.label ? `[${this.props.label}]` : '[ErrorBoundary]';
     console.error(`${tag} Render error:`, error, info.componentStack);
     this.props.onError?.(error, info);
@@ -44,7 +44,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     this.setState({ error: null });
   };
 
-  render(): ReactNode {
+  override render(): ReactNode {
     const { error } = this.state;
     if (error) {
       if (this.props.fallback) {

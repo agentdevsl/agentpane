@@ -13,6 +13,10 @@ on:
       - 'tests/lib/api/rbac-middleware.test.ts'
       - 'tests/routes/rbac-tokens.test.ts'
   schedule:
+    # All areas run at 04:00 UTC Mon–Fri. Orchestration is scheduled-only
+    # (skipped on pull_request events via matrix.schedule_only) to keep PR
+    # runtime bounded; state-machines and RBAC additionally gate PRs via
+    # the paths filter above.
     - cron: '0 4 * * 1-5'
   workflow_dispatch:
 
@@ -35,6 +39,9 @@ jobs:
             mutate: 'src/lib/state-machines/**/machine.ts,src/lib/state-machines/**/guards.ts,src/lib/state-machines/**/actions.ts'
           - area: rbac
             mutate: 'src/services/rbac.service.ts,src/services/rbac-token.service.ts,src/lib/api/auth-middleware.ts,src/lib/api/rbac-middleware.ts'
+          - area: orchestration
+            mutate: 'src/services/agent/agent-execution.service.ts,src/services/container-agent/plan-approval.service.ts,src/services/task.service.ts,src/lib/agents/stream-handler.ts'
+            schedule_only: true
     steps:
       - uses: actions/checkout@v6
 
@@ -57,27 +64,33 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Restore Stryker incremental cache
+        if: ${{ matrix.schedule_only != true || github.event_name != 'pull_request' }}
         uses: actions/cache@v5
         with:
           path: reports/mutation/stryker-incremental.json
-          key: stryker-incremental-${{ matrix.area }}-${{ github.base_ref || 'main' }}-${{ hashFiles('src/lib/state-machines/**', 'src/services/rbac*.ts', 'src/lib/api/auth-middleware.ts', 'src/lib/api/rbac-middleware.ts') }}
+          key: stryker-incremental-${{ matrix.area }}-${{ github.base_ref || 'main' }}-${{ hashFiles('src/lib/state-machines/**', 'src/services/rbac*.ts', 'src/lib/api/auth-middleware.ts', 'src/lib/api/rbac-middleware.ts', 'src/services/agent/agent-execution.service.ts', 'src/services/container-agent/plan-approval.service.ts', 'src/services/task.service.ts', 'src/lib/agents/stream-handler.ts') }}
           restore-keys: |
             stryker-incremental-${{ matrix.area }}-${{ github.base_ref || 'main' }}-
             stryker-incremental-${{ matrix.area }}-main-
 
       - name: Mutation test (${{ matrix.area }})
+        if: ${{ matrix.schedule_only != true || github.event_name != 'pull_request' }}
         run: npx stryker run --mutate '${{ matrix.mutate }}' --reporters clear-text --ignoreStatic
         continue-on-error: true
 
+      - name: Mutation test (${{ matrix.area }}) — skipped on PR
+        if: ${{ matrix.schedule_only == true && github.event_name == 'pull_request' }}
+        run: echo "::notice::Skipping ${{ matrix.area }} mutation on pull_request — runs on cron/workflow_dispatch only to keep PR runtime bounded."
+
       - name: Save Stryker incremental cache
-        if: always()
+        if: ${{ always() && (matrix.schedule_only != true || github.event_name != 'pull_request') }}
         uses: actions/cache/save@v5
         with:
           path: reports/mutation/stryker-incremental.json
-          key: stryker-incremental-${{ matrix.area }}-${{ github.base_ref || 'main' }}-${{ hashFiles('src/lib/state-machines/**', 'src/services/rbac*.ts', 'src/lib/api/auth-middleware.ts', 'src/lib/api/rbac-middleware.ts') }}
+          key: stryker-incremental-${{ matrix.area }}-${{ github.base_ref || 'main' }}-${{ hashFiles('src/lib/state-machines/**', 'src/services/rbac*.ts', 'src/lib/api/auth-middleware.ts', 'src/lib/api/rbac-middleware.ts', 'src/services/agent/agent-execution.service.ts', 'src/services/container-agent/plan-approval.service.ts', 'src/services/task.service.ts', 'src/lib/agents/stream-handler.ts') }}
 
       - name: Upload mutation report
-        if: always()
+        if: ${{ always() && (matrix.schedule_only != true || github.event_name != 'pull_request') }}
         uses: actions/upload-artifact@v7
         with:
           name: mutation-report-${{ matrix.area }}

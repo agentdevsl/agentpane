@@ -170,12 +170,16 @@ export default defineConfig({
         'src/lib/sandbox/providers/_archived/**',
         'src/lib/vite-stubs/**',
       ],
-      reporter: ['text', 'lcov', 'html'],
+      reporter: ['text', 'lcov', 'html', 'json-summary'],
+      // Baseline measured 2026-04-21 on unit+jsdom+db projects:
+      // statements 68.19%, branches 59.44%, functions 62.96%, lines 68.70%.
+      // Thresholds are floor(actual - 5) to current floor; ratchet up once we
+      // have a week of post-merge data.
       thresholds: {
-        statements: 50,
+        statements: 60,
         branches: 50,
-        functions: 50,
-        lines: 50,
+        functions: 55,
+        lines: 60,
       },
     },
   },

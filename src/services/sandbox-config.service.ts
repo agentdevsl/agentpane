@@ -134,7 +134,7 @@ export class SandboxConfigService {
    * (only the in-memory copy is cleared).
    */
   private decryptConfigToken<T extends SandboxConfig | null>(config: T): T {
-    if (!config || !config.nomadToken) {
+    if (!config?.nomadToken) {
       return config;
     }
     try {

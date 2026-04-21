@@ -1480,7 +1480,7 @@ export class AgentExecutionService {
       where: eq(tasks.id, taskId),
     });
 
-    if (!task || !task.plan || task.lastAgentStatus !== 'planning') {
+    if (!task?.plan || task.lastAgentStatus !== 'planning') {
       return err({
         code: 'PLAN_NOT_FOUND',
         message: `No pending plan for task ${taskId}`,

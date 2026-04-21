@@ -25,7 +25,7 @@ export class AppErrorClass extends Error implements AppError {
     this.details = details;
   }
 
-  toString(): string {
+  override toString(): string {
     return this.message;
   }
 }
