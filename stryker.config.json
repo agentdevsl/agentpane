@@ -17,6 +17,10 @@
     "src/lib/crypto/server-encryption.ts",
     "src/lib/crypto/token-encryption.ts",
     "src/services/github-token.service.ts",
+    "src/services/agent/agent-execution.service.ts",
+    "src/services/container-agent/plan-approval.service.ts",
+    "src/services/task.service.ts",
+    "src/lib/agents/stream-handler.ts",
     "!src/**/*.test.ts",
     "!src/**/*.spec.ts",
     "!src/**/types.ts"

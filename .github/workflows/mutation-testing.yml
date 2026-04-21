@@ -13,6 +13,7 @@ on:
       - 'tests/lib/api/rbac-middleware.test.ts'
       - 'tests/routes/rbac-tokens.test.ts'
   schedule:
+    # Orchestration runs weekly on Mondays (more expensive); RBAC/state-machines run weekdays.
     - cron: '0 4 * * 1-5'
   workflow_dispatch:
 
@@ -35,6 +36,9 @@ jobs:
             mutate: 'src/lib/state-machines/**/machine.ts,src/lib/state-machines/**/guards.ts,src/lib/state-machines/**/actions.ts'
           - area: rbac
             mutate: 'src/services/rbac.service.ts,src/services/rbac-token.service.ts,src/lib/api/auth-middleware.ts,src/lib/api/rbac-middleware.ts'
+          - area: orchestration
+            mutate: 'src/services/agent/agent-execution.service.ts,src/services/container-agent/plan-approval.service.ts,src/services/task.service.ts,src/lib/agents/stream-handler.ts'
+            schedule_only: true
     steps:
       - uses: actions/checkout@v6
 
@@ -66,6 +70,7 @@ jobs:
             stryker-incremental-${{ matrix.area }}-main-
 
       - name: Mutation test (${{ matrix.area }})
+        if: ${{ matrix.schedule_only != true || github.event_name != 'pull_request' }}
         run: npx stryker run --mutate '${{ matrix.mutate }}' --reporters clear-text --ignoreStatic
         continue-on-error: true
 
