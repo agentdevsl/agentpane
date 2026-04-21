@@ -156,6 +156,20 @@ jobs:
             --exclude '.worktrees/**' \
             src/ agent-runner/src/ packages/
 
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: install
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup environment
+        uses: ./.github/actions/setup-bun-env
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: E2E smoke — task creation + agent auto-start golden path
+        run: bun vitest run --project functional tests/functional/smoke.test.ts
+
   coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -184,7 +198,7 @@ jobs:
   integration-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [test, lint-and-typecheck, build, semgrep]
+    needs: [test, lint-and-typecheck, build, semgrep, e2e-smoke]
     strategy:
       fail-fast: false
       matrix:
