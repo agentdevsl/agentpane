@@ -156,6 +156,31 @@ jobs:
             --exclude '.worktrees/**' \
             src/ agent-runner/src/ packages/
 
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: install
+    # Non-blocking for the first week of data; flip to hard gate once thresholds
+    # prove stable. See vitest.config.ts `thresholds` block.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup environment
+        uses: ./.github/actions/setup-bun-env
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Test with coverage (unit + jsdom + db)
+        run: bun vitest run --project unit --project jsdom --project db --coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
+
   integration-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
