@@ -6,17 +6,17 @@ import { MemoryProvider, useMemory } from './memory-context';
 import type { MemoryTab } from './types';
 
 class MemoryTabErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
-  state: { error: Error | null } = { error: null };
+  override state: { error: Error | null } = { error: null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
+  override componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[MemoryView] Tab render error:', error, info.componentStack);
   }
 
-  render() {
+  override render() {
     if (this.state.error) {
       return (
         <div className="flex flex-col items-center justify-center py-12 text-center">

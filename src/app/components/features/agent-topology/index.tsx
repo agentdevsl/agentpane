@@ -23,17 +23,17 @@ interface AgentTopologyProps {
 
 /** Error boundary to catch React Flow / ELK crashes */
 class TopologyErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
-  state: { error: Error | null } = { error: null };
+  override state: { error: Error | null } = { error: null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
+  override componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[AgentTopology] Render error:', error, info.componentStack);
   }
 
-  render() {
+  override render() {
     if (this.state.error) {
       return (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-center">
