@@ -66,6 +66,9 @@ jobs:
       - name: Lint and Format Check
         run: bun run check
 
+      - name: Knip (unused files + dependencies)
+        run: bun run knip --include files --include dependencies
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
