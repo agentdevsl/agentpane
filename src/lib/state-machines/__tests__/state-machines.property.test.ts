@@ -1,3 +1,5 @@
+/** biome-ignore-all lint/nursery/noFloatingPromises: fc.assert is synchronous when the property function is sync; the rule can't infer this from the overloaded return type. */
+
 import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { AppError } from '../../errors/base.js';

@@ -84,7 +84,7 @@ describe('Task detail activity replay', () => {
       expect(latestCallbacks).not.toBeNull();
     });
 
-    act(() => {
+    await act(() => {
       latestCallbacks?.onToolCall?.({
         channel: 'toolCalls',
         data: {
@@ -141,7 +141,7 @@ describe('Task detail activity replay', () => {
       expect(latestCallbacks).not.toBeNull();
     });
 
-    act(() => {
+    await act(() => {
       latestCallbacks?.onAgentState?.({
         channel: 'agentState',
         data: { status: 'running', turn: 1, progress: 10 },
