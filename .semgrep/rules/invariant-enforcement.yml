@@ -29,7 +29,7 @@ rules:
       confidence: MEDIUM
 
   - id: agentpane.invariant.discarded-validation-result
-    severity: WARNING
+    severity: ERROR
     message: >
       validateTransition() called but the return value is not used.
       The validation result should be checked with invariant() or used
@@ -43,10 +43,14 @@ rules:
       - pattern-not-inside: |
           if (validateTransition(...)) { ... }
       - pattern-not-inside: |
+          if (!validateTransition(...)) { ... }
+      - pattern-not-inside: |
           invariant(validateTransition(...), ...);
+      - pattern-not-inside: |
+          return validateTransition(...);
     paths:
       exclude:
-        - "tests/**"
+        - "**/tests/**"
         - "**/__tests__/**"
     metadata:
       category: correctness
