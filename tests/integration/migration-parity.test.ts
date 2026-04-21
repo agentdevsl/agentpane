@@ -24,9 +24,7 @@ describe('Migration parity SQLite ↔ PostgreSQL (F02-01)', () => {
     });
     if (result.status !== 0) {
       // Surface the captured script output so a failure is actionable.
-      // biome-ignore lint/suspicious/noConsole: surfacing script output on failure is the point
       console.error('--- migration-parity STDOUT ---\n', result.stdout);
-      // biome-ignore lint/suspicious/noConsole: surfacing script output on failure is the point
       console.error('--- migration-parity STDERR ---\n', result.stderr);
     }
     expect(result.status, `check-migration-parity exited with code ${result.status}`).toBe(0);

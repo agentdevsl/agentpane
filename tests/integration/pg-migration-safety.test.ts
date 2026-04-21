@@ -62,7 +62,6 @@ suite('PostgreSQL migration safety (F02-13, gated)', () => {
   });
 
   it('runs the full migration chain against a fresh DB', async () => {
-    // biome-ignore lint/style/noNonNullAssertion: guarded by suite skip
     client = postgres(URL!, { max: 2, idle_timeout: 1 });
     await resetSchema(client);
 

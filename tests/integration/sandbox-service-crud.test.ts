@@ -137,7 +137,7 @@ describe('SandboxService (IT-1550)', () => {
   });
 
   describe('create (IT-1551)', () => {
-    it('IT-1552a: stream ID is prefixed with sandbox:${id}', async () => {
+    it('IT-1552a: stream ID is prefixed with sandbox:<id>', async () => {
       const result = await service.create({
         codespaceId: 'proj-1',
         codespacePath: '/project',

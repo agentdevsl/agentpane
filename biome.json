@@ -40,9 +40,6 @@
           },
           "complexity": {
             "noStaticOnlyClass": "off"
-          },
-          "nursery": {
-            "noFloatingPromises": "off"
           }
         }
       }
@@ -133,10 +130,14 @@
       "recommended": true,
       "correctness": {
         "noUnusedImports": "error",
-        "noUnusedVariables": "error"
+        "noUnusedVariables": "error",
+        "noUnusedFunctionParameters": "error"
+      },
+      "complexity": {
+        "useOptionalChain": "error"
       },
       "style": {
-        "noNonNullAssertion": "warn",
+        "noNonNullAssertion": "error",
         "noRestrictedImports": {
           "level": "error",
           "options": {
@@ -152,7 +153,7 @@
         "useImportType": "error"
       },
       "suspicious": {
-        "noExplicitAny": "warn",
+        "noExplicitAny": "error",
         "noConsole": "warn",
         "noControlCharactersInRegex": "off",
         "noArrayIndexKey": "off",

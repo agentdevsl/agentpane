@@ -40,7 +40,6 @@ function log(level: 'info' | 'error', msg: string, fields?: Record<string, unkno
   // An earlier contract let callers pass `{ data: {...} }` which double-wrapped
   // into `data.data.*` — avoid by only ever wrapping once here.
   const line = { level, msg, ...(fields ? { data: fields } : {}), ts: new Date().toISOString() };
-  // biome-ignore lint/suspicious/noConsole: stdout is the intended interface for a standalone migration tool
   console.log(JSON.stringify(line));
 }
 

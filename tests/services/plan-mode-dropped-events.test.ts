@@ -43,7 +43,6 @@ describe('PlanModeService dropped-event metrics (F05-02)', () => {
   it('records drops via the private recordDroppedEvent path', () => {
     const svc = makeService();
     // Cast to any to poke at the private method under test.
-    // biome-ignore lint/suspicious/noExplicitAny: test-only access to private metrics path
     const svcAny = svc as any;
     svcAny.recordDroppedEvent(
       'plan:started',
@@ -73,7 +72,6 @@ describe('PlanModeService dropped-event metrics (F05-02)', () => {
 
   it('extracts a code from non-standard error shapes', () => {
     const svc = makeService();
-    // biome-ignore lint/suspicious/noExplicitAny: test-only access to private metrics path
     const svcAny = svc as any;
     svcAny.recordDroppedEvent('plan:error', 'plan:x', 'just a string');
     const metrics = svc.getMetrics();
