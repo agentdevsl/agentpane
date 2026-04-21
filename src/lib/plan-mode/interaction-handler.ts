@@ -75,7 +75,7 @@ export class InteractionHandler {
     }
 
     const turn = session.turns[turnIndex];
-    if (!turn || !turn.interaction) {
+    if (!turn?.interaction) {
       return err(PlanModeErrors.INTERACTION_NOT_FOUND(interactionId));
     }
 

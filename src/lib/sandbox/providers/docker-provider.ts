@@ -52,14 +52,14 @@ function buildSingleFileTar(
 
   const header = Buffer.alloc(512);
   header.write(name, 0, 100, 'utf8');
-  header.write(mode.toString(8).padStart(7, '0') + '\0', 100, 8, 'ascii'); // mode
-  header.write(uid.toString(8).padStart(7, '0') + '\0', 108, 8, 'ascii'); // uid
-  header.write(gid.toString(8).padStart(7, '0') + '\0', 116, 8, 'ascii'); // gid
-  header.write(content.length.toString(8).padStart(11, '0') + '\0', 124, 12, 'ascii'); // size
+  header.write(`${mode.toString(8).padStart(7, '0')}\0`, 100, 8, 'ascii'); // mode
+  header.write(`${uid.toString(8).padStart(7, '0')}\0`, 108, 8, 'ascii'); // uid
+  header.write(`${gid.toString(8).padStart(7, '0')}\0`, 116, 8, 'ascii'); // gid
+  header.write(`${content.length.toString(8).padStart(11, '0')}\0`, 124, 12, 'ascii'); // size
   header.write(
-    Math.floor(Date.now() / 1000)
+    `${Math.floor(Date.now() / 1000)
       .toString(8)
-      .padStart(11, '0') + '\0',
+      .padStart(11, '0')}\0`,
     136,
     12,
     'ascii'
@@ -72,7 +72,7 @@ function buildSingleFileTar(
   // Compute checksum: unsigned sum of all header bytes (with placeholder)
   let checksum = 0;
   for (let i = 0; i < 512; i++) checksum += header[i] ?? 0;
-  header.write(checksum.toString(8).padStart(6, '0') + '\0 ', 148, 8, 'ascii');
+  header.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 8, 'ascii');
 
   // Data blocks, padded to 512-byte boundary
   const padLen = (512 - (content.length % 512)) % 512;
@@ -541,7 +541,7 @@ export class DockerProvider implements EventEmittingSandboxProvider {
         const containerName = containerInfo.Names[0]?.replace(/^\//, '') ?? '';
         // Parse container name: agentpane-{codespaceId}-{sandboxId8}
         const match = containerName.match(/^agentpane-(.+)-([a-z0-9]{8})$/);
-        if (!match || !match[1] || !match[2]) continue;
+        if (!match?.[1] || !match[2]) continue;
 
         const codespaceId = match[1];
         const sandboxIdPrefix = match[2];

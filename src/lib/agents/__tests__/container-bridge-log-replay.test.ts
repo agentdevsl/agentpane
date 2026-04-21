@@ -103,7 +103,6 @@ describe('F10-05 — agent-runner log replay in container bridge', () => {
       taskId: 't1',
       sessionId: 's1',
       codespaceId: 'c1',
-      // biome-ignore lint/suspicious/noExplicitAny: partial mock is fine for this host-side test
       streams: streams as any,
       onError,
     });
