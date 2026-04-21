@@ -17,7 +17,7 @@
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "check": "biome check .",
+    "check": "biome check --diagnostic-level=warn --error-on-warnings --max-diagnostics=500 .",
     "check:fix": "biome check --write .",
     "test": "vitest run",
     "test:watch": "vitest",
