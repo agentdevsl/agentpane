@@ -52,8 +52,7 @@
     "specs",
     "docker",
     "charts",
-    ".devcontainer",
-    "packages"
+    ".devcontainer"
   ],
   "tempDirName": ".stryker-tmp"
 }
