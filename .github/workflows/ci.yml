@@ -69,6 +69,9 @@ jobs:
       - name: Knip (unused files + dependencies)
         run: bun run knip --include files --include dependencies
 
+      - name: Dependency audit (gated by allowlist)
+        run: bun scripts/check-audit.ts
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -83,10 +86,6 @@ jobs:
         uses: ./.github/actions/setup-bun-env
         with:
           bun-version: ${{ env.BUN_VERSION }}
-
-      - name: Dependency audit
-        run: bun pm audit 2>/dev/null || echo "::warning::Dependency audit found issues (non-blocking)"
-        continue-on-error: true
 
       - name: Test (shard ${{ matrix.shard }})
         run: bun vitest run --project unit --project jsdom --project db --shard=${{ matrix.shard }}
