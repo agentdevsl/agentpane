@@ -705,25 +705,28 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
       const { WorktreeService } = await import('../../src/services/worktree.service');
 
       let _callCount = 0;
-      const failingRunner = {
-        exec: vi.fn().mockImplementation(async (cmd: string) => {
-          _callCount++;
-          // Allow 'git add', 'git status', 'git commit', 'git rev-parse'
-          if (cmd.includes('git add') || cmd.includes('git status')) {
-            return { stdout: '', stderr: '' };
-          }
-          if (cmd.includes('git commit')) {
-            return { stdout: '', stderr: '' };
-          }
-          if (cmd.includes('git rev-parse')) {
-            return { stdout: 'abc123', stderr: '' };
-          }
-          // Fail on checkout (merge step)
-          if (cmd.includes('git checkout')) {
-            throw new Error('fatal: could not detach HEAD');
-          }
+      const responder = async (cmd: string) => {
+        _callCount++;
+        if (cmd.includes('git add') || cmd.includes('git status')) {
           return { stdout: '', stderr: '' };
-        }),
+        }
+        if (cmd.includes('git commit')) {
+          return { stdout: '', stderr: '' };
+        }
+        if (cmd.includes('git rev-parse')) {
+          return { stdout: 'abc123', stderr: '' };
+        }
+        if (cmd.includes('git checkout')) {
+          throw new Error('fatal: could not detach HEAD');
+        }
+        return { stdout: '', stderr: '' };
+      };
+      // F06-NEW-01: WorktreeService now uses execArgs for every git op.
+      // Provide both `exec` (legacy) and `execArgs` (joining argv with
+      // spaces so the includes() patterns above keep matching).
+      const failingRunner = {
+        exec: vi.fn().mockImplementation(async (cmd: string) => responder(cmd)),
+        execArgs: vi.fn().mockImplementation(async (argv: string[]) => responder(argv.join(' '))),
       };
 
       const worktreeService = new WorktreeService(db, failingRunner);
@@ -992,20 +995,20 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
       const { WorktreeService } = await import('../../src/services/worktree.service');
 
       const gitCommands: string[] = [];
-      const mockRunner = {
-        exec: vi.fn().mockImplementation(async (cmd: string) => {
-          gitCommands.push(cmd);
-          // git branch --list: no existing branch
-          if (cmd.includes('git branch --list')) {
-            return { stdout: '', stderr: '' };
-          }
-          // git worktree add: succeed
-          if (cmd.includes('git worktree add')) {
-            return { stdout: 'Preparing worktree', stderr: '' };
-          }
-          // All other commands succeed
+      const responder = async (cmd: string) => {
+        gitCommands.push(cmd);
+        if (cmd.includes('git branch --list')) {
           return { stdout: '', stderr: '' };
-        }),
+        }
+        if (cmd.includes('git worktree add')) {
+          return { stdout: 'Preparing worktree', stderr: '' };
+        }
+        return { stdout: '', stderr: '' };
+      };
+      // F06-NEW-01: WorktreeService now uses execArgs for every git op.
+      const mockRunner = {
+        exec: vi.fn().mockImplementation(async (cmd: string) => responder(cmd)),
+        execArgs: vi.fn().mockImplementation(async (argv: string[]) => responder(argv.join(' '))),
       };
 
       const worktreeService = new WorktreeService(db, mockRunner);

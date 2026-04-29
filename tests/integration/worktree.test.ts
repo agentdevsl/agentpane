@@ -1,4 +1,4 @@
-import { exec as execCallback } from 'node:child_process';
+import { exec as execCallback, execFile as execFileCallback } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,7 @@ import { createTestTask } from '../factories/task.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
 
 const exec = promisify(execCallback);
+const execFile = promisify(execFileCallback);
 
 // Check if git is available
 let gitAvailable = true;
@@ -28,9 +29,20 @@ describe('WorktreeService Integration', () => {
   let worktreeService: WorktreeService;
   let setupSuccessful = false;
 
+  // F06-NEW-01: integration runner provides both `exec` (legacy shell) and
+  // `execArgs` (positional, no shell). The service uses execArgs for every
+  // git/cp invocation; exec remains for the user-script init path.
   const commandRunner = {
     exec: async (command: string, cwd: string) => {
       const result = await exec(command, { cwd });
+      return { stdout: result.stdout, stderr: result.stderr };
+    },
+    execArgs: async (argv: string[], cwd: string) => {
+      if (argv.length === 0) {
+        throw new Error('argv must contain at least one element');
+      }
+      const [cmd, ...args] = argv;
+      const result = await execFile(cmd as string, args, { cwd });
       return { stdout: result.stdout, stderr: result.stderr };
     },
   };
