@@ -248,6 +248,119 @@ deploymentStrategy:
   maxUnavailable: 0
 
 # -----------------------------------------------------------------------------
+# Backup CronJob (F11-21)
+# -----------------------------------------------------------------------------
+# Periodic database backups via `scripts/backup-db-pg.sh` (Postgres) or
+# `scripts/backup-db.sh` (SQLite). Disabled by default so a fresh `helm
+# install` does not require a backup PVC; operators must opt in by setting
+# `backup.enabled: true` and provisioning a PVC of size `backup.pvc.size`.
+#
+# The CronJob runs the backup script (already in the app image at
+# `/app/scripts/backup-db-pg.sh`) and writes timestamped artefacts to a
+# dedicated `backup` PVC mounted at `/backups`. Old backups beyond
+# `backup.retentionDays` are cleaned up by the script itself.
+#
+# The restore drill is documented in `specs/application/operations/backup-restore.md`.
+backup:
+  # -- Create a CronJob that runs database backups on a schedule. Default
+  # disabled — opt-in to avoid surprise PVC provisioning on a fresh install.
+  enabled: false
+
+  # -- Cron schedule expression (default: daily at 03:00 UTC). All times are
+  # interpreted in the cluster's `kube-controller-manager` timezone (usually
+  # UTC). Pin a specific timezone with `backup.timeZone` if your cluster
+  # supports `CronJob.spec.timeZone` (Kubernetes >= 1.27).
+  schedule: "0 3 * * *"
+
+  # -- Optional IANA timezone for the CronJob (Kubernetes >= 1.27). Leave
+  # blank to use the controller's default (typically UTC).
+  timeZone: ""
+
+  # -- Number of backup artefacts to keep on the PVC. The backup script's
+  # MAX_BACKUPS env var maps directly. Older artefacts are removed by the
+  # script after each successful run.
+  retentionDays: 7
+
+  # -- ConcurrencyPolicy: Forbid prevents overlapping runs if a backup runs
+  # long; Allow runs in parallel; Replace cancels the running one.
+  concurrencyPolicy: Forbid
+
+  # -- Number of successful job histories to retain
+  successfulJobsHistoryLimit: 3
+
+  # -- Number of failed job histories to retain (helps post-mortem)
+  failedJobsHistoryLimit: 3
+
+  # -- activeDeadlineSeconds for each backup Job (default: 30 minutes)
+  activeDeadlineSeconds: 1800
+
+  # -- Number of retries on Job failure
+  backoffLimit: 2
+
+  # -- PodSecurityContext for the backup Pod. Backups run as the same
+  # non-root user as the main app container.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  # -- securityContext for the backup container
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  pvc:
+    # -- Create a dedicated PVC to hold backup artefacts. If false you must
+    # pre-create a PVC named `<release>-agentpane-backup` and mount it.
+    create: true
+    # -- Storage class (empty = cluster default)
+    storageClass: ""
+    # -- PVC access mode. Backups are typically `ReadWriteOnce` since only
+    # one CronJob Pod writes at a time.
+    accessMode: ReadWriteOnce
+    # -- PVC size — sized for ~30 daily snapshots of a small AgentPane DB.
+    size: 5Gi
+    # -- Additional annotations for the backup PVC
+    annotations: {}
+
+  # -- Image used by the backup Job. Defaults to the main app image so
+  # `scripts/backup-db-pg.sh` and the `pg_dump`/`sqlite3` binaries are
+  # available with no extra build. To use a separate image with only the
+  # backup tooling, override `image.repository` / `image.tag`.
+  image:
+    # -- Image repository; empty string means "use the main app image"
+    repository: ""
+    # -- Image tag override; empty string means "use the main image's tag"
+    tag: ""
+    # -- Image pull policy
+    pullPolicy: IfNotPresent
+
+  # -- Resource requests/limits for the backup Pod (small, one-shot)
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # -- Optional node selector for the backup Pod (e.g. pin to a node label
+  # like `kubernetes.io/role: backup`).
+  nodeSelector: {}
+
+  # -- Optional tolerations for the backup Pod
+  tolerations: []
+
+  # -- Additional environment variables passed to the backup script
+  extraEnv: []
+
+# -----------------------------------------------------------------------------
 # Pre-upgrade Migration Hook (F11-05)
 # -----------------------------------------------------------------------------
 # A Helm pre-upgrade/pre-install Job applies migrations once before the
@@ -363,8 +476,21 @@ topologySpreadConstraints: []
 # Prerequisites:
 #   1. Install Agent Sandbox CRDs: kubectl apply -f k8s/manifests/crds.yaml
 #   2. Deploy the agent-sandbox controller to the cluster
-# Sandbox provider settings are stored in the database (sandbox.defaults,
-# sandbox.kubernetes keys) and can be managed via the Settings UI.
+#
+# Sandbox provider settings (provider type, image digest, resource limits,
+# network mode, etc.) are stored in the application database under the
+# `sandbox.defaults` and `sandbox.kubernetes` setting keys. They are NOT
+# rendered into Kubernetes manifests by this chart — the runtime sandbox
+# provider reads them from the DB at agent-start time, and they are managed
+# via the Settings UI or `PUT /api/settings`.
+#
+# F11-20 (arch29 review): an earlier version of this chart exposed
+# `sandbox.image.repository`/`tag` here, but those values were never read at
+# runtime — the DB was the source of truth all along. To prevent operator
+# confusion we deleted the decorative block; to override the sandbox image,
+# update the `sandbox.defaults.image` setting via the API or UI. The default
+# (`SANDBOX_DEFAULTS.image` in `src/lib/sandbox/types.ts`) is digest-pinned
+# and theme-04 P0-01 enforces digest pinning on any override.
 # -----------------------------------------------------------------------------
 sandbox:
   # -- Enable agent sandbox pod management and RBAC
@@ -374,14 +500,6 @@ sandbox:
   # the app will use the Agent Sandbox CRD provider; "docker" uses local Docker.
   # This is the default provider written to the database on first startup.
   provider: kubernetes
-
-  image:
-    # -- Agent sandbox container image repository
-    repository: agentpane/agent-sandbox
-    # -- Image pull policy for sandbox pods
-    pullPolicy: IfNotPresent
-    # -- Overrides the sandbox image tag
-    tag: ""
 
   # -- Namespace for agent sandbox pods
   namespace: agentpane-sandboxes
