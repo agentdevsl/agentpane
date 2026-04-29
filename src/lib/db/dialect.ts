@@ -119,14 +119,25 @@ export function jsonSet(
     // Build the path as a PG text array literal `{a,b}`.
     const pgPath = `{${path.join(',')}}`;
 
-    // PG `jsonb_set` requires a `jsonb` value. Use `to_jsonb` to coerce.
+    // PG `jsonb_set` requires a `jsonb` value. We use `to_jsonb` to coerce
+    // a typed scalar; postgres-js sends bound parameters with implicit
+    // `unknown` types so we cast them explicitly to disambiguate the
+    // `to_jsonb(anyelement)` polymorphic resolution.
     // Treat `null` literally — a null JS value maps to a JSON null. We use
     // the raw `'null'::jsonb` so the column stores a JSON null rather than
     // SQL NULL (which would mean "leave unchanged").
     if (value === null) {
       return sql`jsonb_set(${col}::jsonb, ${pgPath}::text[], 'null'::jsonb, true)`;
     }
-    return sql`jsonb_set(${col}::jsonb, ${pgPath}::text[], to_jsonb(${value}), true)`;
+    if (typeof value === 'boolean') {
+      return sql`jsonb_set(${col}::jsonb, ${pgPath}::text[], to_jsonb(${value}::boolean), true)`;
+    }
+    if (typeof value === 'number') {
+      // Use numeric for both integers and floats — preserves precision.
+      return sql`jsonb_set(${col}::jsonb, ${pgPath}::text[], to_jsonb(${value}::numeric), true)`;
+    }
+    // string
+    return sql`jsonb_set(${col}::jsonb, ${pgPath}::text[], to_jsonb(${value}::text), true)`;
   }
 
   // SQLite — `json_set` accepts scalar values directly.

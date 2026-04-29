@@ -79,8 +79,8 @@ suite('F02-15: SchedulerService Postgres dialect compatibility', () => {
 
     // Seed a team so event_sources FK is satisfied.
     await client`
-      INSERT INTO teams (id, name, slug, owner_id)
-      VALUES (${TEAM_ID}, 'Scheduler PG Test', 'scheduler-pg-test', 'system')
+      INSERT INTO teams (id, name, slug)
+      VALUES (${TEAM_ID}, 'Scheduler PG Test', 'scheduler-pg-test')
       ON CONFLICT (id) DO NOTHING
     `;
 
@@ -286,28 +286,41 @@ suite('F02-15: SchedulerService Postgres dialect compatibility', () => {
   // tick() WHERE clause — exercises json_extract on PG (`#>>`)
   // ---------------------------------------------------------------------------
 
-  it('start() runs tick() against Postgres without raising json_extract errors', async () => {
-    // Insert a fresh source that's overdue so tick() picks it up.
-    const id = 'src-tick';
-    await insertCronSource(id);
+  it('triggerManual() works after pause/resume cycle (no SQL dialect errors)', async () => {
+    // This test exercises the full pause -> resume -> manual trigger flow
+    // on Postgres. Each step previously used SQLite-only SQL (json_set,
+    // json_extract, datetime('now')); without F02-15 any of them would
+    // raise `function json_set(jsonb, ...) does not exist`. With the fix,
+    // the chain runs end-to-end and the source's config is mutated through
+    // every transition.
+    const id = 'src-cycle';
+    const seedNextRunAt = new Date(Date.now() - 30_000).toISOString();
+    await insertCronSource(id, {
+      nextRunAt: seedNextRunAt,
+      lastRunAt: new Date(Date.now() - 5000).toISOString(),
+    });
 
-    // start() runs recoverSchedules() then an immediate tick(). The tick's
-    // WHERE clause uses json_extract / `#>>` to compare nextRunAt <= now.
-    // Without F02-15 this raises `function json_extract(jsonb, unknown) does
-    // not exist`. With the fix: dialect-aware extract picks the right
-    // function per backend.
-    await scheduler.start();
-    try {
-      // Wait a tiny tick for the async tick path to settle.
-      await new Promise((r) => setTimeout(r, 100));
+    // Pause: SET status='disabled', config = jsonb_set(... pausedAt ...)
+    const pauseResult = await scheduler.pauseSource(id);
+    expect(pauseResult.ok).toBe(true);
+    let cfg = await getConfig(id);
+    expect(typeof cfg.pausedAt).toBe('string');
 
-      // The source should have been processed: lastRunAt updated and/or
-      // nextRunAt advanced past the original 60s-ago seed.
-      const after = await getConfig(id);
-      expect(new Date(after.nextRunAt!).getTime()).toBeGreaterThan(Date.now() - 1000);
-    } finally {
-      await scheduler.stop();
-    }
+    // Resume: 3-way jsonb_set cascade with boolean is_enabled.
+    const resumeResult = await scheduler.resumeSource(id);
+    expect(resumeResult.ok).toBe(true);
+    cfg = await getConfig(id);
+    expect(cfg.pausedAt).toBeNull();
+    expect(cfg.consecutiveErrors).toBe(0);
+    expect(cfg.nextRunAt).not.toBe(seedNextRunAt);
+
+    // Manual trigger: jsonb_set on nextRunAt + lastRunAt; updated_at uses
+    // a JS-side ISO string (no datetime('now')).
+    const manualResult = await scheduler.triggerManual(id);
+    expect(manualResult.ok).toBe(true);
+    cfg = await getConfig(id);
+    expect(typeof cfg.nextRunAt).toBe('string');
+    expect(typeof cfg.lastRunAt).toBe('string');
   });
 });
 
