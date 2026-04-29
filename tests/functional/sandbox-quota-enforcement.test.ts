@@ -134,12 +134,9 @@ describe('F04-10 — SandboxService.create() enforces quota', () => {
     ]);
 
     const provider = makeStubProvider();
-    // biome-ignore lint/suspicious/noExplicitAny: stubbed sqlite test db
     const sandboxConfigService = new SandboxConfigService(db as any);
     const service = new SandboxService(
-      // biome-ignore lint/suspicious/noExplicitAny: tests pass a sqlite test db that satisfies the dual-dialect Database type at runtime
       db as any,
-      // biome-ignore lint/suspicious/noExplicitAny: stub provider sufficient for the quota gate path
       provider as any,
       makeNoopStreams(),
       sandboxConfigService,
@@ -175,12 +172,9 @@ describe('F04-10 — SandboxService.create() enforces quota', () => {
     const project = await createTestProject();
 
     const provider = makeStubProvider();
-    // biome-ignore lint/suspicious/noExplicitAny: stubbed sqlite test db
     const sandboxConfigService = new SandboxConfigService(db as any);
     const service = new SandboxService(
-      // biome-ignore lint/suspicious/noExplicitAny: tests pass a sqlite test db that satisfies the dual-dialect Database type at runtime
       db as any,
-      // biome-ignore lint/suspicious/noExplicitAny: stub provider sufficient for the quota gate path
       provider as any,
       makeNoopStreams(),
       sandboxConfigService,
@@ -216,13 +210,7 @@ describe('F04-10 — SandboxService.create() enforces quota', () => {
     const provider = makeStubProvider();
     provider.create.mockRejectedValueOnce(new Error('expected provider stub'));
 
-    const service = new SandboxService(
-      // biome-ignore lint/suspicious/noExplicitAny: tests pass a sqlite test db that satisfies the dual-dialect Database type at runtime
-      db as any,
-      // biome-ignore lint/suspicious/noExplicitAny: stub provider sufficient for the quota gate path
-      provider as any,
-      makeNoopStreams()
-    );
+    const service = new SandboxService(db as any, provider as any, makeNoopStreams());
 
     const result = await service.create({
       codespaceId: project.id,

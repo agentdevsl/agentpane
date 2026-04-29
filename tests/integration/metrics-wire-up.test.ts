@@ -80,13 +80,9 @@ describe('F10-14 — MetricsService wire-up', () => {
     __resetEventRouterForTests();
 
     service = new AgentExecutionService(
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only constructor injection.
       db as any,
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only constructor injection.
       mockWorktreeService as any,
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only constructor injection.
       mockTaskService as any,
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only constructor injection.
       mockSessionService as any
     );
   });

@@ -51,7 +51,6 @@ describe('codespace.delete + api_tokens FK behavior (F02-20 / arch29-W2-Q)', () 
     const db = getTestDb();
     // Use a private accessor to read the underlying SQLite handle. Drizzle's
     // run/all wrappers don't expose PRAGMA introspection cleanly.
-    // biome-ignore lint/suspicious/noExplicitAny: test introspection
     const sqliteHandle = (db as any).$client as {
       prepare: (sql: string) => { all: () => Array<{ from: string; on_delete: string }> };
     };

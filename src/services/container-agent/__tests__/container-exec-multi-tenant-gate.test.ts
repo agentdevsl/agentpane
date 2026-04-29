@@ -33,7 +33,6 @@ import { assertSharedSandboxAllowed, resolveSandboxMode } from '../shared-helper
  * Drizzle union and constructing a fully-typed instance for tests is
  * not the point — the gate only uses `.query.settings.findFirst`.
  */
-// biome-ignore lint/suspicious/noExplicitAny: minimal test mock
 function makeMockDb(sandboxModeValue: string | null): any {
   const findFirst = vi.fn(async () => {
     if (sandboxModeValue === null) return null;
