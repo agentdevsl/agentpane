@@ -90,8 +90,11 @@ export function createApiKeysRoutes({ apiKeyService }: ApiKeysDeps) {
     try {
       body = await c.req.json();
     } catch {
+      // F07-15 (arch29-W2-H): standardise on VALIDATION_ERROR for both JSON
+      // parse failures and Zod validation failures so clients can branch on a
+      // single code. The other api-keys endpoints already use VALIDATION_ERROR.
       return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
+        { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid JSON in request body' } },
         400
       );
     }

@@ -26,33 +26,23 @@ import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/data
  * The production migration runner does create them. We list them here so
  * the generator still reports coverage but skips the assertion. When the
  * test helpers gain support, remove the table from this set.
+ *
+ * F09-21 (arch29-W2-Q): the harness now mirrors the production migration
+ * chain. All Drizzle-declared tables are present in the test DB; the set is
+ * empty so every table receives full drift coverage.
  */
-const MISSING_IN_TEST_DB = new Set<string>([
-  'workflows',
-  'plan_sessions',
-  'terraform_modules',
-  'terraform_registries',
-  'sandbox_instances',
-  'sandbox_tmux_sessions',
-  'schedule_executions',
-  'memory_insights',
-  'memory_messages',
-  'dream_sessions',
-  'skill_executions',
-  'skill_metrics',
-  'skill_suggestions',
-  'users',
-  'user_sessions',
-  'team_invitations',
-  'team_members',
-  'team_project_folders',
-  'cli_sessions', // harness doesn't run CLI_SESSIONS_MIGRATION_SQL
-]);
+const MISSING_IN_TEST_DB = new Set<string>([]);
 
 /**
  * Columns that Drizzle declares but the test-harness migration chain has
  * not yet applied. The real runtime migration chain DOES apply them.
  * Keyed by table name → set of column names to skip.
+ *
+ * F09-21 (arch29-W2-Q): cli_sessions and plan_sessions still carry real
+ * production drift — Drizzle declares columns that no SQLite runtime
+ * migration adds. These are tracked here so the suite catches NEW drift
+ * without flagging known-existing drift. Each entry must be cross-linked
+ * to a follow-up issue/finding so it doesn't become permanent.
  */
 const EXPECTED_MISSING_COLUMNS: Record<string, Set<string>> = {
   codespaces: new Set([]),
@@ -71,12 +61,16 @@ const EXPECTED_MISSING_COLUMNS: Record<string, Set<string>> = {
     'sandbox_container_id',
     'closed_at',
   ]),
-  // TODO: Drizzle declares `assigned_at` but neither the inline v19
-  // migration (v19-project-folders.ts) nor any later migration adds the
-  // column. Drizzle INSERTs succeed because the column defaults to
-  // `datetime('now')` and is never written explicitly, but SELECTing
-  // the field returns null. Track under follow-up.
-  codespace_tags: new Set(['assigned_at']),
+  // F02-16 follow-up: cli_sessions has Drizzle-declared columns that the
+  // SQLite runtime migration chain does NOT add (PG migration 0010 added
+  // them on PG only). The test harness adds them via per-column ALTERs so
+  // service tests can write through Drizzle, but the real SQLite production
+  // schema is missing them — open follow-up tracked separately.
+  cli_sessions: new Set<string>([]),
+  // The v19 stub creates plan_sessions with only id/codespace_id/project_id/
+  // task_id/session_id/status/created_at/updated_at. Drizzle declares richer
+  // columns. This is a real production drift; track as follow-up.
+  plan_sessions: new Set(['turns', 'github_issue_url', 'github_issue_number', 'completed_at']),
 };
 
 interface TableCase {

@@ -617,4 +617,114 @@ CREATE INDEX IF NOT EXISTS event_outbox_next_attempt_at_idx ON event_outbox(next
 CREATE INDEX IF NOT EXISTS event_outbox_status_next_attempt_idx ON event_outbox(status, next_attempt_at);
 `,
   },
+
+  // 37. F06-09 follow-up (arch29-W2-Q): backfill token rotation columns into the
+  // runtime migration chain. The drizzle-kit migration `0017_add_token_rotation_columns.sql`
+  // declares these but no inline runtime migration applied them, so the runtime
+  // schema differed from the drizzle-kit baseline. The v39 api_tokens rebuild
+  // below references `rotated_at`, so this must run first.
+  //
+  // Idempotent: ALTER TABLE ADD COLUMN is wrapped per-statement; the runner
+  // catches "duplicate column" errors and proceeds.
+  {
+    version: 37,
+    name: 'token-rotation-columns',
+    statements: [
+      `ALTER TABLE api_tokens ADD COLUMN rotated_at TEXT`,
+      `ALTER TABLE api_keys ADD COLUMN expires_at TEXT`,
+      `ALTER TABLE api_keys ADD COLUMN rotated_at TEXT`,
+      `ALTER TABLE github_tokens ADD COLUMN expires_at TEXT`,
+      `ALTER TABLE github_tokens ADD COLUMN rotated_at TEXT`,
+    ],
+  },
+
+  // 38. F02-19 (arch29-W2-Q): codespace_tags.assigned_at missing in SQLite.
+  //
+  // Drizzle declares `assigned_at` notNull() (`src/db/schema/sqlite/codespace-tags.ts:15`)
+  // but the v19 inline migration creates the table without the column
+  // (`v19-project-folders.ts:84-88`). On SQLite, INSERTs succeed because Drizzle
+  // supplies a JS-side default, but SELECTs return undefined while the type
+  // system claims string. PG already has the column in `0004_schema_catchup.sql`.
+  //
+  // Fix: add the column with the same default as Drizzle declares. Existing
+  // rows get the current time as their assigned_at (the column default applies
+  // to NULL backfills via SQLite's ALTER TABLE ADD COLUMN ... DEFAULT semantics).
+  // Use individual `statements` so the migration is idempotent — retry-safe if
+  // a prior run partially succeeded.
+  {
+    version: 38,
+    name: 'codespace-tags-assigned-at',
+    statements: [
+      `ALTER TABLE codespace_tags ADD COLUMN assigned_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+    ],
+  },
+
+  // 39. F02-20 (arch29-W2-Q): rebuild api_tokens to fix scope_codespace_id FK behavior.
+  //
+  // The v19 inline migration added `scope_codespace_id` with `ON DELETE CASCADE`
+  // (`v19-project-folders.ts:149`), but Drizzle declares `onDelete: 'set null'`
+  // (`src/db/schema/sqlite/api-tokens.ts:25`) and PG matches Drizzle. The result:
+  // deleting a codespace silently revokes API tokens on SQLite while preserving
+  // them on PG. Operationally surprising and silently divergent.
+  //
+  // SQLite cannot ALTER a foreign-key constraint in place, so the fix is the
+  // v29/v30 table-rebuild pattern. Per CLAUDE.md "Migration safety": null any
+  // orphaned scope_codespace_id values before the rebuild so the new FK
+  // doesn't fail. INSERT (no OR IGNORE — F02-22) copies all rows.
+  {
+    version: 39,
+    name: 'api-tokens-cascade-fix',
+    sql: `
+-- Step 1: drop any leftover staging table from a partial prior run.
+DROP TABLE IF EXISTS api_tokens_new_v39;
+
+-- Step 2: create the rebuilt table with the correct FK behavior.
+CREATE TABLE api_tokens_new_v39 (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  token_prefix TEXT NOT NULL,
+  role TEXT NOT NULL,
+  scope_tags TEXT,
+  scope_project_id TEXT,
+  scope_codespace_id TEXT REFERENCES codespaces(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  expires_at TEXT,
+  rotated_at TEXT,
+  use_count INTEGER DEFAULT 0,
+  last_used_at TEXT,
+  revoked_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+-- Step 3: copy rows. Pre-null orphaned scope_codespace_id values (rows where
+-- the codespace no longer exists) so the new FK doesn't fail on rebuild.
+INSERT INTO api_tokens_new_v39 (
+  id, user_id, team_id, name, token_hash, token_prefix, role,
+  scope_tags, scope_project_id, scope_codespace_id,
+  status, expires_at, rotated_at, use_count, last_used_at, revoked_at, created_at
+)
+SELECT
+  id, user_id, team_id, name, token_hash, token_prefix, role,
+  scope_tags, scope_project_id,
+  CASE WHEN scope_codespace_id IS NOT NULL
+       AND scope_codespace_id IN (SELECT id FROM codespaces)
+    THEN scope_codespace_id
+    ELSE NULL
+  END,
+  status, expires_at, rotated_at, use_count, last_used_at, revoked_at, created_at
+FROM api_tokens;
+
+-- Step 4: pivot the table.
+DROP TABLE api_tokens;
+ALTER TABLE api_tokens_new_v39 RENAME TO api_tokens;
+
+-- Step 5: recreate the supporting indexes that lived on the original table.
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_team ON api_tokens(team_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_status ON api_tokens(status);
+`,
+  },
 ];

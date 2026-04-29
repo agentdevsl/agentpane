@@ -106,6 +106,20 @@
       "when": 1778025600000,
       "tag": "0023_event_outbox_epoch_ms",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1778112000000,
+      "tag": "0024_codespace_tags_assigned_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1778198400000,
+      "tag": "0025_api_tokens_cascade_fix",
+      "breakpoints": true
     }
   ]
 }
