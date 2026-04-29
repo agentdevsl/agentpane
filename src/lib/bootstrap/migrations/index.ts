@@ -384,4 +384,99 @@ CREATE INDEX IF NOT EXISTS event_outbox_next_attempt_at_idx ON event_outbox(next
 CREATE INDEX IF NOT EXISTS event_outbox_status_next_attempt_idx ON event_outbox(status, next_attempt_at);
 `,
   },
+
+  // 33. Sandbox UNIQUE lifecycle fix (F04-08, arch29-W2-E):
+  // Rebuild sandbox_instances so the global UNIQUE on codespace_id is replaced
+  // by a partial unique index that fires only while the sandbox is in an
+  // *active* state. This unblocks the natural stop -> create lifecycle:
+  // before this fix, calling SandboxService.create() for a codespace whose
+  // previous sandbox row had moved to 'stopped' threw SQLITE_CONSTRAINT_UNIQUE.
+  //
+  // SQLite cannot drop a column-level UNIQUE constraint in place (the
+  // automatic sqlite_autoindex_* cannot be dropped), so we rebuild the
+  // table. The migration is idempotent on fresh installs (the table is
+  // created in step 1 with the new shape, then the rebuild is a no-op
+  // copy of zero rows).
+  {
+    version: 33,
+    name: 'sandbox-unique-partial-index',
+    sql: `
+-- Step 1: ensure the target table exists. On fresh installs, this is the
+-- only statement that meaningfully runs (the rest become no-ops because
+-- the rebuild pivot copies zero rows).
+CREATE TABLE IF NOT EXISTS sandbox_instances (
+  id TEXT PRIMARY KEY NOT NULL,
+  codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  container_id TEXT NOT NULL,
+  status TEXT DEFAULT 'stopped' NOT NULL,
+  image TEXT NOT NULL,
+  memory_mb INTEGER NOT NULL,
+  cpu_cores INTEGER NOT NULL,
+  idle_timeout_minutes INTEGER NOT NULL,
+  volume_mounts TEXT DEFAULT '[]',
+  env TEXT,
+  error_message TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  last_activity_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  stopped_at TEXT,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+-- Step 2: rebuild without the column-level UNIQUE on codespace_id.
+-- Existing databases that already have the OLD shape (column-level UNIQUE)
+-- get the new shape too. Drop any leftover staging table from a prior
+-- partial run to keep this idempotent.
+DROP TABLE IF EXISTS sandbox_instances_new_v33;
+
+CREATE TABLE sandbox_instances_new_v33 (
+  id TEXT PRIMARY KEY NOT NULL,
+  codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  container_id TEXT NOT NULL,
+  status TEXT DEFAULT 'stopped' NOT NULL,
+  image TEXT NOT NULL,
+  memory_mb INTEGER NOT NULL,
+  cpu_cores INTEGER NOT NULL,
+  idle_timeout_minutes INTEGER NOT NULL,
+  volume_mounts TEXT DEFAULT '[]',
+  env TEXT,
+  error_message TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  last_activity_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  stopped_at TEXT,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+-- Step 3: copy rows. Per CLAUDE.md "Migration safety": pre-filter rows
+-- whose codespace_id no longer points to a real codespace so the FK in
+-- the new table doesn't fail. INSERT OR IGNORE is belt-and-suspenders for
+-- duplicate-PK skips on retries.
+INSERT OR IGNORE INTO sandbox_instances_new_v33 (
+  id, codespace_id, container_id, status, image, memory_mb, cpu_cores,
+  idle_timeout_minutes, volume_mounts, env, error_message,
+  created_at, last_activity_at, stopped_at, updated_at
+)
+SELECT
+  id, codespace_id, container_id, status, image, memory_mb, cpu_cores,
+  idle_timeout_minutes, volume_mounts, env, error_message,
+  created_at, last_activity_at, stopped_at, updated_at
+FROM sandbox_instances
+WHERE codespace_id IS NOT NULL
+  AND codespace_id IN (SELECT id FROM codespaces);
+
+-- Step 4: pivot the table.
+DROP TABLE sandbox_instances;
+ALTER TABLE sandbox_instances_new_v33 RENAME TO sandbox_instances;
+
+-- Step 5: install the partial unique index. Only one active sandbox per
+-- codespace at a time; stopped/error rows can coexist freely so the
+-- create-after-stop lifecycle works.
+CREATE UNIQUE INDEX IF NOT EXISTS sandbox_instances_codespace_active_unique
+  ON sandbox_instances(codespace_id)
+  WHERE status IN ('creating', 'running', 'idle', 'stopping');
+
+-- Step 6: supporting index for status-filtered queries (reconciliation
+-- phase reads by status).
+CREATE INDEX IF NOT EXISTS sandbox_instances_status_idx ON sandbox_instances(status);
+`,
+  },
 ];

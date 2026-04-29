@@ -71,6 +71,13 @@
       "when": 1745424000000,
       "tag": "0018_add_event_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1777680000000,
+      "tag": "0019_sandbox_unique_partial",
+      "breakpoints": true
     }
   ]
 }
