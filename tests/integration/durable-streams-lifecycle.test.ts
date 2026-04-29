@@ -35,9 +35,25 @@ async function insertEvent(
   const maxOffset = allEvents.length > 0 ? Math.max(...allEvents.map((e) => e.offset)) : -1;
   const offset = maxOffset + 1;
 
+  // F05-25: derive streamKind from the streamId prefix so the NOT NULL +
+  // CHECK constraint is satisfied. Bare CUIDs default to 'session'.
+  const streamKind: 'session' | 'plan' | 'sandbox' | 'terraform' | 'topology' | 'cli-monitor' =
+    sessionId === 'cli-monitor'
+      ? 'cli-monitor'
+      : sessionId.startsWith('plan:')
+        ? 'plan'
+        : sessionId.startsWith('sandbox:')
+          ? 'sandbox'
+          : sessionId.startsWith('terraform:')
+            ? 'terraform'
+            : sessionId.startsWith('topology:')
+              ? 'topology'
+              : 'session';
+
   await db.insert(sessionEvents).values({
     id,
     sessionId,
+    streamKind,
     offset,
     type,
     channel,

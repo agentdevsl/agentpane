@@ -18,28 +18,52 @@
 # ---------------------------------------------------------------------------
 FROM --platform=linux/arm64 node:22-bookworm-slim AS builder
 
+# F11-19: Pin the global Claude Code CLI to an exact version (overridable).
+ARG CLAUDE_CODE_VERSION=2.1.123
+
+# F11-15: Bun is the single source of truth for agent-runner deps. Install
+# the binary alongside Node so we can use `bun install --frozen-lockfile`.
+ARG BUN_VERSION=1.3.10
+
+# Bun installer needs unzip, curl, and CA certs.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    unzip \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash -s "bun-v${BUN_VERSION}" \
+    && /usr/local/bin/bun --version
+
 WORKDIR /opt/agent-runner
 
-# Copy package files first for better layer caching
-COPY agent-runner/package.json agent-runner/package-lock.json* ./
+# Copy package files first for better layer caching.
+# F11-15: bun.lock is the only lockfile we ship. package-lock.json was deleted.
+COPY agent-runner/package.json agent-runner/bun.lock ./
 COPY agent-runner/tsconfig.json ./
 
-# Install all dependencies (including devDependencies for TypeScript build)
-RUN npm install --ignore-scripts
+# F11-15 / F11-18: Install all dependencies (including devDependencies for
+# TypeScript build) from the locked manifest. `--frozen-lockfile` fails the
+# build if bun.lock is stale relative to package.json — same gate as CI.
+RUN bun install --frozen-lockfile --ignore-scripts
 
 # Copy source
 COPY agent-runner/src ./src/
 
 # Build TypeScript to JavaScript
-RUN npm run build
+RUN bun run build
 
-# Prune devDependencies for production
-RUN npm prune --production
+# Reinstall production-only dependencies to drop devDependencies for runtime.
+RUN rm -rf node_modules && \
+    bun install --frozen-lockfile --production --ignore-scripts
 
 # ---------------------------------------------------------------------------
 # Stage 2: Runtime
 # ---------------------------------------------------------------------------
 FROM --platform=linux/arm64 node:22-bookworm-slim
+
+# F11-19: Pin the global Claude Code CLI to an exact version (overridable).
+ARG CLAUDE_CODE_VERSION=2.1.123
 
 # Install system tools needed by the agent during execution
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -53,9 +77,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Install Claude Code CLI globally (required by Claude Agent SDK —
-# the SDK spawns the CLI process and communicates with it)
-RUN npm install -g @anthropic-ai/claude-code
+# F11-19: Install Claude Code CLI globally pinned to ${CLAUDE_CODE_VERSION}.
+# The SDK spawns the CLI process and communicates with it. Reproducibility
+# requires an exact pin — `latest` would silently drift on every rebuild.
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 
 # Configure git for mounted / cloned volumes (prevents "dubious ownership" errors)
 RUN git config --system --add safe.directory '*' && \

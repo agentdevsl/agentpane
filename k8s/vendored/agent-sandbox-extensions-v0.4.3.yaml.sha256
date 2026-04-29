@@ -1,0 +1,11 @@
+# SHA256 checksum of vendored upstream agent-sandbox extensions manifest.
+#
+# Source: https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v0.4.3/extensions.yaml
+# Upstream tag: v0.4.3
+# Vendored on: 2026-04-29
+#
+# arch29-W1-C / F04-11: Vendored alongside `agent-sandbox-v0.4.3.yaml`. See
+# that file's `.sha256` for rotation procedure.
+#
+# Format: <SHA256>  <filename>
+b165f5d97a388d115e3f0859191ad28da47ee8b3ddf47842d255c9a5172467b5  agent-sandbox-extensions-v0.4.3.yaml

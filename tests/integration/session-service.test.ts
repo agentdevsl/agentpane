@@ -241,9 +241,10 @@ describe('SessionService Facade (IT-200 to IT-215)', () => {
 
     const sessionId = createResult.value.id;
 
-    // Insert some events
+    // Insert some events. F05-25: bare CUIDs are session-kind.
     await db.insert(sessionEvents).values({
       sessionId,
+      streamKind: 'session',
       offset: 0,
       type: 'chunk',
       channel: 'chunks',
@@ -411,10 +412,11 @@ describe('SessionService Facade (IT-200 to IT-215)', () => {
 
     const sessionId = createResult.value.id;
 
-    // Insert events directly
+    // Insert events directly. F05-25: bare CUIDs are session-kind.
     await db.insert(sessionEvents).values([
       {
         sessionId,
+        streamKind: 'session',
         offset: 0,
         type: 'chunk',
         channel: 'chunks',
@@ -423,6 +425,7 @@ describe('SessionService Facade (IT-200 to IT-215)', () => {
       },
       {
         sessionId,
+        streamKind: 'session',
         offset: 1,
         type: 'tool:start',
         channel: 'toolCalls',

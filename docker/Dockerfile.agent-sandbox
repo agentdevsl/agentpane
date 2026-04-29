@@ -1,11 +1,12 @@
 # Agent Sandbox Dockerfile
 # Extends the terraform-ai-tools base image with the Claude Agent Runner
 #
-# theme-04 P0-01: Runtime references to this image MUST be digest-pinned
-# (`<image>@sha256:<digest>`). Tag-only references (`:latest`, etc.) are
-# rejected by SandboxConfigService. The default image reference lives in
-# `src/lib/sandbox/types.ts` (`SANDBOX_DEFAULTS.image`) and is currently a
-# placeholder digest pending the GHCR publish workflow in theme 11.
+# theme-04 P0-01 / arch29-W1-C: Runtime references to this image MUST be
+# digest-pinned (`<image>@sha256:<digest>`). Tag-only references (`:latest`,
+# etc.) are rejected by SandboxConfigService AND by the settings PUT endpoint.
+# The default image reference lives in `src/lib/sandbox/types.ts`
+# (`SANDBOX_DEFAULTS.image`) and is pinned to the multi-arch OCI index digest
+# of the upstream image; this Dockerfile's BASE_IMAGE is pinned the same way.
 #
 # Usage (build for publishing):
 #   docker build -f docker/Dockerfile.agent-sandbox -t ghcr.io/agentdevsl/agent-sandbox:<version> .
@@ -18,46 +19,75 @@
 # - Claude Agent Runner for SDK execution
 # - ripgrep, fd-find, tree for file operations
 
-# BASE_IMAGE should also be digest-pinned in production builds.
-# Tag-only default is kept here for developer builds where pinning is painful.
-ARG BASE_IMAGE=srlynch1/terraform-ai-tools:latest
+# BASE_IMAGE is digest-pinned to prevent supply-chain attacks via mutable tags.
+# This is the multi-arch OCI index digest of `srlynch1/terraform-ai-tools:latest`
+# resolved via `docker manifest inspect`. To rotate, see SANDBOX_DEFAULTS.image
+# in src/lib/sandbox/types.ts for the rotation procedure.
+ARG BASE_IMAGE=docker.io/srlynch1/terraform-ai-tools@sha256:c8bb7d79efeebabd9dd91c95a406c204c6ad6e1d8c15359f778929152ef2a974
+
+# F11-19: Pin the global Claude Code CLI to an exact version. Override at
+# build time with `--build-arg CLAUDE_CODE_VERSION=...`. Bumped via Dependabot
+# (see `.github/dependabot.yml`) so no surprise breaking changes ship.
+ARG CLAUDE_CODE_VERSION=2.1.123
+
+# F11-15: Bun is the single source of truth for agent-runner deps; we install
+# the binary alongside Node to use `bun install --frozen-lockfile`.
+ARG BUN_VERSION=1.3.10
 
 FROM ${BASE_IMAGE}
+
+ARG CLAUDE_CODE_VERSION
+ARG BUN_VERSION
 
 # Switch to root for package installation
 USER root
 
 # Install additional tools needed by the agent runner
 # (jq, terraform, git already included in base image)
+# `unzip` + `ca-certificates` + `curl` are required by the Bun installer.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ripgrep \
     fd-find \
     tree \
+    unzip \
+    ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Install Claude Code CLI globally (required by Claude Agent SDK)
-# The SDK spawns the CLI process and communicates with it
-RUN npm install -g @anthropic-ai/claude-code
+# F11-15: Install Bun for agent-runner deps (the workspace lockfile is bun.lock).
+# Single source of truth for the runner package graph; CI also uses bun.
+RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash -s "bun-v${BUN_VERSION}" \
+    && /usr/local/bin/bun --version
+
+# F11-19: Install Claude Code CLI globally pinned to ${CLAUDE_CODE_VERSION}.
+# The SDK spawns the CLI process and communicates with it. Reproducibility
+# requires an exact pin — `latest` would silently drift on every rebuild.
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 
 # Create directory for agent runner
 RUN mkdir -p /opt/agent-runner
 
 # Copy agent runner source and config files
-COPY agent-runner/package.json agent-runner/package-lock.json* /opt/agent-runner/
+# F11-15: bun.lock is the only lockfile we ship. package-lock.json was deleted.
+COPY agent-runner/package.json agent-runner/bun.lock /opt/agent-runner/
 COPY agent-runner/tsconfig.json /opt/agent-runner/
 COPY agent-runner/src /opt/agent-runner/src/
 
-# Install dependencies (including devDependencies for build)
+# F11-15 / F11-18: Install dependencies (including devDependencies for build)
+# from the locked manifest. `--frozen-lockfile` fails the build if bun.lock
+# is stale relative to package.json — same gate as CI.
 WORKDIR /opt/agent-runner
-RUN npm install --ignore-scripts
+RUN bun install --frozen-lockfile --ignore-scripts
 
-# Build TypeScript to JavaScript
-RUN npm run build
+# Build TypeScript to JavaScript (uses the typescript pinned in bun.lock)
+RUN bun run build
 
-# Clean up: remove source files and devDependencies to reduce image size
-RUN rm -rf src tsconfig.json && \
-    npm prune --production
+# Clean up: remove source files and reinstall production-only dependencies
+# to reduce image size. `--production` honours `package.json:dependencies`
+# only and reuses the locked versions from bun.lock.
+RUN rm -rf src tsconfig.json node_modules && \
+    bun install --frozen-lockfile --production --ignore-scripts
 
 # Configure git for mounted volumes (prevents "dubious ownership" errors)
 RUN git config --system --add safe.directory '*' && \
@@ -100,4 +130,4 @@ CMD ["/bin/bash"]
 # Labels
 LABEL org.opencontainers.image.title="Agent Sandbox"
 LABEL org.opencontainers.image.description="Docker sandbox with Claude Agent Runner, based on terraform-ai-tools"
-LABEL org.opencontainers.image.base.name="srlynch1/terraform-ai-tools:latest"
+LABEL org.opencontainers.image.base.name="docker.io/srlynch1/terraform-ai-tools@sha256:c8bb7d79efeebabd9dd91c95a406c204c6ad6e1d8c15359f778929152ef2a974"

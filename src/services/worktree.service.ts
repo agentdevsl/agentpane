@@ -67,17 +67,19 @@ export type PruneResult = {
 export type WorktreeServiceResult<T> = Promise<Result<T, WorktreeError>>;
 
 /**
- * Escapes a string for safe use in shell commands within double quotes.
- * Removes null bytes and escapes: backslash, double quote, backtick, dollar sign, and newlines.
+ * Asserts that a CommandRunner exposes the safe positional-argv `execArgs`
+ * primitive (F06-NEW-01). All production runners — `createBunCommandRunner`
+ * and `createSandboxCommandRunner` — supply it. The only places that hit
+ * this assertion are tests using a minimal `{ exec: vi.fn() }` mock; those
+ * tests must add an `execArgs` mock to keep the safe path covered.
  */
-const escapeShellString = (str: string): string => {
-  return str
-    .replace(/\0/g, '') // Remove null bytes to prevent injection
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/`/g, '\\`')
-    .replace(/\$/g, '\\$')
-    .replace(/\n/g, '\\n');
+const requireExecArgs = (runner: CommandRunner): NonNullable<CommandRunner['execArgs']> => {
+  if (!runner.execArgs) {
+    throw new Error(
+      'CommandRunner.execArgs is required (F06-NEW-01); update the test stub or runner factory'
+    );
+  }
+  return runner.execArgs;
 };
 
 const extractHunks = (diff: string, filePath: string): DiffHunk[] => {
@@ -145,10 +147,26 @@ export type CommandRunner = {
  * Throws if dangerous characters are detected.
  *
  * Exported so callers that must compose a shell string can opt in to the
- * same guard the sandbox runner applies (F06-02).
+ * same guard the sandbox runner applies (F06-02). Hardened in F06-NEW-06 to
+ * reject:
+ *   - U+0000 (NULL byte) — terminates the C-string in some shell parsers.
+ *   - U+2028 / U+2029 (Unicode line separators) — bash 5+ treats these as
+ *     ordinary, but `dash` (Alpine default in many sandboxes) and other
+ *     shells passed through `sh -c` may not, and a future container
+ *     migration could re-open the gap.
+ *   - `\t` / `\v` — token separators in some shells, can split when
+ *     combined with backslash quoting.
+ *   - Standalone `&` (background) plus the existing `&&`.
+ *   - `>` / `<` redirection, `${`/`$(` expansion, backslash-newline.
  */
 export function validateShellCommand(command: string): void {
-  const DANGEROUS_PATTERN = /[;|`]|\$\(|&&|\|\||[\n\r]/;
+  // F06-NEW-06: reject NULL byte (U+0000) and Unicode line separators
+  // (U+2028, U+2029) unconditionally. \u escapes used so the source file
+  // stays grep-able and editor-safe.
+  if (/[\u0000\u2028\u2029]/.test(command)) {
+    throw ServiceErrors.SHELL_INJECTION_DETECTED(command);
+  }
+  const DANGEROUS_PATTERN = /[;|&`<>]|\$\(|\$\{|&&|\|\||[\n\r\t\v]|\\\n/;
   if (DANGEROUS_PATTERN.test(command)) {
     throw ServiceErrors.SHELL_INJECTION_DETECTED(command);
   }
@@ -243,22 +261,20 @@ export class WorktreeService {
     const root = codespace.config?.worktreeRoot ?? '.worktrees';
     const worktreePath = path.join(codespace.path, root, branch);
 
-    const escapedBranchForCheck = escapeShellString(branch);
-    const branchCheck = await this.runner.exec(
-      `git branch --list "${escapedBranchForCheck}"`,
-      codespace.path
-    );
+    // F06-NEW-01: positional argv keeps user-influenced values out of the
+    // shell. `git branch --list` accepts pattern as a literal arg, so a
+    // hostile branch name like `'; rm -rf /;'` cannot escape into sh.
+    const execArgs = requireExecArgs(this.runner);
+    const branchCheck = await execArgs(['git', 'branch', '--list', branch], codespace.path);
     if (branchCheck.stdout.trim()) {
       return err(WorktreeErrors.BRANCH_EXISTS(branch));
     }
 
     try {
-      const escapedPath = escapeShellString(worktreePath);
-      const escapedBranch = escapeShellString(branch);
-      const escapedBaseBranch = escapeShellString(baseBranch);
-
-      await this.runner.exec(
-        `git worktree add "${escapedPath}" -b "${escapedBranch}" "${escapedBaseBranch}"`,
+      // F06-NEW-01: argv form. `git worktree add <path> -b <branch> <base>`
+      // is the documented signature; values pass literally via spawn.
+      await execArgs(
+        ['git', 'worktree', 'add', worktreePath, '-b', branch, baseBranch],
         codespace.path
       );
     } catch (error) {
@@ -361,15 +377,15 @@ export class WorktreeService {
     softInvariant(!!removing, 'Failed to set worktree status to removing', { worktreeId });
 
     try {
-      const forceFlag = force ? '--force' : '';
-      const escapedPath = escapeShellString(worktree.path);
-      const escapedBranch = escapeShellString(worktree.branch);
-
-      await this.runner.exec(
-        `git worktree remove "${escapedPath}" ${forceFlag}`,
-        worktree.codespace.path
-      );
-      await this.runner.exec(`git branch -D "${escapedBranch}"`, worktree.codespace.path);
+      // F06-NEW-01: argv form. `--force` is a flag; we add it conditionally
+      // as a separate argv element rather than interpolating into a string.
+      const execArgs = requireExecArgs(this.runner);
+      const removeArgs = ['git', 'worktree', 'remove', worktree.path];
+      if (force) {
+        removeArgs.push('--force');
+      }
+      await execArgs(removeArgs, worktree.codespace.path);
+      await execArgs(['git', 'branch', '-D', worktree.branch], worktree.codespace.path);
 
       const [removed] = await this.db
         .update(worktrees)
@@ -442,9 +458,10 @@ export class WorktreeService {
     const targetPath = path.join(worktree.path, envFile);
 
     try {
-      const escapedSource = escapeShellString(sourcePath);
-      const escapedTarget = escapeShellString(targetPath);
-      await this.runner.exec(`cp "${escapedSource}" "${escapedTarget}"`, worktree.codespace.path);
+      // F06-NEW-01: argv form with `--` so a path beginning with `-`
+      // cannot be interpreted as a flag by `cp`.
+      const execArgs = requireExecArgs(this.runner);
+      await execArgs(['cp', '--', sourcePath, targetPath], worktree.codespace.path);
       return ok(undefined);
     } catch (error) {
       return err(WorktreeErrors.ENV_COPY_FAILED(String(error), error));
@@ -461,7 +478,10 @@ export class WorktreeService {
     }
 
     try {
-      await this.runner.exec('bun install', worktree.path);
+      // F06-NEW-01: literal argv with no user input. `bun install` reads
+      // package.json from cwd; nothing is interpolated.
+      const execArgs = requireExecArgs(this.runner);
+      await execArgs(['bun', 'install'], worktree.path);
       return ok(undefined);
     } catch (error) {
       return err(WorktreeErrors.INIT_SCRIPT_FAILED('bun install', String(error), error));
@@ -513,17 +533,18 @@ export class WorktreeService {
     }
 
     try {
-      // Note: cwd parameter uses raw path (passed to process spawn, not shell interpolated)
-      // Only command arguments need shell escaping
-      await this.runner.exec('git add -A', worktree.path);
-      const status = await this.runner.exec('git status --porcelain', worktree.path);
+      // F06-NEW-01: positional argv. The commit message originates from
+      // agent-completion text (LLM-controlled), so it MUST NOT touch the
+      // shell. `git commit -m <msg>` accepts the message as a literal arg.
+      const execArgs = requireExecArgs(this.runner);
+      await execArgs(['git', 'add', '-A'], worktree.path);
+      const status = await execArgs(['git', 'status', '--porcelain'], worktree.path);
       if (!status.stdout.trim()) {
         return ok('');
       }
 
-      const escapedMessage = escapeShellString(message);
-      await this.runner.exec(`git commit -m "${escapedMessage}"`, worktree.path);
-      const sha = await this.runner.exec('git rev-parse HEAD', worktree.path);
+      await execArgs(['git', 'commit', '-m', message], worktree.path);
+      const sha = await execArgs(['git', 'rev-parse', 'HEAD'], worktree.path);
 
       const [committed] = await this.db
         .update(worktrees)
@@ -565,27 +586,27 @@ export class WorktreeService {
     }
 
     try {
-      // Note: cwd uses raw path; only command arguments need escaping
-      const escapedTarget = escapeShellString(target);
-      const escapedBranch = escapeShellString(worktree.branch);
+      // F06-NEW-01: argv form. Branch names are codespace-config or
+      // task-derived data; pass literally to git.
+      const execArgs = requireExecArgs(this.runner);
+      const mergeMessage = `Merge branch '${worktree.branch}'`;
 
-      await this.runner.exec(`git checkout "${escapedTarget}"`, worktree.codespace.path);
-      await this.runner.exec('git pull --rebase', worktree.codespace.path);
-      const mergeMessage = escapeShellString(`Merge branch '${worktree.branch}'`);
-      const merge = await this.runner.exec(
-        `git merge "${escapedBranch}" --no-ff -m "${mergeMessage}"`,
+      await execArgs(['git', 'checkout', target], worktree.codespace.path);
+      await execArgs(['git', 'pull', '--rebase'], worktree.codespace.path);
+      const merge = await execArgs(
+        ['git', 'merge', worktree.branch, '--no-ff', '-m', mergeMessage],
         worktree.codespace.path
       );
 
       if (merge.stderr.includes('CONFLICT')) {
-        const conflicts = await this.runner.exec(
-          'git diff --name-only --diff-filter=U',
+        const conflicts = await execArgs(
+          ['git', 'diff', '--name-only', '--diff-filter=U'],
           worktree.codespace.path
         );
 
         // Abort the failed merge to leave the repo in a clean state
         try {
-          await this.runner.exec('git merge --abort', worktree.codespace.path);
+          await execArgs(['git', 'merge', '--abort'], worktree.codespace.path);
         } catch {
           // Merge abort can fail if merge wasn't in progress — ignore
         }
@@ -644,18 +665,15 @@ export class WorktreeService {
     }
 
     try {
-      // Note: cwd uses raw path; only command arguments need escaping
-      const escapedBaseBranch = escapeShellString(worktree.baseBranch);
+      // F06-NEW-01: argv form. The triple-dot revspec is appended to the
+      // base-branch literal so git receives `<base>...HEAD` as a single
+      // argv element — no shell interpolation.
+      const execArgs = requireExecArgs(this.runner);
+      const revspec = `${worktree.baseBranch}...HEAD`;
 
       // Get diff statistics for file-level analysis
-      const numstat = await this.runner.exec(
-        `git diff --numstat "${escapedBaseBranch}"...HEAD`,
-        worktree.path
-      );
-      const fullDiff = await this.runner.exec(
-        `git diff "${escapedBaseBranch}"...HEAD`,
-        worktree.path
-      );
+      const numstat = await execArgs(['git', 'diff', '--numstat', revspec], worktree.path);
+      const fullDiff = await execArgs(['git', 'diff', revspec], worktree.path);
 
       const files: DiffFile[] = numstat.stdout
         .trim()

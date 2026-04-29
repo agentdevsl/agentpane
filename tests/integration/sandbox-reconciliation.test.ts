@@ -17,6 +17,7 @@ import type { SandboxProvider } from '../../src/lib/sandbox/providers/sandbox-pr
 import type { SandboxConfig, SandboxInfo } from '../../src/lib/sandbox/types.js';
 import { reconcileSandboxes } from '../../src/server/bootstrap/phases/sandbox-reconciliation.js';
 import { createTestProject } from '../factories/project.factory';
+import { TEST_AGENT_SANDBOX_IMAGE } from '../fixtures/sandbox-image';
 import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
 
 /**
@@ -81,7 +82,7 @@ function liveInfo(overrides: Partial<SandboxInfo>): SandboxInfo {
     codespaceId: overrides.codespaceId ?? 'codespace-x',
     containerId: overrides.containerId ?? 'container-x',
     status: overrides.status ?? 'running',
-    image: overrides.image ?? 'srlynch1/agent-sandbox:latest',
+    image: overrides.image ?? TEST_AGENT_SANDBOX_IMAGE,
     createdAt: overrides.createdAt ?? new Date().toISOString(),
     lastActivityAt: overrides.lastActivityAt ?? new Date().toISOString(),
     memoryMb: overrides.memoryMb ?? 8192,
@@ -116,7 +117,7 @@ describe('F01-01: Sandbox reconciliation phase', () => {
       codespaceId: codespace.id,
       containerId: 'container-orphan',
       status: 'running',
-      image: 'srlynch1/agent-sandbox:latest',
+      image: TEST_AGENT_SANDBOX_IMAGE,
       memoryMb: 8192,
       cpuCores: 4,
       idleTimeoutMinutes: 30,
@@ -164,7 +165,7 @@ describe('F01-01: Sandbox reconciliation phase', () => {
       codespaceId: codespace.id,
       containerId: 'cnt-match',
       status: 'running',
-      image: 'srlynch1/agent-sandbox:latest',
+      image: TEST_AGENT_SANDBOX_IMAGE,
       memoryMb: 8192,
       cpuCores: 4,
       idleTimeoutMinutes: 30,
@@ -197,7 +198,7 @@ describe('F01-01: Sandbox reconciliation phase', () => {
       codespaceId: codespace.id,
       containerId: 'cnt-hist',
       status: 'stopped',
-      image: 'srlynch1/agent-sandbox:latest',
+      image: TEST_AGENT_SANDBOX_IMAGE,
       memoryMb: 8192,
       cpuCores: 4,
       idleTimeoutMinutes: 30,
@@ -238,7 +239,7 @@ describe('F01-01: Sandbox reconciliation phase', () => {
       codespaceId: codespace.id,
       containerId: 'cnt-dead',
       status: 'running',
-      image: 'srlynch1/agent-sandbox:latest',
+      image: TEST_AGENT_SANDBOX_IMAGE,
       memoryMb: 8192,
       cpuCores: 4,
       idleTimeoutMinutes: 30,

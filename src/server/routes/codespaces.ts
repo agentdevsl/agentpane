@@ -7,34 +7,18 @@
 import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { z } from 'zod';
 import { agents } from '../../db/schema';
+import type { AuthContext } from '../../lib/api/auth-middleware.js';
+import { applyTokenTagFilter } from '../../lib/api/rbac-middleware.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import { deriveGitHubFromPath } from '../../lib/sandbox/git-token-resolver.js';
 import type { CodespaceService } from '../../services/codespace.service.js';
 import type { TemplateService } from '../../services/template.service.js';
 import type { Database } from '../../types/database.js';
 import { json, parseLimit, validateIdParam } from '../shared.js';
+import { createCodespaceSchema, parseJsonBody, updateCodespaceSchema } from '../validation.js';
 
 const logger = createLogger('routes:codespaces');
-
-// Validation schemas
-const createCodespaceSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  path: z.string().min(1, 'Path is required'),
-  description: z.string().optional(),
-  projectFolderId: z.string().min(1, 'projectFolderId is required'),
-});
-
-const updateCodespaceSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
-  maxConcurrentAgents: z.number().int().positive().optional(),
-  config: z.record(z.string(), z.unknown()).optional(),
-  projectFolderId: z.string().min(1).optional(),
-  githubOwner: z.string().min(1).max(200).optional(),
-  githubRepo: z.string().min(1).max(200).optional(),
-});
 
 interface CodespacesDeps {
   codespaceService: CodespaceService;
@@ -43,7 +27,7 @@ interface CodespacesDeps {
 }
 
 export function createCodespacesRoutes({ codespaceService, templateService, db }: CodespacesDeps) {
-  const app = new Hono();
+  const app = new Hono<{ Variables: { auth: AuthContext } }>();
 
   // GET /api/codespaces
   app.get('/', async (c) => {
@@ -58,10 +42,14 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
       );
     }
 
+    // F06-NEW-07: filter by tag scope when the token is tag-restricted.
+    const auth = c.get('auth') as AuthContext | undefined;
+    const filteredItems = await applyTokenTagFilter(db, auth, result.value, (cs) => cs.id);
+
     return json({
       ok: true,
       data: {
-        items: result.value.map((p) => ({
+        items: filteredItems.map((p) => ({
           id: p.id,
           name: p.name,
           path: p.path,
@@ -72,36 +60,15 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
         })),
         nextCursor: null,
         hasMore: false,
-        totalCount: result.value.length,
+        totalCount: filteredItems.length,
       },
     });
   });
 
   // POST /api/codespaces
   app.post('/', async (c) => {
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
-    const parsed = createCodespaceSchema.safeParse(body);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues[0]?.message ?? 'Invalid request',
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, createCodespaceSchema);
+    if (!parsed.ok) return parsed.response;
 
     // AR-033: Validate path at creation time, not just deletion time.
     // Ensures the path resolves to a safe location, preventing registration of system
@@ -175,10 +142,19 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
 
       const summaries = result.value;
 
+      // F06-NEW-07: filter by tag scope when the token is tag-restricted.
+      const auth = c.get('auth') as AuthContext | undefined;
+      const filteredSummaries = await applyTokenTagFilter(
+        db,
+        auth,
+        summaries,
+        (s) => s.codespace.id
+      );
+
       return json({
         ok: true,
         data: {
-          items: summaries.map((s) => ({
+          items: filteredSummaries.map((s) => ({
             codespace: {
               id: s.codespace.id,
               name: s.codespace.name,
@@ -202,7 +178,7 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
           })),
           nextCursor: null,
           hasMore: false,
-          totalCount: summaries.length,
+          totalCount: filteredSummaries.length,
         },
       });
     } catch (error) {
@@ -252,29 +228,8 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
-    const parsed = updateCodespaceSchema.safeParse(body);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues[0]?.message ?? 'Invalid request',
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, updateCodespaceSchema);
+    if (!parsed.ok) return parsed.response;
 
     const result = await codespaceService.update(id, {
       name: parsed.data.name,

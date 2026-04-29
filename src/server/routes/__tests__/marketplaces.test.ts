@@ -135,7 +135,8 @@ describe('Marketplaces API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_NAME');
+      // arch29-W2-H / F07-15: error code standardised to VALIDATION_ERROR.
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when github info is missing', async () => {
@@ -148,7 +149,8 @@ describe('Marketplaces API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_REPO');
+      // arch29-W2-H / F07-15: error code standardised to VALIDATION_ERROR.
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 for invalid JSON body', async () => {
@@ -164,7 +166,7 @@ describe('Marketplaces API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_JSON');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('accepts githubUrl instead of owner/repo', async () => {

@@ -13,6 +13,7 @@ import type { CliMonitorService } from '../../services/cli-monitor/index.js';
 import type { CodespaceService } from '../../services/codespace.service.js';
 import type { createContainerAgentService } from '../../services/container-agent.service.js';
 import type { DurableStreamsService } from '../../services/durable-streams.service.js';
+import type { EventOutboxRelayService } from '../../services/event-outbox-relay.service.js';
 import type { EventProcessingService } from '../../services/event-processing.service.js';
 import type { EventSourceService } from '../../services/event-source.service.js';
 import type { EventSubscriptionService } from '../../services/event-subscription.service.js';
@@ -23,6 +24,7 @@ import type { MarketplaceService } from '../../services/marketplace.service.js';
 import type { DreamService } from '../../services/memory/dream.service.js';
 import type { MemoryService } from '../../services/memory/index.js';
 import type { SkillTrackingService } from '../../services/memory/skill-tracking.service.js';
+import type { PlanModeService } from '../../services/plan-mode.service.js';
 import type { ProjectFolderService } from '../../services/project-folder.service.js';
 import type { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import type { SchedulerService } from '../../services/scheduler.service.js';
@@ -50,6 +52,17 @@ export interface ServerConfig {
   skipAuth: boolean;
   sandboxInitTimeoutMs: number;
   caddyStreamsUrl: string;
+  /**
+   * F06-NEW-02 (P0) / arch29-W1-E — Multi-tenant deployment gate.
+   *
+   * When `true`, shared-sandbox mode is forbidden because the single
+   * Anthropic OAuth credentials file and single `/workspace` bind mount
+   * would let one tenant agent read another tenant's secrets.
+   *
+   * Default: `false` (self-hosted single-team install). Set
+   * `MULTI_TENANT=true` in the environment to enable enforcement.
+   */
+  multiTenant: boolean;
   /** PostgreSQL connection pool / client configuration (F02-05). */
   postgres: PostgresClientConfig;
 }
@@ -95,6 +108,8 @@ export interface ServiceContainer {
   projectFolderService: ProjectFolderService;
   cliMonitorService: CliMonitorService;
   durableStreamsService: DurableStreamsService;
+  /** F05-19 / F01-03: relay drains the `event_outbox` table to Caddy. */
+  eventOutboxRelayService: EventOutboxRelayService;
   terraformRegistryService: TerraformRegistryService;
   terraformComposeService: TerraformComposeService;
   settingsService: SettingsService;
@@ -103,6 +118,8 @@ export interface ServiceContainer {
   eventSubscriptionService: EventSubscriptionService;
   eventProcessingService: EventProcessingService;
   schedulerService: SchedulerService;
+  /** F01-04: surfaced via `/api/admin/metrics/plan-mode` and `/api/metrics`. */
+  planModeService: PlanModeService;
   commandRunner: CommandRunner;
   containerAgentService: ReturnType<typeof createContainerAgentService> | null;
   memoryService: MemoryService;

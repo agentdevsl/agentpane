@@ -1,6 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
-import { integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
+import { integer, sqliteTable, text, unique, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { SandboxStatus, VolumeMountRecord } from '../shared/types';
 import { codespaces } from './codespaces';
 import { tasks } from './tasks';
@@ -9,46 +9,67 @@ export type { SandboxStatus, VolumeMountRecord };
 
 /**
  * Sandbox instances table
+ *
+ * F04-08 (arch29-W2-E): The original schema used `codespaceId.unique()`,
+ * which made the natural stop -> create lifecycle impossible: once a sandbox
+ * was stopped, the next `create()` for the same codespace failed with
+ * `SQLITE_CONSTRAINT_UNIQUE` on the still-present row, even though the
+ * intent was "at most one *active* sandbox per codespace".
+ *
+ * The fix: drop the global UNIQUE on `codespace_id` and replace it with a
+ * partial unique index that fires only while the sandbox is active. This
+ * lets multiple stopped/error rows coexist while still blocking concurrent
+ * active sandboxes for the same codespace.
  */
-export const sandboxInstances = sqliteTable('sandbox_instances', {
-  id: text('id')
-    .primaryKey()
-    .$defaultFn(() => createId()),
+export const sandboxInstances = sqliteTable(
+  'sandbox_instances',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId()),
 
-  codespaceId: text('codespace_id')
-    .notNull()
-    .unique()
-    .references(() => codespaces.id, { onDelete: 'cascade' }),
+    codespaceId: text('codespace_id')
+      .notNull()
+      .references(() => codespaces.id, { onDelete: 'cascade' }),
 
-  containerId: text('container_id').notNull(),
+    containerId: text('container_id').notNull(),
 
-  status: text('status').$type<SandboxStatus>().default('stopped').notNull(),
+    status: text('status').$type<SandboxStatus>().default('stopped').notNull(),
 
-  image: text('image').notNull(),
+    image: text('image').notNull(),
 
-  memoryMb: integer('memory_mb').notNull(),
+    memoryMb: integer('memory_mb').notNull(),
 
-  cpuCores: integer('cpu_cores').notNull(),
+    cpuCores: integer('cpu_cores').notNull(),
 
-  idleTimeoutMinutes: integer('idle_timeout_minutes').notNull(),
+    idleTimeoutMinutes: integer('idle_timeout_minutes').notNull(),
 
-  volumeMounts: text('volume_mounts', { mode: 'json' }).$type<VolumeMountRecord[]>().default([]),
+    volumeMounts: text('volume_mounts', { mode: 'json' }).$type<VolumeMountRecord[]>().default([]),
 
-  env: text('env', { mode: 'json' }).$type<Record<string, string>>(),
+    env: text('env', { mode: 'json' }).$type<Record<string, string>>(),
 
-  errorMessage: text('error_message'),
+    errorMessage: text('error_message'),
 
-  createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
+    createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
 
-  lastActivityAt: text('last_activity_at').default(sql`(datetime('now'))`).notNull(),
+    lastActivityAt: text('last_activity_at').default(sql`(datetime('now'))`).notNull(),
 
-  stoppedAt: text('stopped_at'),
+    stoppedAt: text('stopped_at'),
 
-  updatedAt: text('updated_at')
-    .default(sql`(datetime('now'))`)
-    .notNull()
-    .$onUpdate(() => new Date().toISOString()),
-});
+    updatedAt: text('updated_at')
+      .default(sql`(datetime('now'))`)
+      .notNull()
+      .$onUpdate(() => new Date().toISOString()),
+  },
+  (table) => [
+    // F04-08: only one active sandbox per codespace; stopped/error rows can
+    // coexist so the create-after-stop lifecycle works. "Active" is any
+    // status where the sandbox is alive or transitioning toward alive.
+    uniqueIndex('sandbox_instances_codespace_active_unique')
+      .on(table.codespaceId)
+      .where(sql`status IN ('creating', 'running', 'idle', 'stopping')`),
+  ]
+);
 
 /**
  * Sandbox tmux sessions table

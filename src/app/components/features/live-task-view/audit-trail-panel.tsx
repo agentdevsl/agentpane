@@ -146,7 +146,7 @@ function mapEventToTimelineEntry(event: {
       return {
         id: event.id,
         label: 'Plan ready for review',
-        color: 'bg-warning',
+        color: 'bg-attention',
         timestamp: ts,
       };
 

@@ -5,13 +5,16 @@
  * - Task status updates on agent completion
  * - Task status updates on agent error
  * - OAuth token resolution
+ * - Sandbox mode resolution + multi-tenant gate (F06-NEW-02 / arch29-W1-E)
  */
 
 import { and, eq } from 'drizzle-orm';
 
-import { agents, tasks } from '../../db/schema';
+import { agents, settings, tasks } from '../../db/schema';
+import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import { softInvariant } from '../../lib/utils/invariant.js';
+import { isMultiTenantEnabled } from '../../server/bootstrap/server-config.js';
 import type { Database } from '../../types/database.js';
 import type { ApiKeyService } from '../api-key.service.js';
 import type { DurableStreamsService } from '../durable-streams.service.js';
@@ -345,5 +348,83 @@ export async function updateAgentStatus(
   } catch (dbErr) {
     const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
     log.error('Failed to update agent status', { data: { agentId, error: errorMessage } });
+  }
+}
+
+/**
+ * F06-NEW-02 / arch29-W1-E — Sandbox mode resolution.
+ *
+ * Reads the `sandbox.mode` setting from the database. The default is
+ * `'shared'` to match the historical behaviour and the `sandbox.mode`
+ * defaults defined in the UI (`-sandbox-page.tsx:257`) and read sites
+ * (`sandbox-status.ts:210, :395`).
+ *
+ * Returns `'shared'` when:
+ *   - the setting row is missing
+ *   - the setting value is malformed JSON
+ *   - the setting value is not one of `'shared' | 'per-project'`
+ *
+ * Callers that need the multi-tenant gate enforced should call
+ * `assertSharedSandboxAllowed()` instead — this helper just reports the
+ * resolved value.
+ */
+export async function resolveSandboxMode(db: Database): Promise<'shared' | 'per-project'> {
+  try {
+    const row = await db.query.settings.findFirst({
+      where: eq(settings.key, 'sandbox.mode'),
+    });
+    if (!row?.value) return 'shared';
+    const parsed = JSON.parse(row.value) as unknown;
+    if (parsed === 'per-project') return 'per-project';
+    if (parsed === 'shared') return 'shared';
+    log.warn('Unexpected sandbox.mode value, defaulting to shared', {
+      data: { raw: row.value },
+    });
+    return 'shared';
+  } catch (resolveErr) {
+    log.warn('Failed to read sandbox.mode setting, defaulting to shared', {
+      data: { error: resolveErr instanceof Error ? resolveErr.message : String(resolveErr) },
+    });
+    return 'shared';
+  }
+}
+
+/**
+ * F06-NEW-02 / arch29-W1-E — Multi-tenant gate enforcement.
+ *
+ * Throws `MULTI_TENANT_REQUIRES_PER_PROJECT_SANDBOX` when:
+ *   - `MULTI_TENANT=true` is set in the environment, AND
+ *   - the resolved sandbox mode is `'shared'`.
+ *
+ * In shared mode every codespace shares one Docker container with a single
+ * Anthropic OAuth credentials file at `~/.claude/.credentials.json`. A
+ * hostile tenant agent can read another tenant's token. The full multi-
+ * tenant FS/UID isolation rebuild is L-effort and tracked as a follow-up;
+ * this gate is the fail-safe so accidental shared-mode usage in a multi-
+ * tenant deployment is rejected at the chokepoint instead of silently
+ * leaking credentials.
+ *
+ * No-op when `MULTI_TENANT` is unset/false (default) — self-hosted
+ * single-team installs see no behaviour change.
+ *
+ * @throws an `AppError` with code `MULTI_TENANT_REQUIRES_PER_PROJECT_SANDBOX`
+ *   when the gate is violated. The caller is expected to surface this as
+ *   a typed error via `Result<_, SandboxError>`.
+ */
+export async function assertSharedSandboxAllowed(
+  db: Database,
+  codespaceId?: string,
+  env: NodeJS.ProcessEnv = process.env
+): Promise<void> {
+  if (!isMultiTenantEnabled(env)) return;
+  const mode = await resolveSandboxMode(db);
+  if (mode === 'shared') {
+    const errorObj = SandboxErrors.MULTI_TENANT_REQUIRES_PER_PROJECT_SANDBOX(codespaceId);
+    log.error('Multi-tenant gate violated: shared sandbox mode forbidden', {
+      data: { codespaceId, mode, code: errorObj.code },
+    });
+    // Throw the AppError (extends Error) so the caller can wrap into a
+    // typed Result<_, SandboxError> via the existing err()/result patterns.
+    throw errorObj;
   }
 }

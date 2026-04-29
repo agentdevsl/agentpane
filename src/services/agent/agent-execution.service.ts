@@ -2,9 +2,16 @@ import { createId } from '@paralleldrive/cuid2';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import type { TaskColumn } from '../../db/schema';
 import { agentRuns, agents, codespaces, sessions, tasks, worktrees } from '../../db/schema';
+import { createAgentHooks } from '../../lib/agents/hooks/index.js';
 import { handleAgentError } from '../../lib/agents/recovery.js';
 import { runAgentExecution, runAgentPlanning } from '../../lib/agents/stream-handler.js';
+import type {
+  AgentHooks,
+  PostToolUseHook as SdkPostToolUseHook,
+  PreToolUseHook as SdkPreToolUseHook,
+} from '../../lib/agents/types.js';
 import { ALLOW_ALL_TOOLS } from '../../lib/constants/tools.js';
+import { withDbLatency } from '../../lib/db/with-latency.js';
 
 import type { AgentError } from '../../lib/errors/agent-errors.js';
 import { AgentErrors } from '../../lib/errors/agent-errors.js';
@@ -21,6 +28,7 @@ import { err, ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
 import type { MemoryService, MemorySessionRef, TaskOutcome } from '../memory/index.js';
 import type { SkillTrackingService } from '../memory/skill-tracking.service.js';
+import { getMetricsService } from '../metrics.service.js';
 import { createSessionEventWithMetadata } from '../session/event-metadata.js';
 import {
   DEFAULT_AGENT_MAX_RUNTIME_MS,
@@ -170,6 +178,57 @@ export class AgentExecutionService {
         data: { agentId },
       });
     });
+  }
+
+  /**
+   * F10-14: refresh the agent running/idle gauges in MetricsService.
+   *
+   * `running` is taken from the in-memory AbortController map (the
+   * authoritative process-local view), and `idle` is queried from the DB so
+   * the snapshot covers cross-process state too. Any failure is logged and
+   * swallowed — gauge instrumentation must never break a transition.
+   */
+  private async refreshAgentGauges(): Promise<void> {
+    try {
+      const metrics = getMetricsService();
+      const running = this.runningAgents.size;
+      // Best-effort idle count across all codespaces. Cardinality stays low.
+      let idle = 0;
+      try {
+        const [row] = await this.db
+          .select({ value: count() })
+          .from(agents)
+          .where(eq(agents.status, 'idle'));
+        idle = row?.value ?? 0;
+      } catch (countErr) {
+        log.warn('refreshAgentGauges: idle count query failed', {
+          error: countErr instanceof Error ? countErr.message : String(countErr),
+        });
+      }
+      metrics.setAgentGauge(running, idle);
+    } catch (gaugeErr) {
+      log.warn('refreshAgentGauges: setAgentGauge failed', {
+        error: gaugeErr instanceof Error ? gaugeErr.message : String(gaugeErr),
+      });
+    }
+  }
+
+  /**
+   * F10-14: bump a single agent lifecycle counter (started/completed/errored).
+   * Wrapped so an instrumentation failure cannot break a transition.
+   */
+  private incAgentMetric(kind: 'started' | 'completed' | 'errored'): void {
+    try {
+      const metrics = getMetricsService();
+      if (kind === 'started') metrics.incAgentStarted();
+      else if (kind === 'completed') metrics.incAgentCompleted();
+      else metrics.incAgentErrored();
+    } catch (metricsErr) {
+      log.warn('incAgentMetric failed', {
+        error: metricsErr instanceof Error ? metricsErr.message : String(metricsErr),
+        data: { kind },
+      });
+    }
   }
 
   /**
@@ -356,9 +415,12 @@ export class AgentExecutionService {
     agentId: string,
     taskId?: string
   ): Promise<Result<AgentStartResult, AgentError | ConcurrencyError>> {
-    const agent = await this.db.query.agents.findFirst({
-      where: eq(agents.id, agentId),
-    });
+    // F10-14: hot path — every drag-to-in_progress hits this lookup.
+    const agent = await withDbLatency('select_agent', () =>
+      this.db.query.agents.findFirst({
+        where: eq(agents.id, agentId),
+      })
+    );
 
     if (!agent) {
       return err(AgentErrors.NOT_FOUND);
@@ -369,21 +431,26 @@ export class AgentExecutionService {
       return err(AgentErrors.ALREADY_RUNNING(agent.currentTaskId ?? undefined));
     }
 
+    // F10-14: hot read on the task table during start().
     let task = taskId
-      ? await this.db.query.tasks.findFirst({
-          where: eq(tasks.id, taskId),
-        })
+      ? await withDbLatency('select_task', () =>
+          this.db.query.tasks.findFirst({
+            where: eq(tasks.id, taskId),
+          })
+        )
       : null;
 
     if (!task) {
       // Look for queued tasks first (FIFO), then backlog
-      task = await this.db.query.tasks.findFirst({
-        where: and(
-          eq(tasks.codespaceId, agent.codespaceId),
-          inArray(tasks.column, ['queued', 'backlog'])
-        ),
-        orderBy: asc(tasks.updatedAt),
-      });
+      task = await withDbLatency('select_next_task', () =>
+        this.db.query.tasks.findFirst({
+          where: and(
+            eq(tasks.codespaceId, agent.codespaceId),
+            inArray(tasks.column, ['queued', 'backlog'])
+          ),
+          orderBy: asc(tasks.updatedAt),
+        })
+      );
     }
 
     if (!task) {
@@ -514,6 +581,11 @@ export class AgentExecutionService {
     this.runningAgents.set(agentId, controller);
     this.agentStartTimes.set(agentId, Date.now());
 
+    // F10-14: bump the agent_started counter and refresh the gauges. The
+    // gauge refresh is async but fire-and-forget — it must not delay start().
+    this.incAgentMetric('started');
+    void this.refreshAgentGauges();
+
     // Get codespace for model configuration
     const codespace = await this.db.query.codespaces.findFirst({
       where: eq(codespaces.id, agent.codespaceId),
@@ -586,6 +658,21 @@ export class AgentExecutionService {
       }
     }
 
+    // F03-01: Install the standard tool-use hook bundle for this agent
+    // (whitelist + audit + streaming) so the SDK pre/post-tool gates run
+    // for every tool the agent invokes. The bundle uses the same allowedTools
+    // resolution as the SDK call below so deny verdicts match SDK permission.
+    const allowedToolsForAgent = agent.config?.allowedTools ?? ALLOW_ALL_TOOLS;
+    const agentRunId = agentRun?.id ?? createId();
+    this.installAgentHooks({
+      agentId,
+      sessionId: session.value.id,
+      agentRunId,
+      taskId: task.id,
+      codespaceId: agent.codespaceId,
+      allowedTools: allowedToolsForAgent,
+    });
+
     // Start agent execution asynchronously (fire-and-forget with error handling)
     // The agent runs in the background and updates state through events
     void this.executeAgentAsync(
@@ -594,13 +681,13 @@ export class AgentExecutionService {
       taskPrompt,
       {
         // F06-06: `[]` fails closed. Fall back to ALLOW_ALL_TOOLS when no config set.
-        allowedTools: agent.config?.allowedTools ?? ALLOW_ALL_TOOLS,
+        allowedTools: allowedToolsForAgent,
         maxTurns: agent.config?.maxTurns ?? 50,
         model: resolvedModel,
         cwd: worktree.value.path,
         signal: controller.signal,
       },
-      agentRun?.id ?? createId(),
+      agentRunId,
       task.id,
       { skillId: task.skillId, skillName: task.skillName }
     );
@@ -684,6 +771,12 @@ export class AgentExecutionService {
 
     const maxRuntimeMs = await getAgentMaxRuntimeMs(this.db);
 
+    // F03-02: thread the same per-agent pre/post hook arrays into planning so
+    // tool denials, audit rows, and streaming start/result events fire during
+    // the planning phase too. Mirrors the executeAgentExecution branch.
+    const preHooks = this.preToolHooks.get(agentId);
+    const postHooks = this.postToolHooks.get(agentId);
+
     try {
       const result = await runAgentPlanning({
         agentId,
@@ -697,6 +790,27 @@ export class AgentExecutionService {
         maxRuntimeMs,
         skillId: skillContext?.skillId,
         skillName: skillContext?.skillName,
+        preToolUseHooks: preHooks && preHooks.length > 0 ? preHooks : undefined,
+        // Service-level PostToolUseHook returns Promise<void>; the stream
+        // handler only cares about fire-and-forget semantics, so adapt on
+        // the fly to StreamPostToolUseHook's tool_response shape.
+        postToolUseHooks:
+          postHooks && postHooks.length > 0
+            ? postHooks.map(
+                (hook) =>
+                  async (input: {
+                    tool_name: string;
+                    tool_input: Record<string, unknown>;
+                    tool_response: { summary: string; is_error: boolean };
+                  }) => {
+                    await hook({
+                      tool_name: input.tool_name,
+                      tool_input: input.tool_input,
+                      tool_response: input.tool_response,
+                    });
+                  }
+              )
+            : undefined,
         sessionService: this.sessionService,
         onMessage,
       });
@@ -772,6 +886,10 @@ export class AgentExecutionService {
             completedAt: new Date().toISOString(),
           })
           .where(eq(tasks.id, taskId));
+
+        // F10-14: planning completed without needing user approval is rare but
+        // does happen (e.g. trivial task) — count it as a completed run.
+        this.incAgentMetric('completed');
       } else if (result.status === 'turn_limit' || result.status === 'paused') {
         await this.db
           .update(agents)
@@ -796,6 +914,9 @@ export class AgentExecutionService {
             currentTurn: result.turnCount,
           })
           .where(eq(agents.id, agentId));
+
+        // F10-14: planning-phase error counted as an errored run.
+        this.incAgentMetric('errored');
       }
 
       // Read insight IDs before cleanup deletes them (fire-and-forget race fix)
@@ -824,6 +945,9 @@ export class AgentExecutionService {
       this.preToolHooks.delete(agentId);
       this.postToolHooks.delete(agentId);
 
+      // F10-14: refresh running/idle gauges after the runningAgents map shrinks.
+      void this.refreshAgentGauges();
+
       // Auto-dequeue: when an agent completes, check if there's a queued task to pick up
       if (result.status === 'completed' && this.queueService) {
         this.tryDequeueAndStart(agentId).catch((dequeueErr) => {
@@ -843,6 +967,8 @@ export class AgentExecutionService {
         taskId,
         sessionId,
       });
+      // F10-14: planning-phase throw counts as an errored run.
+      this.incAgentMetric('errored');
       this.finalizeMemorySession(memoryRef, agentId, 'planning error', { status: 'failed' });
 
       const errMsg = errorMessage(error);
@@ -869,6 +995,36 @@ export class AgentExecutionService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(agents.id, agentId));
+
+      // arch29-W2-B / F03-06: revert task to `backlog` so it does not stay stuck
+      // in `in_progress` after a planning-phase throw. Mirror PlanApprovalService
+      // .rejectPlan's CAS shape — clear plan/planOptions and worktree references
+      // so the task is cleanly re-assignable. Without this, planning-phase
+      // failures (codespace lookup throws, SDK 401, settings reads) leave the
+      // kanban showing in_progress with stale agentId/sessionId until orphan
+      // sweep runs at the next 10-minute boundary. CAS-guarded on
+      // `column='in_progress'` to avoid clobbering a user-driven move (e.g. the
+      // user dragged the task elsewhere mid-planning).
+      try {
+        await this.db
+          .update(tasks)
+          .set({
+            column: 'backlog' as TaskColumn,
+            agentId: null,
+            sessionId: null,
+            worktreeId: null,
+            branch: null,
+            plan: null,
+            planOptions: null,
+            lastAgentStatus: 'error',
+          })
+          .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')));
+      } catch (taskErr) {
+        log.error('Failed to revert task column on planning error (continuing)', {
+          error: taskErr instanceof Error ? taskErr.message : String(taskErr),
+          data: { taskId, agentId },
+        });
+      }
 
       this.recordSkillExecutionForTask({
         taskId,
@@ -899,6 +1055,9 @@ export class AgentExecutionService {
       this.agentStartTimes.delete(agentId);
       this.preToolHooks.delete(agentId);
       this.postToolHooks.delete(agentId);
+
+      // F10-14: refresh running/idle gauges after the planning-phase failure.
+      void this.refreshAgentGauges();
     }
   }
 
@@ -940,6 +1099,9 @@ export class AgentExecutionService {
         updatedAt: new Date().toISOString(),
       })
       .where(eq(agents.id, agentId));
+
+    // F10-14: agent moved to idle — refresh the gauges.
+    void this.refreshAgentGauges();
 
     return ok(undefined);
   }
@@ -1030,6 +1192,9 @@ export class AgentExecutionService {
         this.agentStartTimes.delete(agentId);
         this.preToolHooks.delete(agentId);
         this.postToolHooks.delete(agentId);
+        // F10-14: errored at resume-execution boundary.
+        this.incAgentMetric('errored');
+        void this.refreshAgentGauges();
       });
 
       return ok({
@@ -1110,6 +1275,27 @@ export class AgentExecutionService {
           .update(agents)
           .set({ status: 'error', updatedAt: new Date().toISOString() })
           .where(eq(agents.id, agentId));
+        // arch29-W2-B / F03-06: revert task to `backlog` so it does not stay
+        // stuck in `in_progress` when the agent record disappears mid-execution
+        // (e.g. concurrent delete). CAS-guarded on `column='in_progress'`.
+        try {
+          await this.db
+            .update(tasks)
+            .set({
+              column: 'backlog' as TaskColumn,
+              agentId: null,
+              sessionId: null,
+              worktreeId: null,
+              branch: null,
+              lastAgentStatus: 'error',
+            })
+            .where(and(eq(tasks.id, task.id), eq(tasks.column, 'in_progress')));
+        } catch (taskErr) {
+          log.error('Failed to revert task column on missing-agent (continuing)', {
+            error: taskErr instanceof Error ? taskErr.message : String(taskErr),
+            data: { taskId: task.id, agentId },
+          });
+        }
         await this.sessionService.publish(
           sessionId,
           createSessionEventWithMetadata({
@@ -1124,6 +1310,9 @@ export class AgentExecutionService {
         this.agentStartTimes.delete(agentId);
         this.preToolHooks.delete(agentId);
         this.postToolHooks.delete(agentId);
+        // F10-14: missing-agent during execution counts as an errored run.
+        this.incAgentMetric('errored');
+        void this.refreshAgentGauges();
         return;
       }
 
@@ -1290,6 +1479,9 @@ export class AgentExecutionService {
             completedAt: new Date().toISOString(),
           })
           .where(eq(tasks.id, task.id));
+
+        // F10-14: execution completed → bump completed counter.
+        this.incAgentMetric('completed');
       } else if (result.status === 'turn_limit' || result.status === 'paused') {
         await this.db
           .update(agents)
@@ -1313,6 +1505,9 @@ export class AgentExecutionService {
             currentTurn: result.turnCount,
           })
           .where(eq(agents.id, agentId));
+
+        // F10-14: execution-phase error counter.
+        this.incAgentMetric('errored');
       }
 
       // Read insight IDs before cleanup deletes them (fire-and-forget race fix)
@@ -1342,6 +1537,9 @@ export class AgentExecutionService {
       this.preToolHooks.delete(agentId);
       this.postToolHooks.delete(agentId);
 
+      // F10-14: refresh running/idle gauges after the runningAgents map shrinks.
+      void this.refreshAgentGauges();
+
       // Auto-dequeue: when agent completes execution, check for queued tasks
       if (result.status === 'completed' && this.queueService) {
         this.tryDequeueAndStart(agentId).catch((dequeueErr) => {
@@ -1361,6 +1559,8 @@ export class AgentExecutionService {
         taskId: task.id,
         sessionId,
       });
+      // F10-14: execution-phase throw counts as an errored run.
+      this.incAgentMetric('errored');
       this.finalizeMemorySession(memoryRef, agentId, 'execution error', {
         status: 'failed',
       });
@@ -1390,6 +1590,31 @@ export class AgentExecutionService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(agents.id, agentId));
+
+      // arch29-W2-B / F03-06: revert task to `backlog` so it does not stay stuck
+      // in `in_progress` after an execution-phase throw (codespace lookup,
+      // worktree resolution, SDK 401, etc.). Clear stale agent/session/worktree
+      // refs so the task is cleanly re-assignable. Plan content is preserved so
+      // a follow-up run can resume from it. CAS-guarded on `column='in_progress'`
+      // to avoid clobbering user-driven moves mid-execution.
+      try {
+        await this.db
+          .update(tasks)
+          .set({
+            column: 'backlog' as TaskColumn,
+            agentId: null,
+            sessionId: null,
+            worktreeId: null,
+            branch: null,
+            lastAgentStatus: 'error',
+          })
+          .where(and(eq(tasks.id, task.id), eq(tasks.column, 'in_progress')));
+      } catch (taskErr) {
+        log.error('Failed to revert task column on execution error (continuing)', {
+          error: taskErr instanceof Error ? taskErr.message : String(taskErr),
+          data: { taskId: task.id, agentId },
+        });
+      }
 
       this.recordSkillExecutionForTask({
         taskId: task.id,
@@ -1421,6 +1646,9 @@ export class AgentExecutionService {
       this.agentStartTimes.delete(agentId);
       this.preToolHooks.delete(agentId);
       this.postToolHooks.delete(agentId);
+
+      // F10-14: refresh running/idle gauges after execution-phase failure.
+      void this.refreshAgentGauges();
     }
   }
 
@@ -1517,6 +1745,8 @@ export class AgentExecutionService {
           data: { agentId, taskId },
         });
       }
+      // F10-14: agent stopped via plan rejection — refresh gauges.
+      void this.refreshAgentGauges();
     }
 
     // CAS-move: only reject if the task is still in the `planning` status.
@@ -1587,6 +1817,58 @@ export class AgentExecutionService {
   }
 
   /**
+   * F03-01: Install the standard tool-use hook bundle for an agent.
+   *
+   * `createAgentHooks` returns SDK-shaped hook bundles where each hook is an
+   * object `{hooks: [async (input) => result]}`. The service registry stores
+   * function-shaped hooks compatible with the stream-handler's
+   * `Stream{Pre,Post}ToolUseHook`. This helper bridges the two: each
+   * SDK-shape hook is wrapped in a service-shape adapter that translates
+   * `{decision:'block', message}` → `{deny:true, reason}` for pre-hooks, and
+   * forwards the full payload for post-hooks.
+   *
+   * Wraps install in a try/catch so a hook-construction failure (e.g. an
+   * unexpected DB error inside `createAuditHook` import) cannot abort agent
+   * start. The caller logs and proceeds — the agent runs without hooks
+   * rather than not at all.
+   */
+  private installAgentHooks(input: {
+    agentId: string;
+    sessionId: string;
+    agentRunId: string;
+    taskId: string | null;
+    codespaceId: string;
+    allowedTools: string[];
+  }): void {
+    let bundle: AgentHooks;
+    try {
+      bundle = createAgentHooks({
+        agentId: input.agentId,
+        sessionId: input.sessionId,
+        agentRunId: input.agentRunId,
+        taskId: input.taskId,
+        codespaceId: input.codespaceId,
+        allowedTools: input.allowedTools,
+        db: this.db,
+        sessionService: this.sessionService,
+      });
+    } catch (err) {
+      log.error('Failed to construct agent hook bundle, agent will run without hooks', {
+        error: err instanceof Error ? err.message : String(err),
+        data: { agentId: input.agentId },
+      });
+      return;
+    }
+
+    for (const sdkHook of bundle.PreToolUse) {
+      this.registerPreToolUseHook(input.agentId, adaptSdkPreHook(sdkHook));
+    }
+    for (const sdkHook of bundle.PostToolUse) {
+      this.registerPostToolUseHook(input.agentId, adaptSdkPostHook(sdkHook));
+    }
+  }
+
+  /**
    * Start the periodic sweep for orphaned agents.
    * Safe to call multiple times — only one timer will be created.
    */
@@ -1625,6 +1907,7 @@ export class AgentExecutionService {
       });
 
     const now = Date.now();
+    let sweptAny = false;
     for (const [agentId, startTime] of this.agentStartTimes) {
       if (now - startTime > this.maxAgentRuntimeMs) {
         log.warn('Sweeping orphaned agent', {
@@ -1650,8 +1933,14 @@ export class AgentExecutionService {
               data: { agentId },
             });
           });
+
+        // F10-14: orphaned agent counts as an errored run.
+        this.incAgentMetric('errored');
+        sweptAny = true;
       }
     }
+    // F10-14: only refresh gauges when at least one agent was swept.
+    if (sweptAny) void this.refreshAgentGauges();
   }
 
   /**
@@ -1669,6 +1958,16 @@ export class AgentExecutionService {
       controller.abort();
     }
     this.runningAgents.clear();
+    // F10-14: reset gauges when shutting down. Idle count is best-effort 0;
+    // the next periodic gauge refresh from any subsequent transition will
+    // reconcile against the DB.
+    try {
+      getMetricsService().setAgentGauge(0, 0);
+    } catch (gaugeErr) {
+      log.warn('stopAll: setAgentGauge failed', {
+        error: gaugeErr instanceof Error ? gaugeErr.message : String(gaugeErr),
+      });
+    }
     this.agentStartTimes.clear();
     this.preToolHooks.clear();
     this.postToolHooks.clear();
@@ -1703,4 +2002,64 @@ export class AgentExecutionService {
       });
     }
   }
+}
+
+/**
+ * F03-01: adapt an SDK-shape pre-tool-use hook (returns `{decision?:'block', message?:string}`)
+ * into the service registry's function-shape `PreToolUseHook` (returns
+ * `{deny?:boolean, reason?:string}`). Iterates through every nested hook in
+ * the bundle's `hooks[]` array — the first one that blocks wins.
+ */
+function adaptSdkPreHook(sdkHook: SdkPreToolUseHook): PreToolUseHook {
+  return async (input: { tool_name: string; tool_input: Record<string, unknown> }) => {
+    for (const fn of sdkHook.hooks) {
+      const result = await fn({ tool_name: input.tool_name, tool_input: input.tool_input });
+      if (result?.decision === 'block') {
+        return { deny: true, reason: result.message ?? 'Tool blocked by hook' };
+      }
+    }
+    return {};
+  };
+}
+
+/**
+ * F03-01: adapt an SDK-shape post-tool-use hook into the service registry's
+ * function-shape `PostToolUseHook`. The SDK shape expects a richer
+ * `tool_response` (`{content:[…], is_error?:boolean}` + `duration_ms`); the
+ * service shape passes through the stream-handler's summary-style payload
+ * (`{summary, is_error}`). Translates one to the other so the audit hook can
+ * record `tool_response.is_error` and use the summary as the textual content.
+ */
+function adaptSdkPostHook(sdkHook: SdkPostToolUseHook): PostToolUseHook {
+  return async (input: {
+    tool_name: string;
+    tool_input: Record<string, unknown>;
+    tool_response: unknown;
+  }) => {
+    const streamResponse = input.tool_response as
+      | { summary?: string; is_error?: boolean }
+      | undefined;
+    const summary = streamResponse?.summary ?? '';
+    const isError = streamResponse?.is_error ?? false;
+    for (const fn of sdkHook.hooks) {
+      try {
+        await fn({
+          tool_name: input.tool_name,
+          tool_input: input.tool_input,
+          tool_response: {
+            content: [{ type: 'text', text: summary }],
+            is_error: isError,
+          },
+          duration_ms: 0,
+        });
+      } catch (err) {
+        // Hook errors are logged at the inner hook level (audit/streaming);
+        // swallow at the adapter level so a failing hook never aborts.
+        log.warn('SDK post-tool-use hook adapter caught hook error', {
+          error: err instanceof Error ? err.message : String(err),
+          data: { tool: input.tool_name },
+        });
+      }
+    }
+  };
 }

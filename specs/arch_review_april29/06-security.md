@@ -317,6 +317,27 @@ Counts as of April 29:
 
 Cross-ref: F06-01 (April).
 
+### Resolution status (PR W3-A, 2026-04-29)
+
+The 3 critical advisories were closed in PR W3-A (`fix(arch29-W3-A): close 3 critical Dependabot advisories (F06-NEW-12)`):
+
+| Advisory | Resolution | Verification |
+|---|---|---|
+| `GHSA-xq3m-2v4x-88gg` (protobufjs RCE, < 7.5.5) | Added `protobufjs: ^7.5.5` to `overrides` and `resolutions` in root `package.json`. `bun install` and `npm install --package-lock-only --legacy-peer-deps` regenerated lockfiles to resolve protobufjs@7.5.6. The override propagates through the transitive path `dockerode → @grpc/proto-loader → protobufjs`. | `tests/integration/dependency-advisories.test.ts` parses both `bun.lock` and `package-lock.json` and asserts the resolved version is ≥ 7.5.5. |
+| `GHSA-69fq-xp46-6x23` (aquasecurity/trivy-action ≤ 0.34.2) | Workflow `aquasecurity/trivy-action@0.30.0` replaced with SHA pin `aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0` in `.github/workflows/release.yml`. v0.35.0 is protected by GitHub immutable releases (enabled March 4, 2026, before the v0.35.0 cut), so the tag itself can't be force-pushed. SHA pin is defence-in-depth per the advisory's recommendation. | `tests/integration/release-workflows.test.ts` rejects any `aquasecurity/trivy-action@0.X.Y` reference where `X` is in `[10..34]` (the original-tag forever-tainted range) and requires either a 40-char SHA pin or a `v0.35.0+`/`v1.x.y+` tag. |
+| `GHSA-v778-237x-gjrc` (golang.org/x/crypto < 0.31.0) | `cli/go.mod` bumped from pseudo-version `v0.0.0-20200820211705-5c72a883971a` to `v0.31.0`. Required co-bump of `golang.org/x/sys` to `v0.28.0`. `go mod tidy` regenerated `cli/go.sum` with the patched checksums. | `tests/integration/dependency-advisories.test.ts` parses the require line in `cli/go.mod` and the matching go.sum checksum row. Pseudo-versions (`v0.0.0-...`) and any < 0.31.0 cause the test to fail. |
+
+After the bump, `gh api repos/agentdevsl/agentpane/dependabot/alerts --paginate | jq '[.[] | select(.state == "open" and .security_vulnerability.severity == "critical")] | length'` should drop from 3 to 0 once Dependabot re-scans the merged PR.
+
+**Test bar (red→green)**:
+- Without the fix: `npx vitest run tests/integration/dependency-advisories.test.ts tests/integration/release-workflows.test.ts` → **6 failures** (3 protobufjs + 2 golang/x/crypto + 1 trivy-action SHA pin).
+- With the fix: same command → **all 15 tests pass**.
+
+**Out of scope for W3-A** (deferred to a follow-up PR):
+- 4 `high` and 4 `medium` `golang.org/x/crypto` advisories: these are auto-resolved by the same v0.31.0 bump (the patched range covers all five SSH-related advisories simultaneously). Verify with a re-scan after merge.
+- 1 `medium` `uuid` (bounds check, GHSA-w5hq-g745-h8pq, < 14.0.0). Comes via `dockerode` → `uuid@10.0.0`. Bump scheduled for a separate PR; the bounds-check issue is dev-time only (no untrusted UUID parsing surface in production).
+- 1 `medium` `esbuild` dev-server CORS (GHSA-67mh-4wv8-2f99). Affects only the `vite dev` server in local dev. Mitigated by Vite's localhost binding default; the upstream esbuild bump is in the `vite@8.0.8` chain.
+
 ---
 
 ## F06-NEW-13 — P2 — Session cookie `Secure` flag still keyed on `NODE_ENV === 'production'`, asymmetric with `oauth_state`

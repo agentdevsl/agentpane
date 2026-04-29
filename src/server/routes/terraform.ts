@@ -17,6 +17,7 @@ import {
 import type { TerraformComposeService } from '../../services/terraform-compose.service.js';
 import type { TerraformRegistryService } from '../../services/terraform-registry.service.js';
 import { errorResponse, json, validateIdParam } from '../shared.js';
+import { parseJsonBody, terraformValidateSchema } from '../validation.js';
 
 interface TerraformDeps {
   terraformRegistryService: TerraformRegistryService;
@@ -88,39 +89,13 @@ export function createTerraformRoutes({
 
   // POST /registries — create registry
   app.post('/registries', async (c) => {
-    let body: {
-      name: string;
-      orgName: string;
-      apiToken: string;
-      syncIntervalMinutes?: number;
-    };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
     const denied = requireTerraformAdmin(c);
     if (denied) {
       return denied;
     }
 
-    const parsed = createRegistrySchema.safeParse(body);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues[0]?.message ?? 'Invalid request',
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, createRegistrySchema);
+    if (!parsed.ok) return parsed.response;
 
     const result = await terraformRegistryService.createRegistry(parsed.data);
     if (!result.ok) {
@@ -166,39 +141,13 @@ export function createTerraformRoutes({
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    let body: {
-      name?: string;
-      orgName?: string;
-      apiToken?: string;
-      syncIntervalMinutes?: number | null;
-    };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
     const denied = requireTerraformAdmin(c);
     if (denied) {
       return denied;
     }
 
-    const parsed = updateRegistrySchema.safeParse(body);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues[0]?.message ?? 'Invalid request',
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, updateRegistrySchema);
+    if (!parsed.ok) return parsed.response;
 
     const result = await terraformRegistryService.updateRegistry(id, parsed.data);
     if (!result.ok) {
@@ -271,22 +220,9 @@ export function createTerraformRoutes({
 
   // POST /validate — validate generated HCL code using @cdktf/hcl2json
   app.post('/validate', async (c) => {
-    let body: { code: string; tfvars?: string };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
-    if (!body.code || typeof body.code !== 'string') {
-      return json(
-        { ok: false, error: { code: 'VALIDATION_ERROR', message: 'code field is required' } },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, terraformValidateSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     try {
       const result = await terraformComposeService.validateCode(body.code, body.tfvars);
@@ -305,33 +241,8 @@ export function createTerraformRoutes({
 
   // POST /compose — start a compose job (returns immediately with sessionId)
   app.post('/compose', async (c) => {
-    let body: {
-      messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-      sessionId?: string;
-      registryId?: string;
-    };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
-    const parsed = composeRequestSchema.safeParse(body);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues[0]?.message ?? 'Invalid request',
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, composeRequestSchema);
+    if (!parsed.ok) return parsed.response;
 
     const result = await terraformComposeService.startCompose(
       parsed.data.sessionId,

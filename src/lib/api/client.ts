@@ -394,11 +394,16 @@ export const apiClient = {
     return this.projects;
   },
 
+  // arch29-W3-D (F12-06): the public mount path is now `/api/codespace-folders`.
+  // The client field name `projectFolders` is preserved to avoid a breaking
+  // rename of every call site at this same time; the property name only
+  // surfaces inside the wrapper. The server still serves
+  // `/api/project-folders/*` via a 308 redirect for one release.
   projectFolders: {
-    list: () => apiServerFetch<{ items: ProjectFolderItem[] }>('/api/project-folders'),
+    list: () => apiServerFetch<{ items: ProjectFolderItem[] }>('/api/codespace-folders'),
 
     get: (id: string) =>
-      apiServerFetch<ProjectFolderItem>(`/api/project-folders/${encodeURIComponent(id)}`),
+      apiServerFetch<ProjectFolderItem>(`/api/codespace-folders/${encodeURIComponent(id)}`),
 
     create: (data: {
       name: string;
@@ -406,7 +411,8 @@ export const apiClient = {
       icon?: string;
       color?: string;
       description?: string;
-    }) => apiServerFetch<ProjectFolderItem>('/api/project-folders', { method: 'POST', body: data }),
+    }) =>
+      apiServerFetch<ProjectFolderItem>('/api/codespace-folders', { method: 'POST', body: data }),
 
     update: (
       id: string,
@@ -418,21 +424,25 @@ export const apiClient = {
         description: string;
       }>
     ) =>
-      apiServerFetch<ProjectFolderItem>(`/api/project-folders/${encodeURIComponent(id)}`, {
+      apiServerFetch<ProjectFolderItem>(`/api/codespace-folders/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         body: data,
       }),
 
     delete: (id: string) =>
-      apiServerFetch<null>(`/api/project-folders/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      apiServerFetch<null>(`/api/codespace-folders/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      }),
 
     listCodespaces: (folderId: string) =>
       apiServerFetch<{ items: CodespaceListItem[] }>(
-        `/api/project-folders/${encodeURIComponent(folderId)}/codespaces`
+        `/api/codespace-folders/${encodeURIComponent(folderId)}/codespaces`
       ),
 
     getSummary: (folderId: string) =>
-      apiServerFetch<FolderSummary>(`/api/project-folders/${encodeURIComponent(folderId)}/summary`),
+      apiServerFetch<FolderSummary>(
+        `/api/codespace-folders/${encodeURIComponent(folderId)}/summary`
+      ),
   },
 
   tasks: {

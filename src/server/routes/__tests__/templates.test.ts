@@ -141,7 +141,7 @@ describe('Templates API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_JSON');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when name is missing', async () => {
@@ -155,7 +155,7 @@ describe('Templates API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when scope is missing', async () => {
@@ -169,7 +169,7 @@ describe('Templates API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
       expect(json.error.message).toContain('scope');
     });
 
@@ -185,7 +185,7 @@ describe('Templates API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when githubUrl is missing', async () => {
@@ -199,7 +199,7 @@ describe('Templates API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
       expect(json.error.message).toContain('githubUrl');
     });
 
@@ -338,7 +338,7 @@ describe('Templates API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_JSON');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns error when service update fails', async () => {

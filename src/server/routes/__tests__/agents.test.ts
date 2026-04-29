@@ -22,7 +22,10 @@ function createMockAgentService() {
 
 function createTestApp() {
   const agentService = createMockAgentService();
-  const routes = createAgentsRoutes({ agentService: agentService as never });
+  // Minimal stub DB for the tag-filter helper. Tests do not exercise tag
+  // restrictions; the helper short-circuits when `auth.tagFilter` is unset.
+  const db = {} as never;
+  const routes = createAgentsRoutes({ agentService: agentService as never, db });
   const app = new Hono();
   app.route('/api/agents', routes);
   return { app, agentService };
@@ -250,7 +253,9 @@ describe('Agents API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      // arch29-W2-H / F07-03: parseJsonBody now emits VALIDATION_ERROR
+      // for empty/invalid update bodies (was MISSING_PARAMS).
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 for invalid JSON body', async () => {
@@ -265,7 +270,46 @@ describe('Agents API Routes', () => {
 
       expect(res.status).toBe(400);
       const json = await res.json();
-      expect(json.error.code).toBe('INVALID_JSON');
+      // arch29-W2-H / F07-15: parseJsonBody emits VALIDATION_ERROR for
+      // JSON parse failures (was INVALID_JSON).
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('arch29-W2-H / F07-03: rejects oversized systemPrompt (Zod-bypass regression)', async () => {
+      // Before W2-H, PATCH /api/agents/:id called `c.req.json()` directly
+      // and forwarded the body to `agentService.update` with no field
+      // validation. A client could send `{ systemPrompt: 'x'.repeat(1e6) }`
+      // and the giant string would land in the DB. This test asserts the
+      // schema now bounds the field at 20000 chars.
+      const { app, agentService } = createTestApp();
+
+      const oversized = 'x'.repeat(20_001);
+      const res = await request(app, 'PATCH', '/api/agents/agent-1', {
+        systemPrompt: oversized,
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+      // Service must NOT have been called with the oversized payload.
+      expect(agentService.update).not.toHaveBeenCalled();
+    });
+
+    it('arch29-W2-H / F07-03: rejects unknown enum values for status fields', async () => {
+      // Before W2-H, the status field on workflows.ts:97 was bare-cast to
+      // the enum union — clients could write `status: "garbage"`. The
+      // updateAgentSchema does not have a status field, but the same
+      // pattern applied to allowedTools max length.
+      const { app, agentService } = createTestApp();
+
+      const res = await request(app, 'PATCH', '/api/agents/agent-1', {
+        allowedTools: Array.from({ length: 201 }, (_, i) => `tool-${i}`),
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+      expect(agentService.update).not.toHaveBeenCalled();
     });
   });
 
@@ -361,7 +405,10 @@ describe('Agents API Routes', () => {
 
       expect(res.status).toBe(400);
       const json = await res.json();
-      expect(json.error.code).toBe('INVALID_ID');
+      // arch29-W2-H / F07-03: zod schema rejects taskIds that don't match
+      // idSchema regex with VALIDATION_ERROR (was a manual INVALID_ID
+      // check after raw JSON parse).
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
   });
 

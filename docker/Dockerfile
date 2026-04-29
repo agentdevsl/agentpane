@@ -11,11 +11,13 @@ FROM oven/bun:1.3.10-alpine AS deps
 
 WORKDIR /app
 
+# F11-15: a single lockfile per workspace. agent-runner uses bun.lock — npm
+# is no longer used to install agent-runner deps.
 COPY package.json bun.lock* ./
-COPY agent-runner/package.json agent-runner/package-lock.json* ./agent-runner/
+COPY agent-runner/package.json agent-runner/bun.lock ./agent-runner/
 
 RUN bun install --frozen-lockfile --production=false
-RUN cd agent-runner && npm install --ignore-scripts
+RUN cd agent-runner && bun install --frozen-lockfile --production=false
 
 # ─── Stage 2: Build application ───
 FROM oven/bun:1.3.10-alpine AS build
@@ -53,6 +55,9 @@ COPY --from=build /app/agent-runner/package.json ./agent-runner/
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
 COPY --from=build /app/src ./src
+# F11-17: scripts/migrate-check-only.ts is invoked by start.sh on boot, and
+# scripts/migrate-run-only.ts is the entrypoint for the Helm pre-upgrade Job.
+COPY --from=build /app/scripts ./scripts
 
 # Copy Caddyfile and start script
 COPY Caddyfile /app/Caddyfile

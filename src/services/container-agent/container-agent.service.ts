@@ -9,7 +9,8 @@
  * - SandboxStateManager:    owns 3 Maps + 1 Set for state tracking
  * - WorktreeInitService:    worktree creation, path translation
  * - ContainerExecService:   container lifecycle management (Docker/K8s/Nomad)
- * - AgentCoreBridgeService: AgentCore start/stop, SSE bridge
+ * - AgentCoreBridgeService: AgentCore start/stop, SSE bridge (lazy-loaded
+ *                           only when `AGENTCORE_ENABLED=true`)
  * - PlanApprovalService:    plan ready/approve/reject handlers
  */
 
@@ -19,11 +20,14 @@ import { codespaces, tasks } from '../../db/schema';
 import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
-// theme-04 P1-02: AgentCore provider types are imported with `import type` so
-// the concrete module (which pulls in the AWS SDK) is NOT added to the module
-// graph when AgentCore is disabled. The factory (`createAgentCoreProvider`) is
-// loaded via dynamic import inside `setAgentCoreProvider` only when
-// `AGENTCORE_ENABLED=true`.
+// theme-04 W2-D-FIX (F04-04, F04-05): AgentCore-related imports are TYPE-ONLY.
+// The concrete modules (which transitively pull in `agentcore-bridge.ts`,
+// `agentcore-sandbox-provider.ts`, `agentcore-sandbox-instance.ts`, the
+// hand-rolled SigV4 signer, and the AWS SDK) are loaded via dynamic `import()`
+// inside `setAgentCoreProvider` ONLY when `AGENTCORE_ENABLED=true`. Type
+// imports are erased at compile time and contribute zero bytes to the runtime
+// module graph, so when the gate is off none of the AgentCore code ships in
+// the loaded graph.
 import type {
   AgentCoreProviderConfig,
   AgentCoreSandboxProvider,
@@ -39,7 +43,12 @@ import type { SkillTrackingService } from '../memory/skill-tracking.service.js';
 import type { WorktreeService } from '../worktree.service.js';
 
 import { AgentReviewService } from './agent-review.service.js';
-import { AgentCoreBridgeService } from './agentcore-bridge.service.js';
+// theme-04 W2-D-FIX: AgentCoreBridgeService is intentionally TYPE-ONLY here.
+// The runtime module is loaded via dynamic import inside `loadAgentCoreBridge()`,
+// gated on `AGENTCORE_ENABLED=true`. The runtime import would otherwise pull
+// `lib/agents/agentcore-bridge.ts` (and its transitive `agentcore-sandbox-instance`
+// type re-export wires) into the loaded graph regardless of the flag.
+import type { AgentCoreBridgeService } from './agentcore-bridge.service.js';
 import { ContainerExecService } from './container-exec.service.js';
 import { PlanApprovalService } from './plan-approval.service.js';
 import { SandboxStateManager } from './sandbox-state.js';
@@ -49,10 +58,13 @@ import { WorktreeInitService } from './worktree-init.service.js';
 const log = createLogger('ContainerAgentService');
 
 /**
- * theme-04 P1-02: Feature flag for AgentCore.
+ * theme-04 P1-02 / W2-D-FIX: Feature flag for AgentCore.
  *
- * When this returns false (the default), the agentcore-sandbox-provider module
- * is never imported, so the AWS SDK does not land in the module graph. Set
+ * When this returns false (the default), NO AgentCore module is in the loaded
+ * module graph: `agentcore-bridge.service.ts`, `agentcore-bridge.ts`,
+ * `agentcore-sandbox-provider.ts`, `agentcore-sandbox-instance.ts` (which
+ * contains the hand-rolled SigV4 signer ~110 LOC), and the AWS SDK are all
+ * gated behind dynamic `import()` calls keyed off this flag. Set
  * `AGENTCORE_ENABLED=true` to opt in.
  */
 function isAgentCoreEnabled(): boolean {
@@ -63,9 +75,42 @@ export class ContainerAgentService {
   private state: SandboxStateManager;
   private worktreeInit: WorktreeInitService;
   private containerExec: ContainerExecService;
-  private agentCoreBridge: AgentCoreBridgeService;
+  /**
+   * theme-04 W2-D-FIX (F04-04): AgentCoreBridgeService is lazily loaded.
+   * Undefined until `setAgentCoreProvider()` is called with the flag enabled.
+   * The constructor MUST NOT instantiate this — doing so pulls the entire
+   * AgentCore module graph (including the hand-rolled SigV4 signer in
+   * `agentcore-sandbox-instance.ts`) into the loaded module set regardless
+   * of `AGENTCORE_ENABLED`.
+   */
+  private agentCoreBridge?: AgentCoreBridgeService;
   private planApproval: PlanApprovalService;
   private deps: ContainerAgentDeps;
+
+  /**
+   * Shared handlePlanReady callback used by both ContainerExecService (eager)
+   * and AgentCoreBridgeService (lazy). Stored as a field so the lazy AgentCore
+   * bridge can wire it up after construction without forcing an early load.
+   */
+  private readonly handlePlanReady: (
+    taskId: string,
+    sessionId: string,
+    codespaceId: string,
+    planData: {
+      plan: string;
+      turnCount: number;
+      sdkSessionId: string;
+      allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
+    }
+  ) => Promise<void>;
+
+  /**
+   * Provides access to the on-agent-complete callback. Stored as a closure so
+   * the lazy AgentCore bridge can read the latest registered callback.
+   */
+  private readonly getOnAgentCompleteCallback: () =>
+    | ((codespaceId: string, taskId: string) => Promise<void>)
+    | undefined;
 
   /** AgentCore sandbox provider (lazily initialized when AgentCore config is set) */
   private agentCoreProvider?: AgentCoreSandboxProvider;
@@ -107,36 +152,24 @@ export class ContainerAgentService {
     this.worktreeInit = new WorktreeInitService(this.deps);
 
     // handlePlanReady callback shared by both exec paths
-    const handlePlanReady = (
-      taskId: string,
-      sessionId: string,
-      codespaceId: string,
-      planData: {
-        plan: string;
-        turnCount: number;
-        sdkSessionId: string;
-        allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-      }
-    ) => this.planApproval.handlePlanReady(taskId, sessionId, codespaceId, planData);
+    this.handlePlanReady = (taskId, sessionId, codespaceId, planData) =>
+      this.planApproval.handlePlanReady(taskId, sessionId, codespaceId, planData);
 
-    const getOnAgentCompleteCallback = () => this.onAgentCompleteCallback;
+    this.getOnAgentCompleteCallback = () => this.onAgentCompleteCallback;
 
     this.containerExec = new ContainerExecService(
       this.deps,
       this.state,
       this.worktreeInit,
-      handlePlanReady,
-      getOnAgentCompleteCallback
+      this.handlePlanReady,
+      this.getOnAgentCompleteCallback
     );
 
-    this.agentCoreBridge = new AgentCoreBridgeService(
-      this.deps,
-      this.state,
-      this.containerExec,
-      () => this.agentCoreProvider,
-      handlePlanReady,
-      getOnAgentCompleteCallback
-    );
+    // theme-04 W2-D-FIX: AgentCoreBridgeService is NOT instantiated here.
+    // It is lazily loaded by `loadAgentCoreBridge()` from `setAgentCoreProvider()`
+    // when (and only when) `AGENTCORE_ENABLED=true`. With the flag off the
+    // module graph contains zero AgentCore code — no bridge service, no
+    // SigV4 signer, no AWS SDK.
 
     const agentReview = new AgentReviewService(this.deps);
 
@@ -151,6 +184,37 @@ export class ContainerAgentService {
 
     // Wire circular reference: review service needs planApproval to call approvePlan()
     agentReview.setPlanApproval(this.planApproval);
+  }
+
+  /**
+   * theme-04 W2-D-FIX (F04-04, F04-05): Lazily load and construct the
+   * AgentCoreBridgeService. The dynamic `import()` is the gate that keeps
+   * `agentcore-bridge.service.ts`, `agentcore-bridge.ts`, and the SigV4
+   * signer in `agentcore-sandbox-instance.ts` out of the runtime module
+   * graph when `AGENTCORE_ENABLED=false`.
+   *
+   * Idempotent: once loaded, returns the cached instance. Returns undefined
+   * (and logs) if the gate is off, so callers can short-circuit gracefully.
+   */
+  private async loadAgentCoreBridge(): Promise<AgentCoreBridgeService | undefined> {
+    if (!isAgentCoreEnabled()) {
+      log.warn('loadAgentCoreBridge called but AGENTCORE_ENABLED is not set — skipping');
+      return undefined;
+    }
+    if (this.agentCoreBridge) {
+      return this.agentCoreBridge;
+    }
+    const { AgentCoreBridgeService: BridgeCtor } = await import('./agentcore-bridge.service.js');
+    this.agentCoreBridge = new BridgeCtor(
+      this.deps,
+      this.state,
+      this.containerExec,
+      () => this.agentCoreProvider,
+      this.handlePlanReady,
+      this.getOnAgentCompleteCallback
+    );
+    log.info('AgentCoreBridgeService lazily loaded (AGENTCORE_ENABLED=true)');
+    return this.agentCoreBridge;
   }
 
   /**
@@ -170,10 +234,11 @@ export class ContainerAgentService {
   /**
    * Configure the AgentCore sandbox provider.
    *
-   * theme-04 P1-02: This is a no-op unless `AGENTCORE_ENABLED=true` is set in
-   * the environment. The agentcore-sandbox-provider module (which pulls in
-   * the AWS SDK via dynamic import) is loaded lazily — with the feature flag
-   * off, the module never reaches the module graph.
+   * theme-04 P1-02 / W2-D-FIX (F04-04, F04-05): This is a no-op unless
+   * `AGENTCORE_ENABLED=true` is set. Both the AgentCore provider module and
+   * the bridge service are loaded via dynamic import — with the flag off,
+   * neither module (nor the SigV4 signer in `agentcore-sandbox-instance.ts`,
+   * nor the AWS SDK) ever reaches the runtime module graph.
    */
   async setAgentCoreProvider(config: AgentCoreProviderConfig): Promise<void> {
     if (!isAgentCoreEnabled()) {
@@ -187,6 +252,11 @@ export class ContainerAgentService {
       '../../lib/sandbox/providers/agentcore-sandbox-provider.js'
     );
     this.agentCoreProvider = createAgentCoreProvider(config);
+    // theme-04 W2-D-FIX: load the bridge service alongside the provider so
+    // both modules enter the graph together (or, with the flag off, neither
+    // does). Loading is idempotent — subsequent setAgentCoreProvider calls
+    // reuse the cached bridge.
+    await this.loadAgentCoreBridge();
     log.info('AgentCore provider configured', {
       data: { region: config.region, runtimeArn: config.runtimeArn },
     });
@@ -258,7 +328,22 @@ export class ContainerAgentService {
           where: eq(codespaces.id, input.codespaceId),
         });
         if (!codespace) return err(SandboxErrors.PROJECT_NOT_FOUND);
-        return this.agentCoreBridge.startAgentCoreAgent(input, codespace);
+        // theme-04 W2-D-FIX: bridge should already be loaded by
+        // setAgentCoreProvider(); load defensively in case a caller
+        // manually populated the provider via test injection.
+        const bridge = await this.loadAgentCoreBridge();
+        if (!bridge) {
+          // AGENTCORE_ENABLED is off but a provider was somehow set — surface
+          // this as an error rather than silently falling through to the
+          // container exec path, which would not produce the expected
+          // AgentCore semantics.
+          return err(
+            SandboxErrors.AGENT_START_FAILED(
+              'AgentCore provider is configured but AGENTCORE_ENABLED is not set; bridge unavailable'
+            )
+          );
+        }
+        return bridge.startAgentCoreAgent(input, codespace);
       }
       return this.containerExec.startAgent(input);
     } finally {
@@ -277,10 +362,22 @@ export class ContainerAgentService {
     // Clear starting guard
     this.state.clearStarting(taskId);
 
-    // AgentCore branch
+    // AgentCore branch — `acAgent` is only ever populated by the AgentCore
+    // bridge after a successful startAgentCoreAgent, so by the time we're
+    // here the bridge has already been lazy-loaded. We still call
+    // loadAgentCoreBridge() defensively to surface a clear error if the
+    // gate is somehow off.
     const acAgent = this.state.getRunningAgentCoreAgent(taskId);
     if (acAgent) {
-      return this.agentCoreBridge.stopAgentCoreAgent(acAgent);
+      const bridge = await this.loadAgentCoreBridge();
+      if (!bridge) {
+        return err(
+          SandboxErrors.AGENT_STOP_FAILED(
+            'AgentCore agent is running but AGENTCORE_ENABLED is not set; bridge unavailable'
+          )
+        );
+      }
+      return bridge.stopAgentCoreAgent(acAgent);
     }
 
     // Container exec branch

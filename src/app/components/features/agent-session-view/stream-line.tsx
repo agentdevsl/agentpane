@@ -27,7 +27,7 @@ const lineContainerVariants = cva(
         prompt: 'bg-success/5 hover:bg-success/10',
         command: 'hover:bg-surface-subtle',
         output: 'hover:bg-surface-subtle',
-        thinking: 'bg-warning/5 hover:bg-warning/10',
+        thinking: 'bg-attention/5 hover:bg-attention/10',
         action: 'bg-accent/5 hover:bg-accent/10',
         tool: 'bg-done/5 hover:bg-done/10',
         success: 'bg-success/5 hover:bg-success/10',
@@ -65,8 +65,8 @@ const lineTypeConfig: Record<
   },
   thinking: {
     icon: Lightning,
-    textClass: 'text-warning italic',
-    iconClass: 'text-warning',
+    textClass: 'text-attention italic',
+    iconClass: 'text-attention',
   },
   action: {
     icon: ArrowRight,
@@ -132,7 +132,7 @@ export const StreamLine = memo(
               'flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
               line.durability === 'durable'
                 ? 'bg-success/10 text-success'
-                : 'bg-warning/10 text-warning'
+                : 'bg-attention/10 text-attention'
             )}
           >
             {line.durability}

@@ -46,6 +46,26 @@ const ServerConfigSchema = z.object({
   skipAuth: z.coerce.boolean().default(false),
   sandboxInitTimeoutMs: z.coerce.number().int().min(1000).default(120_000),
   caddyStreamsUrl: z.string().optional(),
+  /**
+   * F06-NEW-02 (P0) — Multi-tenant deployment gate (arch29-W1-E).
+   *
+   * When `true`, the platform is hosting workloads for more than one tenant
+   * and shared-sandbox mode (single Anthropic OAuth credentials file, single
+   * `/workspace` bind mount, no per-tenant uid/FS isolation) is FORBIDDEN.
+   * In that mode the container-exec service and credentials injector must
+   * refuse to operate when the resolved sandbox mode is `shared`, because
+   * any tenant agent could read another tenant's OAuth token from the
+   * shared credentials file.
+   *
+   * Default: `false` for self-hosted single-team installs (no behaviour
+   * change). Hosted / multi-tenant deployments must explicitly opt in by
+   * setting `MULTI_TENANT=true` in the environment.
+   *
+   * The full multi-tenant FS/UID isolation rebuild is L-effort and tracked
+   * as a follow-up; this gate is the fail-safe so accidental shared-mode
+   * usage cannot silently leak credentials across tenants.
+   */
+  multiTenant: z.coerce.boolean().default(false),
   postgres: PostgresConfigSchema,
 });
 
@@ -86,6 +106,29 @@ export class PostgresConfigError extends Error {
 }
 
 /**
+ * F06-NEW-02 / arch29-W1-E — Multi-tenant deployment gate helper.
+ *
+ * Reads the `MULTI_TENANT` env var directly (not from a cached config object)
+ * because:
+ *
+ *  - Service-layer code paths (`container-exec.service.ts`, `credentials-injector.ts`)
+ *    do not have access to the bootstrap-time `ServerConfig` instance.
+ *  - Sub-processes spawn with the inherited environment, so a single helper
+ *    that reads from `process.env` ensures the gate is consistent everywhere.
+ *  - This mirrors the `isDevAuthAllowed` pattern in `src/lib/api/dev-auth.ts`.
+ *
+ * Returns `true` ONLY when `MULTI_TENANT=true`. Any other value (unset,
+ * `false`, `0`, garbage) returns `false` — self-hosted single-team installs
+ * see no behaviour change.
+ *
+ * @param env - Optional environment object for testing. Defaults to
+ *   `process.env`. Tests can inject a stub without mutating globals.
+ */
+export function isMultiTenantEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.MULTI_TENANT === 'true';
+}
+
+/**
  * Parse and validate server configuration from environment variables.
  * Logs warnings for notable settings and exits on fatal misconfigurations.
  */
@@ -113,6 +156,7 @@ export function parseServerConfig(): ServerConfig {
     skipAuth: process.env.SKIP_AUTH,
     sandboxInitTimeoutMs: process.env.SANDBOX_INIT_TIMEOUT_MS,
     caddyStreamsUrl: process.env.CADDY_STREAMS_URL,
+    multiTenant: process.env.MULTI_TENANT,
     postgres: postgresConfig,
   };
 
@@ -173,6 +217,16 @@ export function parseServerConfig(): ServerConfig {
     );
   }
 
+  // F06-NEW-02 / arch29-W1-E: surface the multi-tenant gate explicitly so
+  // operators can see which mode they booted into. The gate's enforcement
+  // happens at the container-exec / credentials-injector chokepoints; this
+  // log is purely informational at boot.
+  if (config.multiTenant) {
+    log.warn(
+      'MULTI_TENANT=true is set - shared sandbox mode is FORBIDDEN. The container-exec service and credentials injector will refuse to operate when the resolved sandbox mode is "shared". Configure per-codespace sandboxes for every codespace before starting agents.'
+    );
+  }
+
   log.info('Environment validated', {
     data: {
       nodeEnv: config.nodeEnv,
@@ -180,6 +234,7 @@ export function parseServerConfig(): ServerConfig {
       port: config.port,
       corsOrigin: config.corsOrigin,
       skipAuth: config.skipAuth,
+      multiTenant: config.multiTenant,
     },
   });
 

@@ -6,11 +6,19 @@
  * transaction as the state change that produced the event. The
  * `EventOutboxRelayService` polls every 50ms, publishes to Caddy, and marks
  * rows `published` (hard-deleted after a retention window).
+ *
+ * F02-18 (arch29-W2-R): timestamp columns store epoch ms as `bigint({ mode:
+ * 'number' })` — matching the SQLite `integer({ mode: 'timestamp_ms' })`
+ * shape. Drizzle surfaces both as JS numbers (and Date for the SQLite mode),
+ * which makes cross-dialect ordering numeric and removes the divergence
+ * between lex-compared ISO strings on SQLite and `timestamptz` on PG.
+ * Mirrors the `session_events.timestamp` precedent established in PG
+ * migration 0002. Migration `0017_event_outbox_epoch_ms.sql` rebuilds the
+ * column from the previous `timestamptz` shape.
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { sql } from 'drizzle-orm';
-import { index, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { bigint, index, integer, jsonb, pgTable, text } from 'drizzle-orm/pg-core';
 
 export const eventOutbox = pgTable(
   'event_outbox',
@@ -28,12 +36,21 @@ export const eventOutbox = pgTable(
       .notNull()
       .default('pending'),
     attempts: integer('attempts').notNull().default(0),
-    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true })
+    /**
+     * F02-18 — epoch ms (PG `bigint`). The relay compares numerically:
+     * `where(lte(eventOutbox.nextAttemptAt, Date.now()))`. Drizzle `mode:
+     * 'number'` returns the value as a JS number for direct numeric ops.
+     */
+    nextAttemptAt: bigint('next_attempt_at', { mode: 'number' })
       .notNull()
-      .default(sql`now()`),
+      .$defaultFn(() => Date.now()),
     lastError: text('last_error'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().default(sql`now()`),
-    publishedAt: timestamp('published_at', { withTimezone: true }),
+    /** F02-18 — epoch ms. See `nextAttemptAt`. */
+    createdAt: bigint('created_at', { mode: 'number' })
+      .notNull()
+      .$defaultFn(() => Date.now()),
+    /** F02-18 — epoch ms; nullable until the relay marks the row published. */
+    publishedAt: bigint('published_at', { mode: 'number' }),
   },
   (table) => [
     index('event_outbox_status_idx').on(table.status),

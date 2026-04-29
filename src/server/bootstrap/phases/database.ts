@@ -9,7 +9,7 @@ import { Database as BunSQLite } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js';
 import { migrate as migratePg } from 'drizzle-orm/postgres-js/migrator';
-import postgres from 'postgres';
+import { createPgClient } from '../../../db/postgres-client.js';
 import * as pgSchema from '../../../db/schema/postgres/index.js';
 import * as sqliteSchema from '../../../db/schema/sqlite/index.js';
 import { MIGRATIONS } from '../../../lib/bootstrap/migrations/index.js';
@@ -75,21 +75,14 @@ async function initializePostgres(config: ServerConfig): Promise<DatabaseResult>
     throw new MissingDatabaseUrlError();
   }
 
-  // F02-05: pass validated pool / client config to postgres-js.
+  // F02-05 / F02-17 (arch29-W2-R): pass validated pool / client config to
+  // postgres-js via the centralised `createPgClient` helper. The helper is
+  // shared across this primary bootstrap path, the worker/CLI path
+  // (`src/db/client.ts`), and the legacy bootstrap (`src/lib/bootstrap/
+  // phases/postgres.ts`) so all three production code paths see the same
+  // pool / SSL / application_name settings in `pg_stat_activity`.
   const pg = config.postgres;
-  const pgClient = postgres(connectionString, {
-    max: pg.max,
-    idle_timeout: pg.idleTimeoutSeconds,
-    max_lifetime: pg.maxLifetimeSeconds,
-    connect_timeout: pg.connectTimeoutSeconds,
-    connection: { application_name: pg.applicationName },
-    ssl:
-      pg.ssl === 'disable'
-        ? false
-        : pg.ssl === 'require' || pg.ssl === 'prefer'
-          ? pg.ssl
-          : undefined,
-  });
+  const pgClient = createPgClient(connectionString, pg);
   log.info('PostgreSQL client initialized', {
     data: {
       max: pg.max,
@@ -102,10 +95,20 @@ async function initializePostgres(config: ServerConfig): Promise<DatabaseResult>
   });
   const db = drizzlePg(pgClient, { schema: pgSchema }) as unknown as Database;
 
-  await migratePg(db as unknown as ReturnType<typeof drizzlePg>, {
-    migrationsFolder: './src/db/migrations-pg',
-  });
-  log.info('PostgreSQL migrations applied');
+  // F11-17: When migrations have already been applied out-of-band (e.g. by
+  // the Helm pre-upgrade Job), skip the in-process migrator. Replicas that
+  // each call migratePg() race the Drizzle advisory lock; under retry storms
+  // one pod can interleave ahead of another. The pre-upgrade Job is the
+  // single mutator path; app pods run `migrate-check-only.ts` from start.sh
+  // and refuse to start on stale schema.
+  if (process.env.MIGRATIONS_PRE_APPLIED === 'true') {
+    log.info('Skipping in-process migrate (MIGRATIONS_PRE_APPLIED=true)');
+  } else {
+    await migratePg(db as unknown as ReturnType<typeof drizzlePg>, {
+      migrationsFolder: './src/db/migrations-pg',
+    });
+    log.info('PostgreSQL migrations applied');
+  }
 
   return { db, sqlite: null, pgClient };
 }
@@ -120,8 +123,15 @@ function initializeSqlite(config: ServerConfig): DatabaseResult {
   sqlite.exec('PRAGMA foreign_keys=ON');
   log.info('SQLite WAL mode enabled', { data: { dbPath } });
 
-  // Run all migrations via the consolidated runner
-  runMigrations(sqlite, MIGRATIONS);
+  // F11-17: skip in-process migrate when an out-of-band runner has already
+  // applied the schema (CD pipeline, init container). start.sh has already
+  // verified the schema via `migrate-check-only.ts` so we know it's current.
+  if (process.env.MIGRATIONS_PRE_APPLIED === 'true') {
+    log.info('Skipping in-process migrate (MIGRATIONS_PRE_APPLIED=true)');
+  } else {
+    // Run all migrations via the consolidated runner
+    runMigrations(sqlite, MIGRATIONS);
+  }
 
   // Seed default team for existing installations with orphaned github_tokens
   seedDefaultTeamForExistingTokens(sqlite);

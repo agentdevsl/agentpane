@@ -12,11 +12,17 @@ on:
       - 'tests/services/rbac*.test.ts'
       - 'tests/lib/api/rbac-middleware.test.ts'
       - 'tests/routes/rbac-tokens.test.ts'
+      # arch29-W2-S / F09-22: orchestration files now PR-gated.
+      - 'src/services/agent/agent-execution.service.ts'
+      - 'src/services/container-agent/plan-approval.service.ts'
+      - 'src/services/task.service.ts'
+      - 'src/lib/agents/stream-handler.ts'
+      - 'mutation-thresholds.json'
+      - '.github/workflows/mutation-testing.yml'
   schedule:
-    # All areas run at 04:00 UTC Mon–Fri. Orchestration is scheduled-only
-    # (skipped on pull_request events via matrix.schedule_only) to keep PR
-    # runtime bounded; state-machines and RBAC additionally gate PRs via
-    # the paths filter above.
+    # All areas run at 04:00 UTC Mon–Fri. PR-time gating uses the `paths`
+    # filter above; the cron run produces a full periodic baseline regardless
+    # of recent PR activity.
     - cron: '0 4 * * 1-5'
   workflow_dispatch:
 
@@ -30,18 +36,23 @@ concurrency:
 jobs:
   mutation-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
           - area: state-machines
+            config: stryker.state-machines.mjs
             mutate: 'src/lib/state-machines/**/machine.ts,src/lib/state-machines/**/guards.ts,src/lib/state-machines/**/actions.ts'
           - area: rbac
+            config: stryker.rbac.mjs
             mutate: 'src/services/rbac.service.ts,src/services/rbac-token.service.ts,src/lib/api/auth-middleware.ts,src/lib/api/rbac-middleware.ts'
           - area: orchestration
+            config: stryker.orchestration.mjs
+            # arch29-W2-S / F09-22: PR-gated when orchestration files change.
+            # Per-area threshold lives in `mutation-thresholds.json` and is
+            # enforced after the Stryker run by `check-mutation-thresholds.mjs`.
             mutate: 'src/services/agent/agent-execution.service.ts,src/services/container-agent/plan-approval.service.ts,src/services/task.service.ts,src/lib/agents/stream-handler.ts'
-            schedule_only: true
     steps:
       - uses: actions/checkout@v6
 
@@ -64,7 +75,6 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Restore Stryker incremental cache
-        if: ${{ matrix.schedule_only != true || github.event_name != 'pull_request' }}
         uses: actions/cache@v5
         with:
           path: reports/mutation/stryker-incremental.json
@@ -73,24 +83,60 @@ jobs:
             stryker-incremental-${{ matrix.area }}-${{ github.base_ref || 'main' }}-
             stryker-incremental-${{ matrix.area }}-main-
 
+      # Stryker's global `thresholds.break` is 75 (stryker.config.json). Per-area
+      # thresholds live in `mutation-thresholds.json` and are enforced below by
+      # `check-mutation-thresholds.mjs`. We let Stryker continue past its own
+      # threshold so the JSON report is always produced; the per-area gate is
+      # the authoritative pass/fail.
+      #
+      # Per-area config (matrix.config) extends `stryker.config.json` and:
+      #   1. Filters vitest projects to those that actually exercise the mutator
+      #      scope (e.g. state-machines uses only `unit`; orchestration uses
+      #      `unit + db + integration`). Skipping jsdom/functional cuts mutant
+      #      cycle-time by ~30-50%.
+      #   2. Bumps per-area timeoutMS where the mutator scope is large.
+      # Global stryker.config.json drops the TypeScript checker (tsc runs once
+      # in lint-and-typecheck — re-running per mutant doubles wall time).
       - name: Mutation test (${{ matrix.area }})
-        if: ${{ matrix.schedule_only != true || github.event_name != 'pull_request' }}
-        run: npx stryker run --mutate '${{ matrix.mutate }}' --reporters clear-text --ignoreStatic
+        # Stryker takes the config file as a POSITIONAL argument (per
+        # https://stryker-mutator.io/docs/stryker-js/config-file/), not via
+        # `--configFile`. The per-area mjs config exports a merged config
+        # built from `stryker.config.json` + per-area overrides.
+        run: npx stryker run '${{ matrix.config }}' --mutate '${{ matrix.mutate }}' --reporters clear-text,json --ignoreStatic
         continue-on-error: true
 
-      - name: Mutation test (${{ matrix.area }}) — skipped on PR
-        if: ${{ matrix.schedule_only == true && github.event_name == 'pull_request' }}
-        run: echo "::notice::Skipping ${{ matrix.area }} mutation on pull_request — runs on cron/workflow_dispatch only to keep PR runtime bounded."
+      # Copy the freshly produced single-file JSON report into a per-area
+      # location so `check-mutation-thresholds.mjs` can find it. Fail the
+      # job if the report is missing — a silent missing-report would make the
+      # threshold gate vacuously pass.
+      - name: Stage per-area report
+        run: |
+          mkdir -p reports/mutation
+          if [ -f reports/mutation/mutation.json ]; then
+            cp reports/mutation/mutation.json "reports/mutation/${{ matrix.area }}.json"
+            echo "Staged reports/mutation/${{ matrix.area }}.json"
+          else
+            echo "::error::reports/mutation/mutation.json was not produced; cannot enforce threshold"
+            exit 1
+          fi
+
+      # arch29-W2-S / F09-22: per-area mutation-score gate. This is the
+      # authoritative pass/fail for the matrix entry. Per-area break / warn
+      # thresholds live in `mutation-thresholds.json`. The script reads
+      # only the per-area JSON files that exist on disk, so each matrix
+      # iteration enforces its own area only.
+      - name: Enforce per-area mutation threshold
+        run: node scripts/check-mutation-thresholds.mjs
 
       - name: Save Stryker incremental cache
-        if: ${{ always() && (matrix.schedule_only != true || github.event_name != 'pull_request') }}
+        if: always()
         uses: actions/cache/save@v5
         with:
           path: reports/mutation/stryker-incremental.json
           key: stryker-incremental-${{ matrix.area }}-${{ github.base_ref || 'main' }}-${{ hashFiles('src/lib/state-machines/**', 'src/services/rbac*.ts', 'src/lib/api/auth-middleware.ts', 'src/lib/api/rbac-middleware.ts', 'src/services/agent/agent-execution.service.ts', 'src/services/container-agent/plan-approval.service.ts', 'src/services/task.service.ts', 'src/lib/agents/stream-handler.ts') }}
 
       - name: Upload mutation report
-        if: ${{ always() && (matrix.schedule_only != true || github.event_name != 'pull_request') }}
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: mutation-report-${{ matrix.area }}

@@ -1033,86 +1033,57 @@ src/db/
 
 ### 4.3 Backup and Restore Procedures
 
-#### Backup Script
+The canonical backup scripts are checked into the repository:
+
+| Mode       | Script                       | Output                          |
+|------------|------------------------------|----------------------------------|
+| PostgreSQL | `scripts/backup-db-pg.sh`    | `agentpane_pg_<ts>.dump` (custom format, `--compress=6`, verified by `pg_restore --list`) |
+| SQLite     | `scripts/backup-db.sh`       | `agentpane_<ts>.db` (cold copy after `PRAGMA wal_checkpoint(TRUNCATE)`) |
+
+Both scripts run with `set -euo pipefail`, cap the artefact count at
+`MAX_BACKUPS` (default `7`), and write to `./data/backups/` unless overridden
+by the first positional argument. The Postgres script additionally uses
+`umask 077` and a `trap 'rm -f "$BACKUP_FILE"' ERR` to remove partial
+artefacts.
+
+#### Scheduling on Kubernetes
+
+The Helm chart ships a `CronJob` template at
+`charts/agentpane/templates/cronjob-backup.yaml`. It is **disabled by
+default** (so a fresh `helm install` doesn't surprise-provision a PVC) and
+opted into by setting `backup.enabled: true`:
 
 ```bash
-#!/bin/bash
-# scripts/backup-database.sh
-
-set -euo pipefail
-
-# Configuration
-DATA_DIR="${DATA_DIR:-./data}"
-BACKUP_DIR="${BACKUP_DIR:-./backups}"
-DB_FILE="agentpane.db"
-RETENTION_DAYS="${RETENTION_DAYS:-7}"
-
-# Create backup directory
-mkdir -p "$BACKUP_DIR"
-
-# Generate timestamp
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="$BACKUP_DIR/agentpane_${TIMESTAMP}.db"
-
-echo "[Backup] Starting database backup..."
-
-# Checkpoint WAL before backup (ensures consistency)
-if [ -f "$DATA_DIR/$DB_FILE" ]; then
-  sqlite3 "$DATA_DIR/$DB_FILE" "PRAGMA wal_checkpoint(TRUNCATE);"
-fi
-
-# Copy database file
-cp "$DATA_DIR/$DB_FILE" "$BACKUP_FILE"
-
-# Compress backup
-gzip "$BACKUP_FILE"
-BACKUP_FILE="${BACKUP_FILE}.gz"
-
-echo "[Backup] Created: $BACKUP_FILE"
-
-# Calculate size
-SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
-echo "[Backup] Size: $SIZE"
-
-# Clean up old backups
-echo "[Backup] Cleaning backups older than $RETENTION_DAYS days..."
-find "$BACKUP_DIR" -name "agentpane_*.db.gz" -mtime +$RETENTION_DAYS -delete
-
-echo "[Backup] Complete"
+helm upgrade agentpane charts/agentpane --reuse-values \
+  --set backup.enabled=true \
+  --set backup.schedule="0 3 * * *" \
+  --set backup.retentionDays=7 \
+  --set backup.pvc.size=5Gi
 ```
 
-#### Restore Script
+The CronJob runs the matching backup script (Postgres if `database.mode=postgres`,
+SQLite otherwise), writes to a `<release>-agentpane-backup` PVC at `/backups`,
+and cleans up older artefacts.
+
+#### Scheduling on Docker Compose / bare-metal
 
 ```bash
-#!/bin/bash
-# scripts/restore-database.sh
-
-set -euo pipefail
-
-DATA_DIR="${DATA_DIR:-./data}"
-BACKUP_DIR="${BACKUP_DIR:-./backups}"
-DB_FILE="agentpane.db"
-
-if [ $# -eq 0 ]; then
-  echo "Usage: $0 <backup-file>"
-  echo ""
-  echo "Available backups:"
-  ls -lh "$BACKUP_DIR"/*.gz 2>/dev/null || echo "  No backups found"
-  exit 1
-fi
-
-BACKUP_FILE="$1"
-
-# Stop AgentPane first
-# Remove WAL files
-rm -f "$DATA_DIR/$DB_FILE-wal" "$DATA_DIR/$DB_FILE-shm"
-
-# Restore from backup
-gunzip -c "$BACKUP_FILE" > "$DATA_DIR/$DB_FILE"
-
-# Verify restored database
-sqlite3 "$DATA_DIR/$DB_FILE" "PRAGMA integrity_check;"
+# crontab -e
+0 3 * * *  /opt/agentpane/scripts/backup-db-pg.sh /var/agentpane/backups
 ```
+
+#### Restore drill
+
+The full step-by-step restore drill — including how to verify a backup
+artefact, drop & recreate the database, run `migrate-check-only` after
+restore, and bring the app back online — lives in
+[`specs/application/operations/backup-restore.md`](./backup-restore.md). It
+covers Kubernetes (Helm + `kubectl run`), Docker Compose, and bare-metal
+flows for both PostgreSQL and SQLite.
+
+> **Operational requirement:** restore drills must be rehearsed weekly
+> (smoke test) and end-to-end monthly. A backup that has never been
+> restored is not a backup. See `backup-restore.md` §4 for the cadence.
 
 ---
 
@@ -1279,16 +1250,26 @@ kubectl rollout status deployment/agentpane
 
 #### Database Rollback
 
+The full restore drill — including verification, schema integrity checks,
+and the post-restore migration step — lives in
+[`backup-restore.md`](./backup-restore.md). The minimal flow:
+
 ```bash
 # If a migration caused issues:
 # 1. Stop the application
-docker stop agentpane
+docker compose down agentpane         # or: kubectl scale deploy agentpane --replicas=0
 
-# 2. Restore from pre-migration backup
-./scripts/restore-database.sh ./backups/agentpane_pre_migrate.db.gz
+# 2. PostgreSQL: pg_restore from the pre-migration snapshot
+pg_restore --clean --if-exists --no-owner --no-privileges \
+  --dbname="$DATABASE_URL" \
+  ./data/backups/agentpane_pg_<pre-upgrade-timestamp>.dump
 
-# 3. Deploy previous application version
-docker run ... agentpane:<previous-version>
+# 2. (alt) SQLite: cold copy
+rm -f ./data/agentpane.db-wal ./data/agentpane.db-shm
+cp ./data/backups/agentpane_<pre-upgrade-timestamp>.db ./data/agentpane.db
+
+# 3. Deploy previous application version (image digest pinned)
+docker run ... agentpane@sha256:<previous-digest>
 ```
 
 ---

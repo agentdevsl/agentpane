@@ -59,10 +59,11 @@ describe('Cross-Service: Codespace Lifecycle (IT-175 to IT-177)', () => {
     const task = await createTestTask(codespace.id, { title: 'Task to cascade' });
     const session = await createTestSession(codespace.id, { taskId: task.id });
 
-    // Insert session events
+    // Insert session events. F05-25: bare CUIDs are session-kind.
     await db.insert(sessionEvents).values({
       id: createId(),
       sessionId: session.id,
+      streamKind: 'session',
       offset: 0,
       type: 'chunk',
       channel: 'chunks',
@@ -72,6 +73,7 @@ describe('Cross-Service: Codespace Lifecycle (IT-175 to IT-177)', () => {
     await db.insert(sessionEvents).values({
       id: createId(),
       sessionId: session.id,
+      streamKind: 'session',
       offset: 1,
       type: 'tool:start',
       channel: 'toolCalls',

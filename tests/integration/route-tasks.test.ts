@@ -41,6 +41,7 @@ describe('Tasks Routes (IT-1350)', () => {
     mockService = createMockTaskService();
     app = createTasksRoutes({
       taskService: mockService as any,
+      db: {} as never,
     });
   });
 
@@ -346,11 +347,17 @@ describe('Tasks Routes (IT-1350)', () => {
     expect(body.data.agentError).toBeUndefined();
   });
 
-  it('IT-1368: PATCH /:id/move returns task with agentError on partial failure', async () => {
+  it('IT-1368: PATCH /:id/move returns ok:false with AGENT_START_FAILED on partial failure', async () => {
+    // arch29-W2-H / F07-06: when the move succeeds but agent auto-start
+    // fails, the route MUST return `ok:false` with
+    // `error.code === 'AGENT_START_FAILED'` (HTTP 500). The previous
+    // shape (`ok:true` with embedded `agentError`) hid the failure from
+    // any client that keys on `result.ok`. The service has already
+    // reverted the column to `backlog` by this point.
     mockService.moveColumn.mockResolvedValue({
       ok: true,
       value: {
-        task: { id: 'task-1', column: 'in_progress' },
+        task: { id: 'task-1', column: 'backlog' },
         agentError: 'Failed to start agent: no sandbox configured',
       },
     });
@@ -363,10 +370,12 @@ describe('Tasks Routes (IT-1350)', () => {
       })
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.data.agentError).toBe('Failed to start agent: no sandbox configured');
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe('AGENT_START_FAILED');
+    expect(body.error.message).toBe('Failed to start agent: no sandbox configured');
+    expect(body.error.details.task.column).toBe('backlog');
   });
 
   it('IT-1369: PATCH /:id/move returns 400 for invalid column', async () => {

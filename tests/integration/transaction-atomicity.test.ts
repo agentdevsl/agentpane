@@ -113,10 +113,12 @@ describe('Transaction & Atomicity (IT-191 to IT-195)', () => {
     const codespace = await createTestProject();
     const session = await createTestSession(codespace.id, { status: 'active' });
 
+    // F05-25: bare CUIDs are session-kind.
     for (let i = 0; i < 10; i++) {
       await db.insert(sessionEvents).values({
         id: createId(),
         sessionId: session.id,
+        streamKind: 'session',
         offset: i,
         type: 'chunk',
         channel: 'chunks',

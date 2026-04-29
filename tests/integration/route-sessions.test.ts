@@ -38,6 +38,7 @@ describe('Sessions Routes (IT-1250)', () => {
     mockService = createMockSessionService();
     app = createSessionsRoutes({
       sessionService: mockService as any,
+      db: {} as never,
     });
   });
 

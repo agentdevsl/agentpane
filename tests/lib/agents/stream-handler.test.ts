@@ -751,6 +751,251 @@ describe('runAgentPlanning', () => {
 });
 
 // =============================================================================
+// F03-02: tool-use hooks wired into runAgentPlanning.canUseTool
+// =============================================================================
+
+describe('F03-02: tool-use hooks wired into runAgentPlanning.canUseTool', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('invokes registered pre-tool-use hook before allowing a tool during planning', async () => {
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
+    const messages: Array<Record<string, unknown>> = [];
+    async function* controlledStream() {
+      while (messages.length === 0) {
+        await new Promise((r) => setTimeout(r, 1));
+      }
+      for (const m of messages) yield m;
+    }
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockImplementation(() => controlledStream()),
+      close: vi.fn(),
+      sessionId: 'plan-pre',
+    };
+    mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
+      return mockSession;
+    });
+
+    const preHook = vi.fn().mockResolvedValue({ deny: false });
+    const sessionService = createMockSessionService();
+    const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+
+    const promise = runAgentPlanning(
+      createDefaultOptions(sessionService, { preToolUseHooks: [preHook] })
+    );
+    for (let i = 0; i < 100 && !capturedCanUseTool; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    expect(capturedCanUseTool).not.toBeNull();
+
+    const verdict = await capturedCanUseTool!(
+      'Read',
+      { file_path: '/x.ts' },
+      { toolUseID: 'tu-plan-1' }
+    );
+
+    messages.push({
+      type: 'result',
+      total_cost_usd: 0,
+      duration_ms: 1,
+      num_turns: 0,
+      stop_reason: 'end_turn',
+    });
+    await promise;
+
+    expect(preHook).toHaveBeenCalledWith({
+      tool_name: 'Read',
+      tool_input: { file_path: '/x.ts' },
+    });
+    expect(verdict).toEqual(expect.objectContaining({ behavior: 'allow', toolUseID: 'tu-plan-1' }));
+  });
+
+  it('denies a tool during planning when pre-tool-use hook returns {deny:true}', async () => {
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
+    const messages: Array<Record<string, unknown>> = [];
+    async function* controlledStream() {
+      while (messages.length === 0) {
+        await new Promise((r) => setTimeout(r, 1));
+      }
+      for (const m of messages) yield m;
+    }
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockImplementation(() => controlledStream()),
+      close: vi.fn(),
+      sessionId: 'plan-deny',
+    };
+    mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
+      return mockSession;
+    });
+
+    const denyHook = vi
+      .fn()
+      .mockResolvedValue({ deny: true, reason: 'Tool "Bash" not in whitelist' });
+    const sessionService = createMockSessionService();
+    const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+
+    const promise = runAgentPlanning(
+      createDefaultOptions(sessionService, { preToolUseHooks: [denyHook] })
+    );
+    for (let i = 0; i < 100 && !capturedCanUseTool; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    expect(capturedCanUseTool).not.toBeNull();
+
+    const verdict = await capturedCanUseTool!(
+      'Bash',
+      { command: 'rm -rf /' },
+      { toolUseID: 'tu-plan-deny' }
+    );
+
+    messages.push({
+      type: 'result',
+      total_cost_usd: 0,
+      duration_ms: 1,
+      num_turns: 0,
+      stop_reason: 'end_turn',
+    });
+    await promise;
+
+    expect(denyHook).toHaveBeenCalled();
+    expect(verdict).toEqual({
+      behavior: 'deny',
+      message: 'Tool "Bash" not in whitelist',
+      interrupt: false,
+    });
+
+    // Deny must publish a tool:result with isError:true and phase:'planning'
+    const resultCall = findPublishedEvent(sessionService, 'tool:result');
+    expect(resultCall).toBeDefined();
+    const evt = resultCall![1] as { data: Record<string, unknown> };
+    expect(evt.data.isError).toBe(true);
+    expect(evt.data.output).toBe('Tool "Bash" not in whitelist');
+    expect(evt.data.phase).toBe('planning');
+  });
+
+  it('skips pre-tool-use hooks for ExitPlanMode (so plan exit cannot be denied)', async () => {
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
+    const messages: Array<Record<string, unknown>> = [];
+    async function* controlledStream() {
+      while (messages.length === 0) {
+        await new Promise((r) => setTimeout(r, 1));
+      }
+      for (const m of messages) yield m;
+    }
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockImplementation(() => controlledStream()),
+      close: vi.fn(),
+      sessionId: 'plan-exit-allow',
+    };
+    mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
+      return mockSession;
+    });
+
+    // Hook denies everything — but ExitPlanMode must still go through.
+    const denyEverythingHook = vi
+      .fn()
+      .mockResolvedValue({ deny: true, reason: 'denied unconditionally' });
+    const sessionService = createMockSessionService();
+    const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+
+    const promise = runAgentPlanning(
+      createDefaultOptions(sessionService, { preToolUseHooks: [denyEverythingHook] })
+    );
+    for (let i = 0; i < 100 && !capturedCanUseTool; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    expect(capturedCanUseTool).not.toBeNull();
+
+    const verdict = await capturedCanUseTool!(
+      'ExitPlanMode',
+      { allowedPrompts: [] },
+      { toolUseID: 'tu-exit-allow' }
+    );
+
+    messages.push({
+      type: 'result',
+      total_cost_usd: 0,
+      duration_ms: 1,
+      num_turns: 0,
+      stop_reason: 'end_turn',
+    });
+    await promise;
+
+    // Hook MUST NOT be called for ExitPlanMode
+    expect(denyEverythingHook).not.toHaveBeenCalled();
+    expect(verdict).toEqual(
+      expect.objectContaining({ behavior: 'allow', toolUseID: 'tu-exit-allow' })
+    );
+  });
+
+  it('runs post-tool-use hooks after tool_use_summary during planning', async () => {
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
+    const messages: Array<Record<string, unknown>> = [];
+    async function* controlledStream() {
+      while (messages.length === 0) {
+        await new Promise((r) => setTimeout(r, 1));
+      }
+      for (const m of messages) yield m;
+    }
+    const mockSession = {
+      send: vi.fn(),
+      stream: vi.fn().mockImplementation(() => controlledStream()),
+      close: vi.fn(),
+      sessionId: 'plan-post',
+    };
+    mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
+      return mockSession;
+    });
+
+    const postHook = vi.fn().mockResolvedValue(undefined);
+    const sessionService = createMockSessionService();
+    const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+
+    const promise = runAgentPlanning(
+      createDefaultOptions(sessionService, { postToolUseHooks: [postHook] })
+    );
+    for (let i = 0; i < 100 && !capturedCanUseTool; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    expect(capturedCanUseTool).not.toBeNull();
+
+    // Pre-seed activeTools by running canUseTool first.
+    await capturedCanUseTool!('Read', { file_path: '/x.ts' }, { toolUseID: 'tu-plan-post-1' });
+
+    // Now have the stream emit a tool_use_summary that matches.
+    messages.push({
+      type: 'tool_use_summary',
+      summary: '/x.ts contents',
+      preceding_tool_use_ids: ['tu-plan-post-1'],
+    });
+    messages.push({
+      type: 'result',
+      total_cost_usd: 0,
+      duration_ms: 1,
+      num_turns: 0,
+      stop_reason: 'end_turn',
+    });
+    await promise;
+
+    expect(postHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool_name: 'Read',
+        tool_input: { file_path: '/x.ts' },
+        tool_response: expect.objectContaining({ summary: '/x.ts contents', is_error: false }),
+      })
+    );
+  });
+});
+
+// =============================================================================
 // runAgentExecution Tests
 // =============================================================================
 

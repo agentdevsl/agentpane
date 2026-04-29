@@ -224,7 +224,7 @@ describe('Memory Routes (IT-1200)', () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.ok).toBe(false);
-    expect(body.error.code).toBe('INVALID_JSON');
+    expect(body.error.code).toBe('VALIDATION_ERROR');
   });
 
   // ─── DELETE /insights/:insightId ───────────────────────
@@ -346,7 +346,7 @@ describe('Memory Routes (IT-1200)', () => {
 
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error.code).toBe('INVALID_JSON');
+    expect(body.error.code).toBe('VALIDATION_ERROR');
   });
 
   // ─── POST /codespaces/:id/search (scoped) ─────────────
@@ -574,7 +574,7 @@ describe('Memory Routes (IT-1200)', () => {
 
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error.code).toBe('INVALID_JSON');
+    expect(body.error.code).toBe('VALIDATION_ERROR');
   });
 
   // ─── Dream config skill overrides ─────────────────────
@@ -675,10 +675,12 @@ describe('Memory Routes (IT-1200)', () => {
       position: 0,
     });
 
-    // Insert a session event with memory injection data
+    // Insert a session event with memory injection data.
+    // F05-25: 'session-for-injection' is a bare ID (session-kind).
     await db.insert(sessionEvents).values({
       id: createId(),
       sessionId: 'session-for-injection',
+      streamKind: 'session',
       offset: 0,
       channel: 'system',
       type: 'memory:insights_injected',

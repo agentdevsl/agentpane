@@ -1320,6 +1320,47 @@ describe('reconnection behavior', () => {
     sub.unsubscribe();
   });
 
+  it('F05-28: resets reconnect-attempt budget after a successful reconnect', async () => {
+    // Simulate: connect → close → reconnect (success) → close again. After
+    // the second close the implementation should NOT have terminal-disconnected
+    // because the successful reconnect re-armed the budget. With the bug, the
+    // counter never resets and the budget exhausts after MAX_RECONNECT_ATTEMPTS
+    // closes regardless of intervening successes.
+    const streamModule = await import('../../../src/lib/streams/client');
+    streamModule.setStreamsAvailable(true);
+
+    const terminalSpy = vi.fn();
+    const sub = streamModule.subscribeToSession('sess-reconnect-budget', {
+      onTerminalDisconnect: terminalSpy,
+    });
+
+    await flushPromises();
+    expect(durableMocks.stream).toHaveBeenCalledTimes(1);
+
+    // Burn 5 close→reconnect cycles. Each successful reconnect must reset
+    // the counter so MAX_RECONNECT_ATTEMPTS=8 is never approached.
+    for (let cycle = 0; cycle < 5; cycle++) {
+      const ctrl = durableMocks.controllers[cycle];
+      // Deliver an event so markConnected() runs and resets the budget.
+      ctrl?.emit({
+        offset: `opaque_${cycle}`,
+        items: [{ type: 'chunk', data: { text: `cycle-${cycle}` }, timestamp: Date.now() }],
+      });
+      ctrl?.close();
+      await flushPromises();
+      // Backoff capped at 30s; first few cycles reach 2s/4s/8s/16s/30s.
+      await vi.advanceTimersByTimeAsync(30000);
+      await flushPromises();
+    }
+
+    // Now there should be (cycles + 1) underlying streams created — one
+    // per reconnect — and no terminal-disconnect callback yet.
+    expect(durableMocks.stream).toHaveBeenCalledTimes(6);
+    expect(terminalSpy).not.toHaveBeenCalled();
+
+    sub.unsubscribe();
+  });
+
   it('resumes mixed chunk and tool replay from the last opaque cursor after transient error', async () => {
     const streamModule = await import('../../../src/lib/streams/client');
     streamModule.setStreamsAvailable(true);

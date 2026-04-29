@@ -217,8 +217,8 @@ export function ContainerAgentStream({
 
             {/* Cancelled state */}
             {status === 'cancelled' ? (
-              <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
-                <div className="flex items-center gap-2 text-warning">
+              <div className="rounded-lg border border-attention/30 bg-attention/10 p-3">
+                <div className="flex items-center gap-2 text-attention">
                   <Warning className="h-4 w-4" weight="fill" />
                   <span className="text-sm font-medium">Cancelled</span>
                 </div>

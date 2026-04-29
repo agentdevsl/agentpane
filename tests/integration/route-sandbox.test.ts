@@ -449,7 +449,7 @@ describe('Sandbox Routes (IT-1000)', () => {
       expect(response.status).toBe(400);
       const body = await response.json();
       expect(body.ok).toBe(false);
-      expect(body.error.code).toBe('INVALID_JSON');
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('IT-1031: POST / rejects missing required name', async () => {
@@ -531,7 +531,7 @@ describe('Sandbox Routes (IT-1000)', () => {
       expect(response.status).toBe(400);
       const body = await response.json();
       expect(body.ok).toBe(false);
-      expect(body.error.code).toBe('INVALID_JSON');
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('IT-1037: POST / validates Zod constraints (memoryMb range)', async () => {
@@ -600,7 +600,8 @@ describe('Sandbox Routes (IT-1000)', () => {
       expect(response.status).toBe(400);
       const body = await response.json();
       expect(body.ok).toBe(false);
-      expect(body.error.code).toBe('MISSING_PARAMS');
+      // arch29-W2-H / F07-15: standardised to VALIDATION_ERROR.
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
   });
 });

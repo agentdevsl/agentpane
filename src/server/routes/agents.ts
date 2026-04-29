@@ -4,16 +4,26 @@
 
 import { Hono } from 'hono';
 import type { AgentConfig } from '../../db/schema';
+import type { AuthContext } from '../../lib/api/auth-middleware.js';
+import { applyTokenTagFilter } from '../../lib/api/rbac-middleware.js';
 import type { AgentService } from '../../services/agent.service.js';
-import { errorResponse, isValidId, json, requireQueryId, validateIdParam } from '../shared.js';
-import { createAgentSchema, parseJsonBody } from '../validation.js';
+import type { Database } from '../../types/database.js';
+import { errorResponse, json, requireQueryId, validateIdParam } from '../shared.js';
+import {
+  agentResumeSchema,
+  agentStartSchema,
+  createAgentSchema,
+  parseJsonBody,
+  updateAgentSchema,
+} from '../validation.js';
 
 interface AgentsDeps {
   agentService: AgentService;
+  db: Database;
 }
 
-export function createAgentsRoutes({ agentService }: AgentsDeps) {
-  const app = new Hono();
+export function createAgentsRoutes({ agentService, db }: AgentsDeps) {
+  const app = new Hono<{ Variables: { auth: AuthContext } }>();
 
   // GET /api/agents
   app.get('/', async (c) => {
@@ -29,7 +39,11 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
       );
     }
 
-    return json({ ok: true, data: result.value });
+    // F06-NEW-07: filter by tag scope when the token is tag-restricted.
+    const auth = c.get('auth') as AuthContext | undefined;
+    const filtered = await applyTokenTagFilter(db, auth, result.value, (a) => a.id);
+
+    return json({ ok: true, data: filtered });
   });
 
   // POST /api/agents
@@ -71,23 +85,13 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    let body: { config?: Partial<AgentConfig> } & Partial<AgentConfig>;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, updateAgentSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
-    const updateInput = body.config ?? body;
-    if (!updateInput || Object.keys(updateInput).length === 0) {
-      return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'config is required' } },
-        400
-      );
-    }
+    // Accept either `{ config: {...} }` (wrapped) or flat AgentConfig fields.
+    const { config, ...flatFields } = body;
+    const updateInput: Partial<AgentConfig> = config ?? (flatFields as Partial<AgentConfig>);
 
     const result = await agentService.update(id, updateInput);
 
@@ -117,26 +121,15 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    let body: { taskId?: string } | null = null;
-    try {
-      if (c.req.header('Content-Type')?.includes('application/json')) {
-        body = await c.req.json();
-      }
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
+    // Body is optional — only validate when Content-Type indicates JSON.
+    let taskId: string | undefined;
+    if (c.req.header('Content-Type')?.includes('application/json')) {
+      const parsed = await parseJsonBody(c, agentStartSchema);
+      if (!parsed.ok) return parsed.response;
+      taskId = parsed.data.taskId;
     }
 
-    if (body?.taskId && !isValidId(body.taskId)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid taskId format' } },
-        400
-      );
-    }
-
-    const result = await agentService.start(id, body?.taskId);
+    const result = await agentService.start(id, taskId);
 
     if (!result.ok) {
       return errorResponse(result);
@@ -192,19 +185,15 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    let body: { feedback?: string } | null = null;
-    try {
-      if (c.req.header('Content-Type')?.includes('application/json')) {
-        body = await c.req.json();
-      }
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
+    // Body is optional — only validate when Content-Type indicates JSON.
+    let feedback: string | undefined;
+    if (c.req.header('Content-Type')?.includes('application/json')) {
+      const parsed = await parseJsonBody(c, agentResumeSchema);
+      if (!parsed.ok) return parsed.response;
+      feedback = parsed.data.feedback;
     }
 
-    const result = await agentService.resume(id, body?.feedback);
+    const result = await agentService.resume(id, feedback);
 
     if (!result.ok) {
       return errorResponse(result);

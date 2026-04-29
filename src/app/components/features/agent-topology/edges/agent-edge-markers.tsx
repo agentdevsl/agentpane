@@ -15,7 +15,7 @@ export function AgentEdgeMarkers(): React.JSX.Element {
           <path
             d="M1,1 L7,4 L1,7"
             fill="none"
-            stroke="#475569"
+            stroke="var(--fg-subtle)"
             strokeWidth="1.5"
             strokeLinejoin="round"
             strokeLinecap="round"
@@ -34,7 +34,7 @@ export function AgentEdgeMarkers(): React.JSX.Element {
           <path
             d="M1,1 L7,4 L1,7"
             fill="none"
-            stroke="#34D399"
+            stroke="var(--success-fg)"
             strokeWidth="1.5"
             strokeLinejoin="round"
             strokeLinecap="round"
@@ -53,7 +53,7 @@ export function AgentEdgeMarkers(): React.JSX.Element {
           <path
             d="M1,1 L7,4 L1,7"
             fill="none"
-            stroke="#A78BFA"
+            stroke="var(--done-fg)"
             strokeWidth="1.5"
             strokeLinejoin="round"
             strokeLinecap="round"
@@ -81,7 +81,7 @@ export function AgentEdgeMarkers(): React.JSX.Element {
         {/* Glow filter for running agents */}
         <filter id="agent-glow-running" x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
-          <feFlood floodColor="#34D399" floodOpacity="0.4" result="color" />
+          <feFlood floodColor="var(--success-fg)" floodOpacity="0.4" result="color" />
           <feComposite in="color" in2="blur" operator="in" result="glow" />
           <feMerge>
             <feMergeNode in="glow" />
@@ -91,7 +91,7 @@ export function AgentEdgeMarkers(): React.JSX.Element {
         {/* Glow filter for verifying agents */}
         <filter id="agent-glow-verifying" x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
-          <feFlood floodColor="#FFD866" floodOpacity="0.3" result="color" />
+          <feFlood floodColor="var(--attention-fg)" floodOpacity="0.3" result="color" />
           <feComposite in="color" in2="blur" operator="in" result="glow" />
           <feMerge>
             <feMergeNode in="glow" />

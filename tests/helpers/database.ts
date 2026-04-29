@@ -6,10 +6,14 @@ import {
   PROJECT_FOLDERS_MIGRATION_SQL,
 } from '../../src/lib/bootstrap/migrations/v19-project-folders';
 import {
+  CLI_SESSIONS_MIGRATION_SQL,
   EVENT_SYSTEM_MIGRATION_SQL,
+  MEMORY_TABLES_MIGRATION_SQL,
   MIGRATION_SQL,
   RBAC_GITHUB_TOKEN_MIGRATION_SQL,
   RBAC_MIGRATION_SQL,
+  SCHEDULE_EXECUTIONS_MIGRATION_SQL,
+  TERRAFORM_MIGRATION_SQL,
 } from '../../src/lib/bootstrap/phases/schema';
 import { createTestAgent } from '../factories/agent.factory';
 import { createTestProject } from '../factories/project.factory';
@@ -195,10 +199,12 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
   }
 
   // F06-09: token rotation columns (migration 0017).
+  // F03-09 (arch29-W2-C): encrypted refresh token column (migration 0019).
   for (const stmt of [
     'ALTER TABLE api_tokens ADD COLUMN rotated_at TEXT',
     'ALTER TABLE api_keys ADD COLUMN expires_at TEXT',
     'ALTER TABLE api_keys ADD COLUMN rotated_at TEXT',
+    'ALTER TABLE api_keys ADD COLUMN encrypted_refresh_token TEXT',
     'ALTER TABLE github_tokens ADD COLUMN expires_at TEXT',
     'ALTER TABLE github_tokens ADD COLUMN rotated_at TEXT',
   ]) {
@@ -209,7 +215,11 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     }
   }
 
-  // F05-05: event_outbox (migration 0018)
+  // F05-05: event_outbox (migration 0018), F02-18 epoch-ms shape (migration v36).
+  // The test harness skips the legacy TEXT-timestamp shape and creates the
+  // table directly with INTEGER epoch-ms columns to match the current Drizzle
+  // schema. Production databases run the v32 → v36 migration chain to convert
+  // existing rows; the harness has no rows to convert so it can skip ahead.
   try {
     testSqlite.exec(`
 CREATE TABLE IF NOT EXISTS event_outbox (
@@ -219,10 +229,10 @@ CREATE TABLE IF NOT EXISTS event_outbox (
   payload TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   attempts INTEGER NOT NULL DEFAULT 0,
-  next_attempt_at TEXT NOT NULL DEFAULT (datetime('now')),
+  next_attempt_at INTEGER NOT NULL,
   last_error TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  published_at TEXT
+  created_at INTEGER NOT NULL,
+  published_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS event_outbox_status_idx ON event_outbox(status);
 CREATE INDEX IF NOT EXISTS event_outbox_next_attempt_at_idx ON event_outbox(next_attempt_at);
@@ -230,6 +240,282 @@ CREATE INDEX IF NOT EXISTS event_outbox_status_next_attempt_idx ON event_outbox(
 `);
   } catch {
     // Table may already exist
+  }
+
+  // F05-25: session_events.stream_kind discriminator (migration 0019 / v33).
+  // The base schema creates session_events without the column; add it nullable,
+  // backfill from streamId prefix, then rebuild to enforce NOT NULL + CHECK.
+  try {
+    const cols = testSqlite.prepare('PRAGMA table_info(session_events)').all() as Array<{
+      name: string;
+    }>;
+    const hasStreamKind = cols.some((c) => c.name === 'stream_kind');
+    if (!hasStreamKind) {
+      testSqlite.exec(`
+ALTER TABLE session_events ADD COLUMN stream_kind TEXT;
+
+UPDATE session_events
+SET stream_kind = CASE
+  WHEN session_id = 'cli-monitor' THEN 'cli-monitor'
+  WHEN session_id LIKE 'plan:%' THEN 'plan'
+  WHEN session_id LIKE 'sandbox:%' THEN 'sandbox'
+  WHEN session_id LIKE 'terraform:%' THEN 'terraform'
+  WHEN session_id LIKE 'topology:%' THEN 'topology'
+  ELSE 'session'
+END
+WHERE stream_kind IS NULL;
+
+CREATE TABLE session_events_new (
+  id TEXT PRIMARY KEY NOT NULL,
+  session_id TEXT NOT NULL,
+  stream_kind TEXT NOT NULL CHECK (stream_kind IN ('session','plan','sandbox','terraform','topology','cli-monitor')),
+  "offset" INTEGER NOT NULL,
+  type TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  data TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  user_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT INTO session_events_new (id, session_id, stream_kind, "offset", type, channel, data, timestamp, user_id, created_at)
+SELECT id, session_id, stream_kind, "offset", type, channel, data, timestamp, user_id, created_at FROM session_events;
+
+DROP TABLE session_events;
+ALTER TABLE session_events_new RENAME TO session_events;
+
+CREATE INDEX IF NOT EXISTS session_events_session_idx ON session_events(session_id);
+CREATE UNIQUE INDEX IF NOT EXISTS session_events_unique_offset ON session_events(session_id, "offset");
+CREATE INDEX IF NOT EXISTS session_events_created_at_idx ON session_events(created_at);
+CREATE INDEX IF NOT EXISTS session_events_session_type_idx ON session_events(session_id, type);
+CREATE INDEX IF NOT EXISTS session_events_stream_kind_session_idx ON session_events(stream_kind, session_id);
+`);
+    }
+  } catch {
+    // Idempotent — table may already have been rebuilt
+  }
+
+  // F06-NEW-08: rate_limit_buckets (runtime v35).
+  try {
+    testSqlite.exec(`
+CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+  key TEXT NOT NULL,
+  window_start INTEGER NOT NULL,
+  window_ms INTEGER NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (key, window_start)
+);
+CREATE INDEX IF NOT EXISTS rate_limit_buckets_updated_at_idx ON rate_limit_buckets(updated_at);
+`);
+  } catch {
+    // Table may already exist
+  }
+
+  // F09-21 (arch29-W2-Q): mirror the production migration chain so the
+  // schema-drift suite can exercise every table Drizzle exports. Without these,
+  // 12 of ~50 tables were skipped in the test DB via MISSING_IN_TEST_DB and
+  // their drift went undetected on PRs.
+
+  // Terraform tables (runtime v8 — TERRAFORM_MIGRATION_SQL). Idempotent.
+  try {
+    testSqlite.exec(TERRAFORM_MIGRATION_SQL);
+  } catch {
+    // Table may already exist
+  }
+
+  // CLI Monitor sessions (runtime v6/v7). Idempotent.
+  try {
+    testSqlite.exec(CLI_SESSIONS_MIGRATION_SQL);
+  } catch {
+    // Table may already exist
+  }
+
+  // F02-16 follow-up: cli_sessions has Drizzle-declared columns that no SQLite
+  // runtime migration adds (PG migration 0010 added them on the PG side).
+  // Add them to the test DB so service-layer tests using the Drizzle schema
+  // don't fail with "no such column". Real production drift is tracked in
+  // EXPECTED_MISSING_COLUMNS at tests/integration/schema-drift-all-tables.test.ts.
+  for (const stmt of [
+    'ALTER TABLE cli_sessions ADD COLUMN slug TEXT',
+    'ALTER TABLE cli_sessions ADD COLUMN cli_version TEXT',
+    'ALTER TABLE cli_sessions ADD COLUMN permission_mode TEXT',
+    'ALTER TABLE cli_sessions ADD COLUMN topology TEXT',
+    'ALTER TABLE cli_sessions ADD COLUMN queue_operations TEXT',
+    'ALTER TABLE cli_sessions ADD COLUMN tool_invocations TEXT',
+  ]) {
+    try {
+      testSqlite.exec(stmt);
+    } catch {
+      // Column may already exist — idempotent
+    }
+  }
+
+  // Schedule executions (runtime v17). Idempotent.
+  try {
+    testSqlite.exec(SCHEDULE_EXECUTIONS_MIGRATION_SQL);
+  } catch {
+    // Table may already exist
+  }
+
+  // Memory service tables (runtime v22 — insights, messages, skill_executions,
+  // skill_metrics, dream_sessions, skill_suggestions). Idempotent.
+  try {
+    testSqlite.exec(MEMORY_TABLES_MIGRATION_SQL);
+  } catch {
+    // Tables may already exist
+  }
+
+  // Memory insight status / category / updated_at + skill_executions.insight_ids_used
+  // (runtime v27 — memory-insight-status-category). Idempotent per-statement.
+  for (const stmt of [
+    `ALTER TABLE memory_insights ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
+    `ALTER TABLE memory_insights ADD COLUMN category TEXT`,
+    `ALTER TABLE memory_insights ADD COLUMN updated_at TEXT`,
+    `CREATE INDEX IF NOT EXISTS idx_memory_insights_status ON memory_insights(status)`,
+    `ALTER TABLE skill_executions ADD COLUMN insight_ids_used TEXT`,
+  ]) {
+    try {
+      testSqlite.exec(stmt);
+    } catch {
+      // Column may already exist — idempotent
+    }
+  }
+
+  // Memory insight effectiveness score (runtime v28). Idempotent.
+  try {
+    testSqlite.exec(`ALTER TABLE memory_insights ADD COLUMN effectiveness_score REAL`);
+  } catch {
+    // Column may already exist
+  }
+
+  // Skill execution duration_api_ms + skill_metrics.avg_duration_api_ms
+  // (PG migration 0008 / SQLite drizzle-kit 0015 — applied at runtime
+  // indirectly via MEMORY_TABLES_MIGRATION_SQL not including these columns
+  // historically). Add explicitly for parity with PG.
+  for (const stmt of [
+    `ALTER TABLE skill_executions ADD COLUMN duration_api_ms INTEGER`,
+    `ALTER TABLE skill_metrics ADD COLUMN avg_duration_api_ms REAL`,
+  ]) {
+    try {
+      testSqlite.exec(stmt);
+    } catch {
+      // Column may already exist
+    }
+  }
+
+  // Sandbox instances + tmux sessions (runtime v33 — sandbox-unique-partial-index).
+  // Mirrors the bootstrap migration's CREATE TABLE IF NOT EXISTS shape.
+  try {
+    testSqlite.exec(`
+CREATE TABLE IF NOT EXISTS sandbox_instances (
+  id TEXT PRIMARY KEY NOT NULL,
+  codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  container_id TEXT NOT NULL,
+  status TEXT DEFAULT 'stopped' NOT NULL,
+  image TEXT NOT NULL,
+  memory_mb INTEGER NOT NULL,
+  cpu_cores INTEGER NOT NULL,
+  idle_timeout_minutes INTEGER NOT NULL,
+  volume_mounts TEXT DEFAULT '[]',
+  env TEXT,
+  error_message TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  last_activity_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  stopped_at TEXT,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS sandbox_instances_codespace_active_unique
+  ON sandbox_instances(codespace_id)
+  WHERE status IN ('creating', 'running', 'idle', 'stopping');
+CREATE INDEX IF NOT EXISTS sandbox_instances_status_idx ON sandbox_instances(status);
+
+CREATE TABLE IF NOT EXISTS sandbox_tmux_sessions (
+  id TEXT PRIMARY KEY NOT NULL,
+  sandbox_id TEXT NOT NULL REFERENCES sandbox_instances(id) ON DELETE CASCADE,
+  session_name TEXT NOT NULL,
+  task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  window_count INTEGER DEFAULT 1 NOT NULL,
+  attached INTEGER DEFAULT 0 NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  last_activity_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  CONSTRAINT sandbox_session_unique UNIQUE (sandbox_id, session_name)
+);
+`);
+  } catch {
+    // Tables may already exist
+  }
+
+  // F02-19 (arch29-W2-Q, runtime v38): codespace_tags.assigned_at column.
+  try {
+    testSqlite.exec(
+      `ALTER TABLE codespace_tags ADD COLUMN assigned_at TEXT NOT NULL DEFAULT (datetime('now'))`
+    );
+  } catch {
+    // Column may already exist — idempotent
+  }
+
+  // F02-20 (arch29-W2-Q, runtime v39): api_tokens.scope_codespace_id FK behavior fix.
+  // Rebuild api_tokens with ON DELETE SET NULL (was CASCADE in v19). Skip if the
+  // table already has the correct behavior (PG mode + fresh installs).
+  try {
+    // Only rebuild if the existing table still has CASCADE on scope_codespace_id.
+    // We detect this by inspecting the FK list — pragma_foreign_key_list returns
+    // the on_delete action token.
+    const fkRows = testSqlite.prepare(`PRAGMA foreign_key_list(api_tokens)`).all() as Array<{
+      from: string;
+      on_delete: string;
+    }>;
+    const scopeFk = fkRows.find((r) => r.from === 'scope_codespace_id');
+    if (scopeFk && scopeFk.on_delete === 'CASCADE') {
+      testSqlite.exec(`
+DROP TABLE IF EXISTS api_tokens_new_v39;
+CREATE TABLE api_tokens_new_v39 (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  token_prefix TEXT NOT NULL,
+  role TEXT NOT NULL,
+  scope_tags TEXT,
+  scope_project_id TEXT,
+  scope_codespace_id TEXT REFERENCES codespaces(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  expires_at TEXT,
+  rotated_at TEXT,
+  use_count INTEGER DEFAULT 0,
+  last_used_at TEXT,
+  revoked_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+INSERT INTO api_tokens_new_v39 (
+  id, user_id, team_id, name, token_hash, token_prefix, role,
+  scope_tags, scope_project_id, scope_codespace_id,
+  status, expires_at, rotated_at, use_count, last_used_at, revoked_at, created_at
+)
+SELECT
+  id, user_id, team_id, name, token_hash, token_prefix, role,
+  scope_tags, scope_project_id,
+  CASE WHEN scope_codespace_id IS NOT NULL
+       AND scope_codespace_id IN (SELECT id FROM codespaces)
+    THEN scope_codespace_id
+    ELSE NULL
+  END,
+  status, expires_at, rotated_at, use_count, last_used_at, revoked_at, created_at
+FROM api_tokens;
+
+DROP TABLE api_tokens;
+ALTER TABLE api_tokens_new_v39 RENAME TO api_tokens;
+
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_team ON api_tokens(team_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_status ON api_tokens(status);
+`);
+    }
+  } catch {
+    // Idempotent — table may already have been rebuilt
   }
 
   return testDb;
@@ -283,6 +569,7 @@ export async function clearTestDatabase(): Promise<void> {
       DELETE FROM audit_logs;
       DELETE FROM event_log;
       DELETE FROM event_outbox;
+      DELETE FROM rate_limit_buckets;
       DELETE FROM event_subscriptions;
       DELETE FROM event_sources;
       DELETE FROM agent_runs;

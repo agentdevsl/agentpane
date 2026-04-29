@@ -46,6 +46,23 @@ export interface AuthContext {
     codespaceId: string | null;
     tags: string[] | null;
   };
+  /**
+   * Tag-based collection filter populated by `requireTagAccess` for tag-restricted
+   * tokens hitting collection (list) endpoints. Route handlers must consult this
+   * value and filter their results to the union of resources whose tags overlap
+   * the token's `scopeTags`.
+   *
+   * Cross-ref: F06-NEW-07. The middleware would otherwise have to either deny
+   * the entire list (defeating the list-and-select workflow) or skip the gate
+   * silently (leaking every resource to a tag-restricted token). The fix is to
+   * pass the scope through and filter in the handler.
+   */
+  tagFilter?: {
+    /** The resource type derived from the request path (e.g. 'codespace'). */
+    resourceType: 'codespace' | 'task' | 'session' | 'agent';
+    /** The token's scope tags — non-empty when this filter is set. */
+    scopeTags: string[];
+  };
 }
 
 /**

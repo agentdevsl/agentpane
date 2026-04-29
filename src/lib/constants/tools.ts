@@ -6,6 +6,12 @@
  * for open access — an empty array now DENIES every tool. Callers
  * that want the legacy open-gate behaviour must use
  * `ALLOW_ALL_TOOLS` (defined below), which is `['*']`.
+ *
+ * arch29-W2-P (F12-02): a duplicate `ALLOW_ALL_TOOLS = '*'` (bare string)
+ * previously lived in `src/lib/agents/hooks/tool-whitelist.ts` and could
+ * silently swap with the array form here. The bare sentinel is now
+ * `WILDCARD_TOOL` (defined below), and `ALLOW_ALL_TOOLS` is the single
+ * canonical `string[]` form.
  */
 
 /** Tool categories with their member tools (based on Claude Agent SDK) */
@@ -25,11 +31,20 @@ export const ALL_TOOLS = Object.values(TOOL_GROUPS).flat();
 export type ToolName = (typeof ALL_TOOLS)[number];
 
 /**
+ * Bare wildcard tool name — the single string `'*'`.
+ *
+ * Use this when you need the literal sentinel value to compare against an
+ * element of an `allowedTools: string[]` (e.g. `tools.includes(WILDCARD_TOOL)`).
+ * For the open-gate `string[]` itself, use `ALLOW_ALL_TOOLS` below.
+ */
+export const WILDCARD_TOOL = '*';
+
+/**
  * Special sentinel indicating "allow all tools" (F06-06).
  * Pass this (or `['*']`) to the whitelist hook to opt in to open access.
  * An empty array now DENIES every tool.
  */
-export const ALLOW_ALL_TOOLS: string[] = ['*'];
+export const ALLOW_ALL_TOOLS: string[] = [WILDCARD_TOOL];
 
 /** Default tools for agent execution (all tools — requires explicit ['*']) */
 export const DEFAULT_AGENT_TOOLS: string[] = ALLOW_ALL_TOOLS;

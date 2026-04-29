@@ -5,10 +5,9 @@
  */
 
 import { Hono } from 'hono';
-import { createWorkflowSchema } from '../../lib/api/schemas.js';
 import type { WorkflowService } from '../../services/workflow.service.js';
 import { json, parseLimit, parseOffset, validateIdParam } from '../shared.js';
-import { parseJsonBody } from '../validation.js';
+import { createWorkflowSchema, parseJsonBody, updateWorkflowSchema } from '../validation.js';
 
 interface WorkflowsDeps {
   workflowService: WorkflowService;
@@ -37,7 +36,7 @@ export function createWorkflowsRoutes({ workflowService }: WorkflowsDeps) {
   });
 
   // POST /api/workflows
-  // AR-012: Uses Zod validation via createWorkflowSchema from schemas.ts
+  // AR-012: Uses Zod validation via createWorkflowSchema from validation.ts
   app.post('/', async (c) => {
     const parsed = await parseJsonBody(c, createWorkflowSchema);
     if (!parsed.ok) {
@@ -94,29 +93,9 @@ export function createWorkflowsRoutes({ workflowService }: WorkflowsDeps) {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    let body: {
-      name?: string;
-      description?: string;
-      nodes?: unknown[];
-      edges?: unknown[];
-      viewport?: { x: number; y: number; zoom: number };
-      status?: string;
-      tags?: string[];
-      sourceTemplateId?: string | null;
-      sourceTemplateName?: string | null;
-      thumbnail?: string | null;
-      aiGenerated?: boolean;
-      aiModel?: string | null;
-      aiConfidence?: number | null;
-    };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, updateWorkflowSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const result = await workflowService.update(id, {
       name: body.name,
@@ -124,7 +103,7 @@ export function createWorkflowsRoutes({ workflowService }: WorkflowsDeps) {
       nodes: body.nodes,
       edges: body.edges,
       viewport: body.viewport,
-      status: body.status as 'draft' | 'published' | 'archived' | undefined,
+      status: body.status,
       tags: body.tags,
       sourceTemplateId: body.sourceTemplateId,
       sourceTemplateName: body.sourceTemplateName,

@@ -16,6 +16,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import type { Database } from '../../types/database.js';
 import { errorResponse, json, parseLimit, parseOffset, validateIdParam } from '../shared.js';
+import { parseJsonBody, sandboxNomadValidateSchema } from '../validation.js';
 
 const sandboxConfigBodySchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -109,28 +110,8 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
 
   // POST /api/sandbox-configs
   app.post('/', async (c) => {
-    let rawBody: unknown;
-    try {
-      rawBody = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
-        400
-      );
-    }
-    const parsed = sandboxConfigCreateSchema.safeParse(rawBody);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, sandboxConfigCreateSchema);
+    if (!parsed.ok) return parsed.response;
     const body = parsed.data;
     if (body.nomadAddress) {
       const addrValidation = await validateNomadAddress(body.nomadAddress);
@@ -177,28 +158,8 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    let rawBody: unknown;
-    try {
-      rawBody = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
-        400
-      );
-    }
-    const parsed = sandboxConfigBodySchema.safeParse(rawBody);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, sandboxConfigBodySchema);
+    if (!parsed.ok) return parsed.response;
     const body = parsed.data;
     if (body.nomadAddress) {
       const addrValidation = await validateNomadAddress(body.nomadAddress);
@@ -842,18 +803,35 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       // Step 4: Apply LimitRange
       await applyManifest('limit-range.yaml', 'LimitRange');
 
-      // Step 5: Try to install the external CRD controller
+      // Step 5: Try to install the external CRD controller from vendored
+      // manifest (arch29-W1-C / F04-11 — supply-chain hardening). Replaces
+      // the previous live `kubectl apply -f <github releases/latest URL>`
+      // which was a cluster-takeover supply-chain vector.
       try {
-        const CRD_INSTALL_URL =
-          'https://github.com/kubernetes-sigs/agent-sandbox/releases/latest/download/install.yaml';
-        const { stdout, stderr } = await execAsync(`kubectl apply -f "${CRD_INSTALL_URL}"`, {
-          timeout: 60_000,
-        });
-        results.push({
-          step: 'CRD Controller',
-          success: true,
-          message: (stdout || stderr).trim().split('\n').pop() ?? 'Controller installed',
-        });
+        const { VENDORED_AGENT_SANDBOX_MANIFEST, VENDORED_AGENT_SANDBOX_SHA256 } = await import(
+          '../bootstrap/sandbox/k8s-init.js'
+        );
+        const { createHash } = await import('node:crypto');
+        const { readFile } = await import('node:fs/promises');
+        const manifestPath = path.join(process.cwd(), VENDORED_AGENT_SANDBOX_MANIFEST);
+        const manifestBytes = await readFile(manifestPath);
+        const actualSha = createHash('sha256').update(manifestBytes).digest('hex');
+        if (actualSha !== VENDORED_AGENT_SANDBOX_SHA256) {
+          results.push({
+            step: 'CRD Controller',
+            success: false,
+            message: `Vendored manifest SHA-256 mismatch: expected ${VENDORED_AGENT_SANDBOX_SHA256}, got ${actualSha}`,
+          });
+        } else {
+          const { stdout, stderr } = await execAsync(`kubectl apply -f "${manifestPath}"`, {
+            timeout: 60_000,
+          });
+          results.push({
+            step: 'CRD Controller',
+            success: true,
+            message: (stdout || stderr).trim().split('\n').pop() ?? 'Controller installed',
+          });
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         results.push({
@@ -1275,22 +1253,9 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
 
   // POST /api/sandbox/nomad/validate - Validate connection
   app.post('/validate', async (c) => {
-    let body: { address: string; token?: string; namespace?: string };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
-        400
-      );
-    }
-
-    if (!body.address) {
-      return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'Nomad address is required' } },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, sandboxNomadValidateSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     // Validate address to prevent SSRF
     const addrValidation = await validateNomadAddress(body.address);

@@ -124,10 +124,10 @@ describe('EventOutboxRelayService (F05-05)', () => {
 
     // Tick 10 times, each time forcing the row to be due.
     for (let i = 0; i < 10; i++) {
-      // Reset nextAttemptAt to now so the relay picks it up again immediately.
+      // F02-18: timestamps are now epoch ms (number), so reset to 0 epoch.
       await db
         .update(eventOutbox)
-        .set({ nextAttemptAt: new Date(0).toISOString() })
+        .set({ nextAttemptAt: 0 })
         .where(eq(eventOutbox.streamId, 'sess-dead'));
       await relay.tick();
     }

@@ -193,6 +193,32 @@ Functional tests in `tests/functional/` must exercise **real service code** at e
 
 After modifying `agent-runner/package.json` or its dependencies, regenerate the lockfile: `cd agent-runner && bun install && cd ..`. CI uses `--frozen-lockfile` and will fail if the lockfile is stale. The lockfile is `agent-runner/bun.lock` (not `bun.lockb`).
 
+### Lockfile regeneration after removing a dependency
+
+When you remove a package from `package.json` (or `agent-runner/package.json`), `bun install` (without flags) often reports "no changes" and leaves stale entries in `bun.lock` because Bun's resolver short-circuits when the working set hasn't changed. CI's `bun install --frozen-lockfile` then fails with `lockfile had changes, but lockfile is frozen`.
+
+Regenerate cleanly with one of:
+
+```bash
+rm -f bun.lock && bun install                # full rewrite
+# OR
+bun install --no-cache                       # bypass resolver shortcut
+```
+
+After regeneration, verify with `bun install --frozen-lockfile` (must succeed with "no changes").
+
+### Removing a dependency that was supplying types via a peer
+
+When you drop a dep that was a transitive supplier of TypeScript types (e.g. dropping `@testing-library/react` v16+ would lose `screen`/`fireEvent` types because they live in `@testing-library/dom`), `tsc` may pass locally because `node_modules/` still has the old transitive resolution. CI fails on fresh `--frozen-lockfile` install.
+
+To catch this before pushing:
+
+```bash
+rm -rf node_modules && bun install --frozen-lockfile && npx tsc --noEmit
+```
+
+Common offenders: `@testing-library/dom` (peer of `@testing-library/react@16+`), `@types/*` packages re-exported through unrelated deps.
+
 ### CI/CD and PR Process
 
 #### Pre-commit hooks (automatic)

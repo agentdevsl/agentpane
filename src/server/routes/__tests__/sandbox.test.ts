@@ -230,7 +230,7 @@ describe('Sandbox Config API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_JSON');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when name is missing (create requires name)', async () => {
@@ -572,7 +572,7 @@ describe('Sandbox Config API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_JSON');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 for invalid type value in update', async () => {

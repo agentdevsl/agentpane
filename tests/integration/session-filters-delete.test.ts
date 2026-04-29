@@ -96,9 +96,10 @@ describe('Session Filters and Delete (IT-091 to IT-095)', () => {
     const codespace = await createTestProject();
     const session = await createTestSession(codespace.id, { status: 'active' });
 
-    // Insert session events
+    // Insert session events. F05-25: bare CUID = session-kind discriminator.
     await db.insert(sessionEvents).values({
       sessionId: session.id,
+      streamKind: 'session',
       offset: 0,
       type: 'chunk',
       channel: 'chunks',
@@ -107,6 +108,7 @@ describe('Session Filters and Delete (IT-091 to IT-095)', () => {
     });
     await db.insert(sessionEvents).values({
       sessionId: session.id,
+      streamKind: 'session',
       offset: 1,
       type: 'agent:started',
       channel: 'agent',
@@ -115,6 +117,7 @@ describe('Session Filters and Delete (IT-091 to IT-095)', () => {
     });
     await db.insert(sessionEvents).values({
       sessionId: session.id,
+      streamKind: 'session',
       offset: 2,
       type: 'tool:start',
       channel: 'toolCalls',

@@ -236,6 +236,11 @@ export class AgentCoreBridgeService {
     // theme-03 F11: resolve real OAuth expiry alongside the token so AgentCore
     // does not write a fabricated 24h lifetime into the credentials file.
     const oauthExpiresAtMs = await resolveOAuthExpiresAtMs(db);
+    // F03-09 (arch29-W2-C): forward the refresh token so the AgentCore handler
+    // can write it into the credentials file. AgentCore reads
+    // `oauthRefreshToken` from the payload; absence falls through to the
+    // env-var fallback (`CLAUDE_OAUTH_REFRESH_TOKEN`) and finally to null.
+    const oauthRefreshToken = await apiKeyService.getDecryptedRefreshToken('anthropic');
 
     // Build invocation payload
     const payload: Record<string, unknown> = {
@@ -247,6 +252,7 @@ export class AgentCoreBridgeService {
       phase,
       oauthToken,
       ...(oauthExpiresAtMs ? { oauthExpiresAt: oauthExpiresAtMs } : {}),
+      ...(oauthRefreshToken ? { oauthRefreshToken } : {}),
       cwd: '/workspace',
       ...(sdkSessionId ? { sdkSessionId } : {}),
     };

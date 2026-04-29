@@ -1,0 +1,136 @@
+{{- if .Values.backup.enabled }}
+{{- /*
+F11-21 (arch29 review): Periodic database backup CronJob.
+
+The April 29 review flagged that `scripts/backup-db-pg.sh` and
+`scripts/backup-db.sh` exist but are never invoked — there is no
+CronJob, no documented restore drill, and a fresh `helm install`
+produces a deployment with zero backups. This template fixes that:
+
+  * Default OFF (`backup.enabled: false`) so a fresh install does
+    not silently provision a PVC the operator did not ask for.
+  * Default schedule is `0 3 * * *` (daily 03:00 UTC) — quiet
+    enough to avoid contending with the Helm `pre-upgrade`
+    migration hook (F11-05) which is operator-triggered.
+  * The Job runs inside the main app image (`agentpane.image`),
+    so `pg_dump` (Postgres) and `sqlite3` (SQLite) plus the
+    backup scripts are already present — no separate image
+    needed.
+  * Backups are written to a dedicated PVC mounted at `/backups`.
+    The backup script keeps the most recent `retentionDays`
+    artefacts and cleans the rest.
+  * `restartPolicy: OnFailure` so transient pg_dump errors retry
+    inside the same Pod.
+  * The restore drill is documented in
+    `specs/application/operations/backup-restore.md`.
+*/ -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "agentpane.fullname" . }}-backup
+  labels:
+    {{- include "agentpane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  {{- with .Values.backup.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: {{ .Values.backup.concurrencyPolicy | default "Forbid" }}
+  successfulJobsHistoryLimit: {{ .Values.backup.successfulJobsHistoryLimit | default 3 }}
+  failedJobsHistoryLimit: {{ .Values.backup.failedJobsHistoryLimit | default 3 }}
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "agentpane.labels" . | nindent 8 }}
+        app.kubernetes.io/component: backup
+    spec:
+      activeDeadlineSeconds: {{ .Values.backup.activeDeadlineSeconds | default 1800 }}
+      backoffLimit: {{ .Values.backup.backoffLimit | default 2 }}
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            {{- include "agentpane.labels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ include "agentpane.serviceAccountName" . }}
+          securityContext:
+            {{- toYaml .Values.backup.podSecurityContext | nindent 12 }}
+          containers:
+            - name: backup
+              image: {{ if .Values.backup.image.repository }}{{ printf "%s:%s" .Values.backup.image.repository (.Values.backup.image.tag | default .Chart.AppVersion) }}{{ else }}{{ include "agentpane.image" . }}{{ end }}
+              imagePullPolicy: {{ .Values.backup.image.pullPolicy | default "IfNotPresent" }}
+              securityContext:
+                {{- toYaml .Values.backup.securityContext | nindent 16 }}
+              command: ["/bin/sh", "-c"]
+              {{- if eq .Values.database.mode "postgres" }}
+              args:
+                - |
+                  set -euo pipefail
+                  echo "[backup] AgentPane Postgres backup starting at $(date -u +%FT%TZ)"
+                  exec /app/scripts/backup-db-pg.sh /backups
+              {{- else }}
+              args:
+                - |
+                  set -euo pipefail
+                  echo "[backup] AgentPane SQLite backup starting at $(date -u +%FT%TZ)"
+                  exec /app/scripts/backup-db.sh /backups
+              {{- end }}
+              envFrom:
+                - configMapRef:
+                    name: {{ include "agentpane.fullname" . }}
+              env:
+                - name: MAX_BACKUPS
+                  value: {{ .Values.backup.retentionDays | quote }}
+                {{- if and .Values.database.external.enabled .Values.database.external.existingSecret }}
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.database.external.existingSecret }}
+                      key: {{ .Values.database.external.secretKeys.urlKey | default "DATABASE_URL" }}
+                {{- else if eq .Values.database.mode "postgres" }}
+                - name: DATABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "agentpane.database.secretName" . }}
+                      key: {{ include "agentpane.database.passwordKey" . }}
+                - name: DATABASE_URL
+                  value: {{ include "agentpane.database.url" . | quote }}
+                {{- end }}
+                {{- with .Values.backup.extraEnv }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+                - name: tmp
+                  mountPath: /tmp
+                {{- if and (ne .Values.database.mode "postgres") .Values.persistence.enabled }}
+                - name: data
+                  mountPath: /app/data
+                  readOnly: true
+                {{- end }}
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: {{ include "agentpane.fullname" . }}-backup
+            - name: tmp
+              emptyDir: {}
+            {{- if and (ne .Values.database.mode "postgres") .Values.persistence.enabled }}
+            - name: data
+              persistentVolumeClaim:
+                claimName: {{ include "agentpane.fullname" . }}-data
+            {{- end }}
+          {{- with .Values.backup.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backup.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

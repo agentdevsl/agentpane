@@ -5,7 +5,7 @@
  * Slots in after the existing authMiddleware in the request pipeline.
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
 import {
   RBAC_ROLE_LEVEL,
@@ -439,14 +439,85 @@ const TAG_RESOLVERS: { [K in 'codespace' | 'task' | 'session' | 'agent']: TagRes
 /** Map URL path prefixes to resource types */
 type TagResourceType = keyof typeof TAG_RESOLVERS;
 const PATH_TO_RESOURCE: Array<[string, TagResourceType]> = [
-  ['/api/codespaces/', 'codespace'],
-  ['/api/tasks/', 'task'],
-  ['/api/sessions/', 'session'],
-  ['/api/agents/', 'agent'],
+  ['/api/codespaces', 'codespace'],
+  ['/api/tasks', 'task'],
+  ['/api/sessions', 'session'],
+  ['/api/agents', 'agent'],
 ];
 
 /**
+ * Match a request path against a resource-prefix table.
+ *
+ * Accepts both bare collection (`/api/codespaces`) and any sub-path
+ * (`/api/codespaces/<id>`, `/api/codespaces/summaries`, etc.). Critically,
+ * `/api/codespaces` and `/api/codespaces/` are both treated as collection
+ * endpoints, while `/api/codespaces-of-something-else` does NOT match
+ * (the next char after the prefix must be `/` or end-of-string).
+ */
+function matchResourceType(path: string): TagResourceType | null {
+  for (const [prefix, type] of PATH_TO_RESOURCE) {
+    if (path === prefix || path.startsWith(`${prefix}/`)) {
+      return type;
+    }
+  }
+  return null;
+}
+
+/**
+ * Pure-path resource ID detector.
+ *
+ * `requireTagAccess` is wired as a wildcard middleware (`/api/*`), which means
+ * Hono has not yet matched the specific route — `c.req.param('id')` returns
+ * undefined for ALL paths, even single-resource fetches like `/api/tasks/<id>`.
+ * The original implementation relied on per-route mounting, which was lost in
+ * the global pipeline.
+ *
+ * To recover correctness without restructuring the middleware tree, derive the
+ * resource ID directly from the path: anything past the prefix that isn't a
+ * known sub-collection name (e.g. `summaries`, `create-with-ai`) is treated as
+ * a `:id`-style segment.
+ *
+ * Returns `null` when the path is a collection endpoint (no id segment) or a
+ * known sub-collection.
+ */
+const KNOWN_SUB_COLLECTIONS: { [K in TagResourceType]?: ReadonlySet<string> } = {
+  codespace: new Set(['summaries', 'create-with-ai']),
+  task: new Set(['create-with-ai']),
+};
+
+function extractResourceId(path: string, resourceType: TagResourceType): string | null {
+  const prefix = PATH_TO_RESOURCE.find(([_, type]) => type === resourceType)?.[0];
+  if (!prefix) return null;
+  // Strip the prefix and any leading slash.
+  const tail = path === prefix ? '' : path.slice(prefix.length + 1);
+  if (tail.length === 0) return null;
+
+  // The first segment after the prefix is either a resource ID or a
+  // sub-collection name. Sub-collections (like `summaries`) should NOT be
+  // treated as a resource ID — they are themselves collection endpoints.
+  const firstSegment = tail.split('/')[0] ?? '';
+  if (firstSegment.length === 0) return null;
+
+  const subCollections = KNOWN_SUB_COLLECTIONS[resourceType];
+  if (subCollections?.has(firstSegment)) return null;
+
+  return firstSegment;
+}
+
+/**
  * Middleware that checks tag-based access for API tokens with tag restrictions.
+ *
+ * Two modes:
+ * 1. **Resource endpoint** (`:id` present): resolve the resource's tags and
+ *    deny if there is no overlap with the token's scope tags.
+ * 2. **Collection endpoint** (no `:id`, recognized resource type): set
+ *    `auth.tagFilter` on the request context so the route handler can filter
+ *    its results. Without this hook, F06-NEW-07 lets tag-restricted tokens
+ *    list every resource (because the middleware previously 403'd, which
+ *    forced operators to either grant unrestricted tokens or strip
+ *    `requireTagAccess` from their global pipeline).
+ *
+ * Unrecognized resource paths still return 403.
  */
 export function requireTagAccess(db: Database) {
   return async (c: Context, next: Next) => {
@@ -470,14 +541,9 @@ export function requireTagAccess(db: Database) {
     const scopeTags = auth.tokenScope.tags;
     const path = c.req.path;
 
-    // Determine resource type from path
-    let resourceType: TagResourceType | null = null;
-    for (const [prefix, type] of PATH_TO_RESOURCE) {
-      if (path.startsWith(prefix)) {
-        resourceType = type;
-        break;
-      }
-    }
+    // Determine resource type from path. The matcher accepts the bare
+    // collection (`/api/codespaces`) and any sub-path under it.
+    const resourceType: TagResourceType | null = matchResourceType(path);
 
     if (!resourceType) {
       log.warn('Tag-restricted token denied on unrecognized resource path', {
@@ -495,18 +561,27 @@ export function requireTagAccess(db: Database) {
       );
     }
 
-    const resourceId = c.req.param('id');
+    // Prefer path-based detection because the middleware is mounted at
+    // `/api/*` (before Hono's route matching populates `c.req.param('id')`).
+    // We fall back to the param if the runtime did pre-match (e.g. tests that
+    // attach the middleware per-route).
+    const resourceId = extractResourceId(path, resourceType) ?? c.req.param('id');
     if (!resourceId) {
-      log.warn('Tag-restricted token denied on collection endpoint (no resource ID)', {
-        data: { path, resourceType, tokenId: auth.tokenScope.tokenId },
-      });
-      return c.json(
-        {
-          ok: false,
-          error: { code: 'FORBIDDEN', message: 'Tag-restricted tokens must specify a resource ID' },
+      // F06-NEW-07: collection endpoint. Set the tag filter on the auth context
+      // and pass through; the route handler is responsible for narrowing its
+      // result set via `applyTokenTagFilter` (see helpers below).
+      const updatedAuth: AuthContext = {
+        ...auth,
+        tagFilter: {
+          resourceType,
+          scopeTags,
         },
-        403
-      );
+      };
+      c.set('auth', updatedAuth);
+      log.debug('Tag-restricted token: collection filter applied', {
+        data: { path, resourceType, tokenId: auth.tokenScope.tokenId, scopeTags },
+      });
+      return next();
     }
 
     const resolver = TAG_RESOLVERS[resourceType];
@@ -548,4 +623,134 @@ export function requireTagAccess(db: Database) {
 
     return next();
   };
+}
+
+/**
+ * Resolve the set of resource IDs of a given type that a tag-restricted token
+ * should be able to see, based on the token's scope tags.
+ *
+ * Semantics mirror the per-resource `TAG_RESOLVERS`:
+ *   - **codespace**: codespaces directly tagged with any of `scopeTags`.
+ *   - **task**: tasks directly tagged OR tasks whose parent codespace is tagged.
+ *   - **session**: sessions whose linked task or parent codespace is tagged.
+ *   - **agent**: agents whose parent codespace is tagged.
+ *
+ * Returns `null` to mean *no filter*. Returns an empty array to mean *no
+ * accessible resources* (and therefore the list result must be empty).
+ *
+ * F06-NEW-07: this helper is the engine behind `applyTokenTagFilter` and is
+ * exported for routes that need to filter directly in their Drizzle queries
+ * (e.g. via `inArray(table.id, ids)`) rather than post-fetch.
+ */
+export async function getAccessibleResourceIds(
+  db: Database,
+  resourceType: 'codespace' | 'task' | 'session' | 'agent',
+  scopeTags: string[]
+): Promise<string[]> {
+  if (scopeTags.length === 0) {
+    // No tags = no restriction, so an empty filter would mean *no results*.
+    // Callers should treat `[]` as "deny everything"; that's the safe default
+    // for tag-restricted tokens with empty scope tags (which the middleware
+    // already short-circuits, but we keep the invariant explicit).
+    return [];
+  }
+
+  // Step 1: codespaces directly tagged with any scope tag.
+  const taggedCodespaceRows = await db
+    .select({ codespaceId: codespaceTags.codespaceId })
+    .from(codespaceTags)
+    .where(inArray(codespaceTags.tagId, scopeTags));
+  const taggedCodespaceIds = Array.from(new Set(taggedCodespaceRows.map((r) => r.codespaceId)));
+
+  if (resourceType === 'codespace') {
+    return taggedCodespaceIds;
+  }
+
+  if (resourceType === 'task') {
+    // Tasks directly tagged.
+    const directTaggedRows = await db
+      .select({ taskId: taskTags.taskId })
+      .from(taskTags)
+      .where(inArray(taskTags.tagId, scopeTags));
+    const directIds = directTaggedRows.map((r) => r.taskId);
+
+    // Tasks under a tagged codespace (inheritance).
+    let inheritedIds: string[] = [];
+    if (taggedCodespaceIds.length > 0) {
+      const inheritedRows = await db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(inArray(tasks.codespaceId, taggedCodespaceIds));
+      inheritedIds = inheritedRows.map((r) => r.id);
+    }
+    return Array.from(new Set([...directIds, ...inheritedIds]));
+  }
+
+  if (resourceType === 'agent') {
+    if (taggedCodespaceIds.length === 0) return [];
+    const rows = await db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(inArray(agents.codespaceId, taggedCodespaceIds));
+    return rows.map((r) => r.id);
+  }
+
+  // session: union of (sessions whose taskId is in accessible-tasks) and
+  // (sessions whose codespaceId is in tagged-codespaces).
+  const accessibleTaskIds = await getAccessibleResourceIds(db, 'task', scopeTags);
+  const accessibleSessionIds = new Set<string>();
+
+  if (accessibleTaskIds.length > 0) {
+    const byTask = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(inArray(sessions.taskId, accessibleTaskIds));
+    for (const row of byTask) accessibleSessionIds.add(row.id);
+  }
+  if (taggedCodespaceIds.length > 0) {
+    const byCodespace = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(inArray(sessions.codespaceId, taggedCodespaceIds));
+    for (const row of byCodespace) accessibleSessionIds.add(row.id);
+  }
+  return Array.from(accessibleSessionIds);
+}
+
+/**
+ * Filter a list of fetched resources to only those visible to a tag-restricted
+ * token. Returns the input unchanged when no `tagFilter` is set on the auth
+ * context (i.e. unrestricted tokens, session/dev auth, or scoped resource
+ * routes that already enforce per-ID access).
+ *
+ * Use this from list-route handlers AFTER fetching the result set:
+ *
+ * ```ts
+ * const auth = c.get('auth') as AuthContext | undefined;
+ * const filtered = await applyTokenTagFilter(db, auth, items, (item) => item.id);
+ * ```
+ *
+ * `getId` extracts the resource ID from each item — kept generic so the helper
+ * works against `Codespace`, `Task`, `Session`, or `Agent` shapes without
+ * coupling to specific schemas.
+ *
+ * F06-NEW-07: this is the read-time enforcement that prevents tag-restricted
+ * tokens from seeing every resource via `GET /api/codespaces` and friends.
+ */
+export async function applyTokenTagFilter<T>(
+  db: Database,
+  auth: AuthContext | undefined,
+  items: T[],
+  getId: (item: T) => string
+): Promise<T[]> {
+  if (!auth?.tagFilter) return items;
+  if (items.length === 0) return items;
+
+  const accessibleIds = await getAccessibleResourceIds(
+    db,
+    auth.tagFilter.resourceType,
+    auth.tagFilter.scopeTags
+  );
+  const idSet = new Set(accessibleIds);
+  return items.filter((item) => idSet.has(getId(item)));
 }

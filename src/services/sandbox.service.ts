@@ -1,5 +1,5 @@
 import { createId } from '@paralleldrive/cuid2';
-import { eq } from 'drizzle-orm';
+import { count, eq } from 'drizzle-orm';
 import type { NewSandboxInstance, NewSandboxTmuxSession, SandboxInstance } from '../db/schema';
 import { codespaces, sandboxInstances, sandboxTmuxSessions } from '../db/schema';
 import type { SandboxError } from '../lib/errors/sandbox-errors.js';
@@ -22,6 +22,7 @@ import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
 import type { DurableStreamsService } from './durable-streams.service.js';
+import type { SandboxConfigService, SandboxQuota } from './sandbox-config.service.js';
 
 /**
  * Idle sandbox check interval (every 5 minutes)
@@ -41,14 +42,31 @@ export class SandboxService {
   private credentialsInjector: CredentialsInjector;
   private idleCheckInterval: NodeJS.Timeout | null = null;
   private idleCheckFailureCount = 0;
+  private sandboxConfigService: SandboxConfigService | null;
+  private quota: SandboxQuota | null;
 
   constructor(
     private db: Database,
     private provider: SandboxProvider,
-    private streams: DurableStreamsService
+    private streams: DurableStreamsService,
+    /**
+     * F04-10: Optional `SandboxConfigService` reference. When provided
+     * together with a quota, `create()` enforces the quota before
+     * provisioning a new sandbox. Optional to preserve compatibility with
+     * existing call-sites and tests that construct the service without a
+     * tenant ceiling — those continue to allow unbounded creates.
+     */
+    sandboxConfigService?: SandboxConfigService,
+    /**
+     * F04-10: Per-deployment quota ceiling. Resolved by callers from env or
+     * settings. When omitted, no quota enforcement happens.
+     */
+    quota?: SandboxQuota
   ) {
     this.tmuxManager = createTmuxManager(provider);
     this.credentialsInjector = createCredentialsInjector();
+    this.sandboxConfigService = sandboxConfigService ?? null;
+    this.quota = quota ?? null;
   }
 
   /**
@@ -128,8 +146,30 @@ export class SandboxService {
 
   /**
    * Create a new sandbox
+   *
+   * F04-10: enforces the deployment quota when `sandboxConfigService` and
+   * `quota` were supplied to the constructor. The current active count is
+   * resolved from the DB (`sandbox_instances` rows with status `running`
+   * or `starting`) so a hot-restart that re-attaches running containers
+   * does not double-count.
    */
   async create(config: SandboxConfig): Promise<Result<SandboxInfo, SandboxError>> {
+    // F04-10: enforce per-deployment quota before provisioning. The check
+    // runs first so we don't even allocate a stream / sandbox ID when the
+    // request would be rejected.
+    if (this.sandboxConfigService && this.quota) {
+      const activeSandboxes = await this.countActiveSandboxes();
+      const quotaResult = this.sandboxConfigService.assertQuota(this.quota, {
+        activeSandboxes,
+        cpuCores: config.cpuCores,
+        memoryMb: config.memoryMb,
+      });
+      if (!quotaResult.ok) {
+        // SandboxConfigError shape is compatible with SandboxError (both AppError).
+        return err(quotaResult.error as SandboxError);
+      }
+    }
+
     const sandboxId = createId();
 
     // Use sandbox:-prefixed stream ID to avoid FK constraint violations.
@@ -164,8 +204,13 @@ export class SandboxService {
       // This ensures one consistent ID across stream, DB, and provider lookups.
       const sandbox = await this.provider.create({ ...config, id: sandboxId });
 
-      // Inject credentials - emit warning event if this fails so user is informed
-      const credResult = await this.credentialsInjector.inject(sandbox);
+      // Inject credentials - emit warning event if this fails so user is informed.
+      // F06-NEW-02 / arch29-W1-E: pass injection context so the multi-tenant
+      // gate fires when MULTI_TENANT=true and sandbox.mode='shared'.
+      const credResult = await this.credentialsInjector.inject(sandbox, undefined, {
+        db: this.db,
+        codespaceId: config.codespaceId,
+      });
       if (!credResult.ok) {
         // Emit warning event so user is aware credentials are missing
         await this.streams.publish(streamId, 'sandbox:error', {
@@ -420,7 +465,10 @@ export class SandboxService {
   }
 
   /**
-   * Refresh credentials in a sandbox
+   * Refresh credentials in a sandbox.
+   *
+   * F06-NEW-02 / arch29-W1-E: passes injection context so the multi-tenant
+   * gate fires on refresh (a refresh = re-inject from host credentials).
    */
   async refreshCredentials(sandboxId: string): Promise<Result<void, SandboxError>> {
     const sandbox = await this.provider.getById(sandboxId);
@@ -428,7 +476,24 @@ export class SandboxService {
       return err(SandboxErrors.CONTAINER_NOT_FOUND);
     }
 
-    return this.credentialsInjector.refresh(sandbox);
+    // Look up the codespaceId for the sandbox so the gate can include it
+    // in the error details. Falls back to undefined if the lookup fails;
+    // the gate still triggers correctly without a codespaceId.
+    let codespaceId: string | undefined;
+    try {
+      const dbRow = await this.db.query.sandboxInstances.findFirst({
+        where: (table, { eq: sqlEq }) => sqlEq(table.id, sandboxId),
+        columns: { codespaceId: true },
+      });
+      codespaceId = dbRow?.codespaceId ?? undefined;
+    } catch {
+      // Best-effort lookup; gate still works without codespaceId.
+    }
+
+    return this.credentialsInjector.refresh(sandbox, {
+      db: this.db,
+      codespaceId,
+    });
   }
 
   /**
@@ -499,6 +564,20 @@ export class SandboxService {
   }
 
   /**
+   * F04-10: Count active sandboxes for quota enforcement. "Active" means
+   * `status = 'running'` (a `starting` row would also be in flight, but
+   * the schema currently uses `'creating' | 'running' | 'stopped' | 'error'`).
+   * Reads from the DB so multi-process deployments share the same picture.
+   */
+  private async countActiveSandboxes(): Promise<number> {
+    const rows = await this.db
+      .select({ n: count() })
+      .from(sandboxInstances)
+      .where(eq(sandboxInstances.status, 'running'));
+    return rows[0]?.n ?? 0;
+  }
+
+  /**
    * Convert Sandbox to SandboxInfo
    */
   private sandboxToInfo(sandbox: Sandbox, config: SandboxConfig): SandboxInfo {
@@ -535,11 +614,17 @@ export class SandboxService {
 
 /**
  * Create a SandboxService
+ *
+ * F04-10: optional `sandboxConfigService` + `quota` enable per-deployment
+ * quota enforcement. Pass them at boot to enforce a ceiling; omit them
+ * (default) to preserve unbounded behaviour for tests and self-hosted use.
  */
 export function createSandboxService(
   db: Database,
   provider: SandboxProvider,
-  streams: DurableStreamsService
+  streams: DurableStreamsService,
+  sandboxConfigService?: SandboxConfigService,
+  quota?: SandboxQuota
 ): SandboxService {
-  return new SandboxService(db, provider, streams);
+  return new SandboxService(db, provider, streams, sandboxConfigService, quota);
 }

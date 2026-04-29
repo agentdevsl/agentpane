@@ -16,6 +16,7 @@ import { ApiKeyService } from '../../services/api-key.service.js';
 import { CliMonitorService } from '../../services/cli-monitor/index.js';
 import { CodespaceService } from '../../services/codespace.service.js';
 import { DurableStreamsService } from '../../services/durable-streams.service.js';
+import { EventOutboxRelayService } from '../../services/event-outbox-relay.service.js';
 import { EventProcessingService } from '../../services/event-processing.service.js';
 import { EventSourceService } from '../../services/event-source.service.js';
 import { EventSubscriptionService } from '../../services/event-subscription.service.js';
@@ -27,6 +28,7 @@ import { DreamService } from '../../services/memory/dream.service.js';
 import { MemoryService } from '../../services/memory/index.js';
 import type { MemoryStoreService } from '../../services/memory/memory-store.service.js';
 import { SkillTrackingService } from '../../services/memory/skill-tracking.service.js';
+import { createPlanModeService } from '../../services/plan-mode.service.js';
 import { ProjectFolderService } from '../../services/project-folder.service.js';
 import { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import { SchedulerService } from '../../services/scheduler.service.js';
@@ -58,18 +60,35 @@ const log = createLogger('ServiceContainer');
 /**
  * Create the Bun-based CommandRunner for shell operations.
  *
- * F06-02 surfaces two entry points:
- *   - `exec(command, cwd)` — legacy `sh -c` path for callers that need
- *     pipes or shell features (git-service reads from pipes, init scripts
- *     are user-authored shell). Callers on this path MUST pre-validate any
- *     user-supplied values they interpolate; see `validateShellCommand`.
- *   - `execArgs(argv, cwd)` — safe positional-argv path. `Bun.spawn(argv)`
- *     passes arguments literally so shell metacharacters cannot be
- *     interpreted. New callers with untrusted input should prefer this.
+ * F06-02 / F06-NEW-01: `execArgs(argv, cwd)` is the canonical, safe path.
+ * `Bun.spawn(argv)` passes arguments literally so shell metacharacters
+ * cannot be interpreted. ALL new callers with any external/user input MUST
+ * use `execArgs`.
+ *
+ * `exec(command, cwd)` is the deprecated legacy `sh -c` path retained only
+ * for callers that genuinely require shell features (init-script execution,
+ * pipes). Each invocation emits a `log.warn` so a future PR can audit and
+ * remove remaining call sites. New callers MUST NOT use this path.
  */
 function createBunCommandRunner(): CommandRunner {
   return {
+    /**
+     * @deprecated F06-NEW-01 — `sh -c` shell evaluation is unsafe for any
+     * input that was not authored entirely by the deployment operator.
+     * Use {@link CommandRunner.execArgs} instead. Remaining callers (init
+     * scripts) emit a runtime warning so we can finish migrating in a
+     * follow-up PR before removing this path.
+     */
     exec: async (command: string, cwd: string) => {
+      // F06-NEW-01: emit a warning every time the legacy shell path is used
+      // so we can audit and remove remaining call sites in a follow-up PR.
+      // The preview is truncated so a noisy command does not balloon the log.
+      log.warn('CommandRunner.exec (sh -c) is deprecated; migrate caller to execArgs', {
+        data: {
+          commandPreview: command.slice(0, 200),
+          cwd,
+        },
+      });
       const proc = Bun.spawn(['sh', '-c', command], {
         cwd,
         stdout: 'pipe',
@@ -87,9 +106,9 @@ function createBunCommandRunner(): CommandRunner {
       return { stdout, stderr };
     },
     execArgs: async (argv: string[], cwd: string) => {
-      // Positional-argv form (F06-02). No shell is invoked: `Bun.spawn(argv)`
-      // passes arguments literally, so metacharacters in user-controlled
-      // values cannot be interpreted by sh.
+      // Positional-argv form (F06-02 / F06-NEW-01). No shell is invoked:
+      // `Bun.spawn(argv)` passes arguments literally, so metacharacters in
+      // user-controlled values cannot be interpreted by sh.
       if (argv.length === 0) {
         throw new Error('argv must contain at least one element');
       }
@@ -146,6 +165,12 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
 
   const durableStreamsService = new DurableStreamsService(caddyStreamsServer, db);
 
+  // F05-19 / F01-03: EventOutboxRelayService consumes pending rows in `event_outbox`
+  // (enqueued by `DurableStreamsService.publish` for non-ephemeral streams) and
+  // publishes them to Caddy with retry + dead-letter semantics. Started by
+  // `phases/schedulers.ts` via the BackgroundJobRegistry.
+  const eventOutboxRelayService = new EventOutboxRelayService(db, caddyStreamsServer);
+
   // 3. Session service
   const sessionService = new SessionService(db, caddyStreamsServer, {
     baseUrl: `http://localhost:${config.port}`,
@@ -163,7 +188,24 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
   });
 
   // 5. Task creation service
-  const taskCreationService = createTaskCreationService(db, durableStreamsService, sessionService);
+  // F01-05: pass `settingsService` so the admin-configured task-creation model
+  // and system prompt are honored (otherwise the service silently falls back
+  // to hard-coded defaults regardless of admin overrides).
+  const taskCreationService = createTaskCreationService(
+    db,
+    durableStreamsService,
+    sessionService,
+    settingsService
+  );
+
+  // F01-04: PlanModeService is needed by `/api/admin/metrics/plan-mode` and
+  // `/api/metrics`. The browser-side `app/services/services.ts` constructs its
+  // own copy for in-browser planning, but the server-side endpoint pretended
+  // to work (200 with zeros) because no instance was ever passed through the
+  // router. Issue creator + GitHub config are unavailable in the server-side
+  // bootstrap context (these are per-request concerns) so they remain `null`;
+  // metric collection works without them.
+  const planModeService = createPlanModeService(db, durableStreamsService, null, null);
 
   // 5.5. Memory service (internal DB-backed, no external Honcho dependency)
   const memoryService = new MemoryService(settingsService, db);
@@ -251,6 +293,7 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
     projectFolderService,
     cliMonitorService,
     durableStreamsService,
+    eventOutboxRelayService,
     terraformRegistryService,
     terraformComposeService,
     settingsService,
@@ -259,6 +302,7 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
     eventSubscriptionService,
     eventProcessingService,
     schedulerService,
+    planModeService,
     commandRunner,
     containerAgentService: null,
     memoryService,

@@ -1,0 +1,19 @@
+# SHA256 checksum of vendored upstream agent-sandbox manifest.
+#
+# Source: https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v0.4.3/manifest.yaml
+# Upstream tag: v0.4.3
+# Vendored on: 2026-04-29
+#
+# arch29-W1-C / F04-11: Vendoring removes the supply-chain risk of running
+# `kubectl apply -f https://github.com/.../latest/download/install.yaml` at
+# bootstrap time. The mutable URL was a full cluster-takeover vector.
+#
+# To rotate to a newer release:
+#   1. Pick a release at https://github.com/kubernetes-sigs/agent-sandbox/releases
+#   2. curl -sSL "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/<TAG>/manifest.yaml" -o k8s/vendored/agent-sandbox-<TAG>.yaml
+#   3. shasum -a 256 k8s/vendored/agent-sandbox-<TAG>.yaml > this file (with #-comments preserved)
+#   4. Update VENDORED_AGENT_SANDBOX_MANIFEST and VENDORED_AGENT_SANDBOX_SHA256 in src/server/bootstrap/sandbox/k8s-init.ts
+#   5. Run integration tests: bun vitest run tests/integration/k8s-bootstrap-vendored-manifest.test.ts
+#
+# Format: <SHA256>  <filename>
+189033364c143e53dc36e1aceb5dfc3dc019754a96863e2cdb363ba1aac4d49b  agent-sandbox-v0.4.3.yaml

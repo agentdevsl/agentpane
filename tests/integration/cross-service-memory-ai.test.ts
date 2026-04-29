@@ -56,6 +56,8 @@ describe('Cross-Service: Memory & AI (IT-185 to IT-186)', () => {
       await db.insert(sessionEvents).values({
         id: createId(),
         sessionId: session.id,
+        // F05-25: bare CUIDs are session-kind streams.
+        streamKind: 'session',
         offset: i,
         type: memoryEvents[i]!.type,
         channel: memoryEvents[i]!.channel,

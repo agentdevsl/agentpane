@@ -9,7 +9,7 @@ import { K8sErrors } from '../../errors/k8s-errors.js';
 import { createLogger } from '../../logging/logger.js';
 import { errorMessage } from '../../utils/error-message';
 import type { SandboxConfig, SandboxHealthCheck, SandboxInfo, SandboxStatus } from '../types.js';
-import { SANDBOX_DEFAULTS } from '../types.js';
+import { getDefaultSandboxNetworkMode, SANDBOX_DEFAULTS } from '../types.js';
 import { AgentSandboxInstance } from './agent-sandbox-instance.js';
 import type {
   EventEmittingSandboxProvider,
@@ -92,6 +92,13 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
   private readonly enableWarmPool: boolean;
   private readonly warmPoolSize: number;
   private readonly readyTimeoutSeconds: number;
+  /**
+   * arch29-W2-J / F04-09: when true, every `create()` will also emit a
+   * default-deny NetworkPolicy targeting the sandbox by label. Defaults to
+   * `true` whenever `SANDBOX_DEFAULT_NETWORK_MODE=none` is set; otherwise
+   * `false` (sandboxes use the cluster default bridge network).
+   */
+  private readonly enforceNetworkIsolation: boolean;
 
   private sandboxes = new Map<string, AgentSandboxInstance>();
   private codespaceToSandbox = new Map<string, string>();
@@ -104,18 +111,7 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     this.enableWarmPool = options.enableWarmPool ?? PROVIDER_DEFAULTS.enableWarmPool;
     this.warmPoolSize = options.warmPoolSize ?? PROVIDER_DEFAULTS.warmPoolSize;
     this.readyTimeoutSeconds = options.readyTimeoutSeconds ?? PROVIDER_DEFAULTS.readyTimeoutSeconds;
-
-    // theme-04 P1-06: NetworkPolicy emission is not yet implemented on the
-    // Kubernetes provider. If an operator has requested hard isolation via
-    // `SANDBOX_DEFAULT_NETWORK_MODE=none`, emit a warning so the gap is not
-    // silent. The follow-up is tracked in the theme-04 spec note.
-    if (process.env.SANDBOX_DEFAULT_NETWORK_MODE === 'none') {
-      log.warn(
-        'SANDBOX_DEFAULT_NETWORK_MODE=none is set but the Kubernetes provider ' +
-          'does not yet emit a default-deny NetworkPolicy. Sandboxes will have ' +
-          'bridge-level network access. See specs/arch_review_april/04-sandbox-providers.md.'
-      );
-    }
+    this.enforceNetworkIsolation = getDefaultSandboxNetworkMode() === 'none';
 
     // Use injected client or create a new one via the SDK
     this.client =
@@ -126,6 +122,107 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
         context: options.kubeContext,
         skipTLSVerify: options.skipTLSVerify,
       });
+  }
+
+  /**
+   * arch29-W2-J / F04-09: Verify the cluster supports `networking.k8s.io/v1`
+   * NetworkPolicy resources. Called from boot when
+   * `SANDBOX_DEFAULT_NETWORK_MODE=none` is set, so we fail-closed before any
+   * sandbox is provisioned.
+   *
+   * Throws `K8sErrors.NETWORK_ISOLATION_UNSUPPORTED` when:
+   * - The `networking.k8s.io` API group is not exposed by the cluster, OR
+   * - We cannot reach the K8s discovery API (typically a connectivity issue).
+   *
+   * No-op when network isolation is not requested.
+   */
+  async assertNetworkIsolationSupport(): Promise<void> {
+    if (!this.enforceNetworkIsolation) return;
+
+    let availableGroups: string[];
+    try {
+      const k8s = await import('@kubernetes/client-node');
+      const apisApi = this.client.kubeConfig.makeApiClient(k8s.ApisApi);
+      const groups = await apisApi.getAPIVersions();
+      availableGroups = (groups.groups ?? [])
+        .map((g: { name?: string }) => g.name)
+        .filter((n): n is string => typeof n === 'string');
+    } catch (error) {
+      const message = errorMessage(error);
+      throw K8sErrors.NETWORK_ISOLATION_UNSUPPORTED(
+        'kubernetes',
+        `unable to query API groups (${message})`
+      );
+    }
+
+    if (!availableGroups.includes('networking.k8s.io')) {
+      throw K8sErrors.NETWORK_ISOLATION_UNSUPPORTED(
+        'kubernetes',
+        'cluster does not expose the networking.k8s.io API group, so a default-deny NetworkPolicy cannot be created'
+      );
+    }
+  }
+
+  /**
+   * arch29-W2-J / F04-09: Emit a default-deny NetworkPolicy that selects the
+   * sandbox by `agentpane.io/sandbox-id`. Both `policyTypes` are populated
+   * with empty rule sets so all ingress AND all egress are blocked, matching
+   * the intent of `SANDBOX_DEFAULT_NETWORK_MODE=none`.
+   *
+   * Idempotent: a 409 (already exists) is treated as success.
+   */
+  private async createDefaultDenyNetworkPolicy(
+    sandboxId: string,
+    sandboxName: string
+  ): Promise<void> {
+    const policyName = `np-${sandboxName}`;
+    const k8s = await import('@kubernetes/client-node');
+    const networkingApi = this.client.kubeConfig.makeApiClient(k8s.NetworkingV1Api);
+
+    const body = {
+      apiVersion: 'networking.k8s.io/v1',
+      kind: 'NetworkPolicy',
+      metadata: {
+        name: policyName,
+        namespace: this.namespace,
+        labels: {
+          'agentpane.io/sandbox-id': sandboxId,
+        },
+      },
+      spec: {
+        podSelector: {
+          matchLabels: {
+            'agentpane.io/sandbox-id': sandboxId,
+          },
+        },
+        policyTypes: ['Ingress', 'Egress'],
+        ingress: [],
+        egress: [],
+      },
+    };
+
+    try {
+      await networkingApi.createNamespacedNetworkPolicy({
+        namespace: this.namespace,
+        body,
+      });
+      log.info('Default-deny NetworkPolicy created for sandbox', {
+        data: { sandboxId, policyName, namespace: this.namespace },
+      });
+    } catch (error) {
+      // 409 Conflict means the policy already exists for this sandbox — fine.
+      const status =
+        (error as { code?: number; statusCode?: number; status?: number }).code ??
+        (error as { statusCode?: number }).statusCode ??
+        (error as { status?: number }).status;
+      if (status === 409) {
+        log.info('NetworkPolicy already exists for sandbox (idempotent)', {
+          data: { sandboxId, policyName },
+        });
+        return;
+      }
+      throw K8sErrors.NETWORK_POLICY_CREATION_FAILED(policyName, errorMessage(error));
+    }
   }
 
   // --- SandboxProvider interface ---
@@ -189,6 +286,14 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       // Apply the CRD manifest to the cluster
       const manifest = builder.build();
       await this.client.createSandbox(manifest);
+
+      // arch29-W2-J / F04-09: when network isolation is requested via
+      // `SANDBOX_DEFAULT_NETWORK_MODE=none`, emit a default-deny NetworkPolicy
+      // selecting this sandbox by label *before* the pod becomes Ready, so the
+      // workload never has unrestricted network access during startup.
+      if (this.enforceNetworkIsolation) {
+        await this.createDefaultDenyNetworkPolicy(sandboxId, sandboxName);
+      }
 
       // Wait for the sandbox to reach Ready status.
       // The CRD controller creates the pod, sets up networking, and reports Ready.

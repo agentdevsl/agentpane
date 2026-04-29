@@ -9,8 +9,7 @@ schema validation into a single step with proper error handling.
 ### Usage Pattern
 
 ```typescript
-import { parseJsonBody } from '../validation.js';
-import { createFooSchema } from '../../lib/api/schemas.js';
+import { createFooSchema, parseJsonBody } from '../validation.js';
 
 app.post('/', async (c) => {
   const parsed = await parseJsonBody(c, createFooSchema);
@@ -24,17 +23,22 @@ app.post('/', async (c) => {
 
 ### Schema Locations
 
-- **Centralized schemas**: `src/lib/api/schemas.ts` -- Contains shared schemas for workflows,
-  templates, sandbox configs, sessions, settings, etc.
-- **Route-local schemas**: `src/server/validation.ts` -- Contains RBAC-specific schemas
-  (teams, members, invitations, tokens, tags) and the `parseJsonBody` helper.
-- **Route-inline schemas**: Some route files (e.g., `projects.ts`) define schemas inline with `z.object()`.
+- **Canonical schemas**: `src/server/validation.ts` -- Single source of truth for all
+  server-side request schemas (tasks, agents, sessions, workflows, RBAC, templates,
+  marketplace, settings, memory, terraform, etc.) and the `parseJsonBody` helper.
+- **Route-inline schemas**: Some route files define one-off schemas inline with `z.object()`
+  when the schema is route-specific and not shared.
+
+> **Note (arch29-W2-P, F12-01)**: The previous `src/lib/api/schemas.ts` was deleted. It
+> declared 41 schemas of which only 5 were imported and 5 names redeclared canonical
+> server schemas with tighter limits, producing silent drift. New schemas must land in
+> `src/server/validation.ts` (or inline in the route file if they are route-specific).
 
 ### Guidelines
 
 1. **New routes**: Always use `parseJsonBody()` with a Zod schema.
 2. **Existing routes**: Migrate from manual `await c.req.json()` + type assertion to `parseJsonBody()` when touching the code.
-3. **Schema placement**: Put schemas in `src/lib/api/schemas.ts` if they are complex or shared; keep simple inline schemas in the route file.
+3. **Schema placement**: Put shared schemas in `src/server/validation.ts`; keep simple route-specific schemas inline in the route file. Do not recreate `src/lib/api/schemas.ts`.
 
 ## Pagination Helpers
 

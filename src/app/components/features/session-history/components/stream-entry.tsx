@@ -138,7 +138,7 @@ export function StreamEntry({ entry, isCurrent = false }: StreamEntryProps): Rea
           {/* Token usage for assistant messages */}
           {entry.type === 'assistant' && entry.usage && entry.usage.totalTokens > 0 ? (
             <span className="flex items-center gap-1 text-xs text-fg-muted">
-              <Lightning className="h-3 w-3 text-warning" weight="fill" />
+              <Lightning className="h-3 w-3 text-attention" weight="fill" />
               <span className="tabular-nums">{entry.usage.totalTokens.toLocaleString()}</span>
               <span className="text-fg-subtle">tokens</span>
             </span>

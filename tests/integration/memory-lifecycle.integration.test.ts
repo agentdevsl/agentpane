@@ -115,7 +115,16 @@ describe('Memory Service Lifecycle Integration', () => {
     await setupTestDatabase();
     db = getTestDb();
 
-    // Create memory tables (with status/category/updated_at columns)
+    // F09-21 (arch29-W2-Q): the test harness now creates memory_insights and
+    // memory_messages with `REFERENCES codespaces(id) ON DELETE CASCADE` FKs,
+    // but this test uses arbitrary `codespaceId` values like `cs-1` without
+    // seeding real codespaces. DROP+CREATE removes the FK so the existing
+    // test logic works without rewriting the entire suite to seed codespaces.
+    (db as any).$client.exec(
+      'DROP TABLE IF EXISTS memory_messages; DROP TABLE IF EXISTS memory_insights;'
+    );
+
+    // Create memory tables (with status/category/updated_at columns, no FK)
     for (const stmt of MEMORY_TABLES_SQL.split(';').filter((s) => s.trim())) {
       (db as any).$client.exec(`${stmt};`);
     }

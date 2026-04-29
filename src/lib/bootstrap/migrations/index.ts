@@ -384,4 +384,347 @@ CREATE INDEX IF NOT EXISTS event_outbox_next_attempt_at_idx ON event_outbox(next
 CREATE INDEX IF NOT EXISTS event_outbox_status_next_attempt_idx ON event_outbox(status, next_attempt_at);
 `,
   },
+
+  // 33. Sandbox UNIQUE lifecycle fix (F04-08, arch29-W2-E):
+  // Rebuild sandbox_instances so the global UNIQUE on codespace_id is replaced
+  // by a partial unique index that fires only while the sandbox is in an
+  // *active* state. This unblocks the natural stop -> create lifecycle:
+  // before this fix, calling SandboxService.create() for a codespace whose
+  // previous sandbox row had moved to 'stopped' threw SQLITE_CONSTRAINT_UNIQUE.
+  //
+  // SQLite cannot drop a column-level UNIQUE constraint in place (the
+  // automatic sqlite_autoindex_* cannot be dropped), so we rebuild the
+  // table. The migration is idempotent on fresh installs (the table is
+  // created in step 1 with the new shape, then the rebuild is a no-op
+  // copy of zero rows).
+  {
+    version: 33,
+    name: 'sandbox-unique-partial-index',
+    sql: `
+-- Step 1: ensure the target table exists. On fresh installs, this is the
+-- only statement that meaningfully runs (the rest become no-ops because
+-- the rebuild pivot copies zero rows).
+CREATE TABLE IF NOT EXISTS sandbox_instances (
+  id TEXT PRIMARY KEY NOT NULL,
+  codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  container_id TEXT NOT NULL,
+  status TEXT DEFAULT 'stopped' NOT NULL,
+  image TEXT NOT NULL,
+  memory_mb INTEGER NOT NULL,
+  cpu_cores INTEGER NOT NULL,
+  idle_timeout_minutes INTEGER NOT NULL,
+  volume_mounts TEXT DEFAULT '[]',
+  env TEXT,
+  error_message TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  last_activity_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  stopped_at TEXT,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+-- Step 2: rebuild without the column-level UNIQUE on codespace_id.
+-- Existing databases that already have the OLD shape (column-level UNIQUE)
+-- get the new shape too. Drop any leftover staging table from a prior
+-- partial run to keep this idempotent.
+DROP TABLE IF EXISTS sandbox_instances_new_v33;
+
+CREATE TABLE sandbox_instances_new_v33 (
+  id TEXT PRIMARY KEY NOT NULL,
+  codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  container_id TEXT NOT NULL,
+  status TEXT DEFAULT 'stopped' NOT NULL,
+  image TEXT NOT NULL,
+  memory_mb INTEGER NOT NULL,
+  cpu_cores INTEGER NOT NULL,
+  idle_timeout_minutes INTEGER NOT NULL,
+  volume_mounts TEXT DEFAULT '[]',
+  env TEXT,
+  error_message TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  last_activity_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  stopped_at TEXT,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+-- Step 3: copy rows. Per CLAUDE.md "Migration safety": pre-filter rows
+-- whose codespace_id no longer points to a real codespace so the FK in
+-- the new table doesn't fail. INSERT OR IGNORE is belt-and-suspenders for
+-- duplicate-PK skips on retries.
+INSERT OR IGNORE INTO sandbox_instances_new_v33 (
+  id, codespace_id, container_id, status, image, memory_mb, cpu_cores,
+  idle_timeout_minutes, volume_mounts, env, error_message,
+  created_at, last_activity_at, stopped_at, updated_at
+)
+SELECT
+  id, codespace_id, container_id, status, image, memory_mb, cpu_cores,
+  idle_timeout_minutes, volume_mounts, env, error_message,
+  created_at, last_activity_at, stopped_at, updated_at
+FROM sandbox_instances
+WHERE codespace_id IS NOT NULL
+  AND codespace_id IN (SELECT id FROM codespaces);
+
+-- Step 4: pivot the table.
+DROP TABLE sandbox_instances;
+ALTER TABLE sandbox_instances_new_v33 RENAME TO sandbox_instances;
+
+-- Step 5: install the partial unique index. Only one active sandbox per
+-- codespace at a time; stopped/error rows can coexist freely so the
+-- create-after-stop lifecycle works.
+CREATE UNIQUE INDEX IF NOT EXISTS sandbox_instances_codespace_active_unique
+  ON sandbox_instances(codespace_id)
+  WHERE status IN ('creating', 'running', 'idle', 'stopping');
+
+-- Step 6: supporting index for status-filtered queries (reconciliation
+-- phase reads by status).
+CREATE INDEX IF NOT EXISTS sandbox_instances_status_idx ON sandbox_instances(status);
+`,
+  },
+
+  // 34. F05-25: stream_kind discriminator on session_events.
+  // Adds the column nullable, backfills from streamId prefix, then rebuilds the
+  // table to enforce NOT NULL + CHECK so the discriminator is binding for new
+  // writers. Adds an index to support stream-kind-scoped scans.
+  {
+    version: 34,
+    name: 'session-events-stream-kind',
+    sql: `
+ALTER TABLE session_events ADD COLUMN stream_kind TEXT;
+
+UPDATE session_events
+SET stream_kind = CASE
+  WHEN session_id = 'cli-monitor' THEN 'cli-monitor'
+  WHEN session_id LIKE 'plan:%' THEN 'plan'
+  WHEN session_id LIKE 'sandbox:%' THEN 'sandbox'
+  WHEN session_id LIKE 'terraform:%' THEN 'terraform'
+  WHEN session_id LIKE 'topology:%' THEN 'topology'
+  ELSE 'session'
+END
+WHERE stream_kind IS NULL;
+
+CREATE TABLE session_events_new (
+  id TEXT PRIMARY KEY NOT NULL,
+  session_id TEXT NOT NULL,
+  stream_kind TEXT NOT NULL CHECK (stream_kind IN ('session','plan','sandbox','terraform','topology','cli-monitor')),
+  "offset" INTEGER NOT NULL,
+  type TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  data TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  user_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT INTO session_events_new (id, session_id, stream_kind, "offset", type, channel, data, timestamp, user_id, created_at)
+SELECT id, session_id, stream_kind, "offset", type, channel, data, timestamp, user_id, created_at FROM session_events;
+
+DROP TABLE session_events;
+ALTER TABLE session_events_new RENAME TO session_events;
+
+CREATE INDEX IF NOT EXISTS session_events_session_idx ON session_events(session_id);
+CREATE UNIQUE INDEX IF NOT EXISTS session_events_unique_offset ON session_events(session_id, "offset");
+CREATE INDEX IF NOT EXISTS session_events_created_at_idx ON session_events(created_at);
+CREATE INDEX IF NOT EXISTS session_events_session_type_idx ON session_events(session_id, type);
+CREATE INDEX IF NOT EXISTS session_events_stream_kind_session_idx ON session_events(stream_kind, session_id);
+`,
+  },
+
+  // 35. F06-NEW-08: persist rate-limit counters across restarts.
+  // Each row is a single bucket: (key, window_start, count). Composite primary
+  // key on (key, window_start) lets concurrent inserts dedupe via INSERT ...
+  // ON CONFLICT DO UPDATE. Cleanup of expired buckets older than 24h runs as
+  // a BackgroundJob.
+  {
+    version: 35,
+    name: 'rate-limit-buckets',
+    sql: `
+CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+  key TEXT NOT NULL,
+  window_start INTEGER NOT NULL,
+  window_ms INTEGER NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (key, window_start)
+);
+CREATE INDEX IF NOT EXISTS rate_limit_buckets_updated_at_idx ON rate_limit_buckets(updated_at);
+`,
+  },
+
+  // 36. F02-18 (arch29-W2-R): event_outbox timestamps as epoch ms.
+  //
+  // Convert `next_attempt_at` / `created_at` / `published_at` from TEXT (ISO
+  // string) to INTEGER (epoch ms) so the relay's `lte(nextAttemptAt, now)`
+  // comparison is numeric on both SQLite and Postgres. The previous lex-string
+  // ordering only worked for UTC ISO timestamps and was brittle across
+  // dialects.
+  //
+  // The migration uses the established v29/v30/v33 table-rebuild pattern:
+  // SQLite cannot ALTER COLUMN type in place, so we create a staging table,
+  // copy existing rows with `strftime('%s', ...) * 1000` to convert ISO text
+  // to epoch ms, drop the original, and rename the staging table. Indexes
+  // are recreated post-rename.
+  //
+  // Idempotency: leftover staging tables from a partial prior run are dropped
+  // first. On a fresh install the original `event_outbox` table was created
+  // by v32 with TEXT timestamps; this rebuild converts those to INTEGER.
+  // Schema-drift parity with the Drizzle declaration (now `integer` in both
+  // dialects) is verified by `tests/integration/event-outbox-schema-drift.test.ts`.
+  {
+    version: 36,
+    name: 'event-outbox-epoch-ms',
+    sql: `
+-- Step 1: Drop any leftover staging table from a partial prior run.
+DROP TABLE IF EXISTS event_outbox_new_v36;
+
+-- Step 2: Create the rebuilt table with INTEGER epoch-ms timestamps.
+CREATE TABLE event_outbox_new_v36 (
+  id TEXT PRIMARY KEY NOT NULL,
+  stream_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER NOT NULL,
+  last_error TEXT,
+  created_at INTEGER NOT NULL,
+  published_at INTEGER
+);
+
+-- Step 3: Copy rows, converting ISO-text timestamps to epoch ms.
+-- strftime('%s', text) returns seconds since epoch; multiply by 1000 for ms.
+-- For NULL published_at, preserve NULL via a CASE.
+INSERT INTO event_outbox_new_v36 (
+  id, stream_id, type, payload, status, attempts,
+  next_attempt_at, last_error, created_at, published_at
+)
+SELECT
+  id, stream_id, type, payload, status, attempts,
+  CAST(strftime('%s', next_attempt_at) AS INTEGER) * 1000,
+  last_error,
+  CAST(strftime('%s', created_at) AS INTEGER) * 1000,
+  CASE
+    WHEN published_at IS NULL THEN NULL
+    ELSE CAST(strftime('%s', published_at) AS INTEGER) * 1000
+  END
+FROM event_outbox;
+
+-- Step 4: Pivot the table.
+DROP TABLE event_outbox;
+ALTER TABLE event_outbox_new_v36 RENAME TO event_outbox;
+
+-- Step 5: Recreate the supporting indexes.
+CREATE INDEX IF NOT EXISTS event_outbox_status_idx ON event_outbox(status);
+CREATE INDEX IF NOT EXISTS event_outbox_next_attempt_at_idx ON event_outbox(next_attempt_at);
+CREATE INDEX IF NOT EXISTS event_outbox_status_next_attempt_idx ON event_outbox(status, next_attempt_at);
+`,
+  },
+
+  // 37. F06-09 follow-up (arch29-W2-Q): backfill token rotation columns into the
+  // runtime migration chain. The drizzle-kit migration `0017_add_token_rotation_columns.sql`
+  // declares these but no inline runtime migration applied them, so the runtime
+  // schema differed from the drizzle-kit baseline. The v39 api_tokens rebuild
+  // below references `rotated_at`, so this must run first.
+  //
+  // Idempotent: ALTER TABLE ADD COLUMN is wrapped per-statement; the runner
+  // catches "duplicate column" errors and proceeds.
+  {
+    version: 37,
+    name: 'token-rotation-columns',
+    statements: [
+      `ALTER TABLE api_tokens ADD COLUMN rotated_at TEXT`,
+      `ALTER TABLE api_keys ADD COLUMN expires_at TEXT`,
+      `ALTER TABLE api_keys ADD COLUMN rotated_at TEXT`,
+      `ALTER TABLE github_tokens ADD COLUMN expires_at TEXT`,
+      `ALTER TABLE github_tokens ADD COLUMN rotated_at TEXT`,
+    ],
+  },
+
+  // 38. F02-19 (arch29-W2-Q): codespace_tags.assigned_at missing in SQLite.
+  //
+  // Drizzle declares `assigned_at` notNull() (`src/db/schema/sqlite/codespace-tags.ts:15`)
+  // but the v19 inline migration creates the table without the column
+  // (`v19-project-folders.ts:84-88`). On SQLite, INSERTs succeed because Drizzle
+  // supplies a JS-side default, but SELECTs return undefined while the type
+  // system claims string. PG already has the column in `0004_schema_catchup.sql`.
+  //
+  // Fix: add the column with the same default as Drizzle declares. Existing
+  // rows get the current time as their assigned_at (the column default applies
+  // to NULL backfills via SQLite's ALTER TABLE ADD COLUMN ... DEFAULT semantics).
+  // Use individual `statements` so the migration is idempotent — retry-safe if
+  // a prior run partially succeeded.
+  {
+    version: 38,
+    name: 'codespace-tags-assigned-at',
+    statements: [
+      `ALTER TABLE codespace_tags ADD COLUMN assigned_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+    ],
+  },
+
+  // 39. F02-20 (arch29-W2-Q): rebuild api_tokens to fix scope_codespace_id FK behavior.
+  //
+  // The v19 inline migration added `scope_codespace_id` with `ON DELETE CASCADE`
+  // (`v19-project-folders.ts:149`), but Drizzle declares `onDelete: 'set null'`
+  // (`src/db/schema/sqlite/api-tokens.ts:25`) and PG matches Drizzle. The result:
+  // deleting a codespace silently revokes API tokens on SQLite while preserving
+  // them on PG. Operationally surprising and silently divergent.
+  //
+  // SQLite cannot ALTER a foreign-key constraint in place, so the fix is the
+  // v29/v30 table-rebuild pattern. Per CLAUDE.md "Migration safety": null any
+  // orphaned scope_codespace_id values before the rebuild so the new FK
+  // doesn't fail. INSERT (no OR IGNORE — F02-22) copies all rows.
+  {
+    version: 39,
+    name: 'api-tokens-cascade-fix',
+    sql: `
+-- Step 1: drop any leftover staging table from a partial prior run.
+DROP TABLE IF EXISTS api_tokens_new_v39;
+
+-- Step 2: create the rebuilt table with the correct FK behavior.
+CREATE TABLE api_tokens_new_v39 (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  token_prefix TEXT NOT NULL,
+  role TEXT NOT NULL,
+  scope_tags TEXT,
+  scope_project_id TEXT,
+  scope_codespace_id TEXT REFERENCES codespaces(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  expires_at TEXT,
+  rotated_at TEXT,
+  use_count INTEGER DEFAULT 0,
+  last_used_at TEXT,
+  revoked_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+-- Step 3: copy rows. Pre-null orphaned scope_codespace_id values (rows where
+-- the codespace no longer exists) so the new FK doesn't fail on rebuild.
+INSERT INTO api_tokens_new_v39 (
+  id, user_id, team_id, name, token_hash, token_prefix, role,
+  scope_tags, scope_project_id, scope_codespace_id,
+  status, expires_at, rotated_at, use_count, last_used_at, revoked_at, created_at
+)
+SELECT
+  id, user_id, team_id, name, token_hash, token_prefix, role,
+  scope_tags, scope_project_id,
+  CASE WHEN scope_codespace_id IS NOT NULL
+       AND scope_codespace_id IN (SELECT id FROM codespaces)
+    THEN scope_codespace_id
+    ELSE NULL
+  END,
+  status, expires_at, rotated_at, use_count, last_used_at, revoked_at, created_at
+FROM api_tokens;
+
+-- Step 4: pivot the table.
+DROP TABLE api_tokens;
+ALTER TABLE api_tokens_new_v39 RENAME TO api_tokens;
+
+-- Step 5: recreate the supporting indexes that lived on the original table.
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_team ON api_tokens(team_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_status ON api_tokens(status);
+`,
+  },
 ];

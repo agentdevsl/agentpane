@@ -64,6 +64,9 @@ function createProviderMock() {
       wait: vi.fn().mockResolvedValue({ exitCode: 0 }),
       kill: vi.fn(),
     }),
+    // arch29-W2-I (F04-06): every provider implements writeFile so credentials
+    // can be injected out-of-band (no token in argv).
+    writeFile: vi.fn().mockResolvedValue(undefined),
   };
   return {
     get: vi.fn().mockResolvedValue(sandbox),
@@ -84,6 +87,8 @@ function createStreamsMock() {
 function createApiKeyMock() {
   return {
     getDecryptedKey: vi.fn().mockResolvedValue('sk-ant-oat01-test-token'),
+    // F03-09 (arch29-W2-C): default to null (no refresh token stored).
+    getDecryptedRefreshToken: vi.fn().mockResolvedValue(null),
   };
 }
 
@@ -126,6 +131,9 @@ function createK8sProviderMock() {
       wait: vi.fn().mockResolvedValue({ exitCode: 0 }),
       kill: vi.fn(),
     }),
+    // arch29-W2-I (F04-06): every provider implements writeFile so credentials
+    // can be injected out-of-band (no token in argv).
+    writeFile: vi.fn().mockResolvedValue(undefined),
   };
   return {
     name: 'kubernetes',

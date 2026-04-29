@@ -7,42 +7,24 @@
 
 import { and, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { z } from 'zod';
 import { codespaces, sessionEvents, tasks } from '../../db/schema/index.js';
+import { jsonExtractText } from '../../lib/db/dialect.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { DreamService } from '../../services/memory/dream.service.js';
 import type { MemoryService } from '../../services/memory/index.js';
 import type { SkillTrackingService } from '../../services/memory/skill-tracking.service.js';
 import type { Database } from '../../types/database.js';
 import { json } from '../shared.js';
+import {
+  createMemoryInsightSchema,
+  dreamSkillOverrideSchema,
+  memoryModifySuggestionSchema,
+  memorySearchSchema,
+  memorySuggestionActionSchema,
+  parseJsonBody,
+} from '../validation.js';
 
 const log = createLogger('MemoryRoutes');
-
-// Validation schemas
-const createInsightSchema = z.object({
-  content: z.string().min(1).max(4096),
-  source: z.enum(['manual', 'agent_derived', 'dream']).optional().default('manual'),
-  skillId: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  category: z
-    .enum(['pattern', 'anti_pattern', 'decision', 'architecture', 'error_lesson'])
-    .optional(),
-});
-
-const searchSchema = z.object({
-  query: z.string().min(1).max(1024),
-  limit: z.number().min(1).max(50).optional(),
-});
-
-const suggestionActionSchema = z.object({
-  userNotes: z.string().optional(),
-});
-
-const modifySuggestionSchema = z.object({
-  modifiedContent: z.string().min(1),
-  userNotes: z.string().optional(),
-});
 
 /** Parse and clamp pagination query params. */
 function parsePagination(
@@ -143,29 +125,8 @@ export function createMemoryRoutes({
     c: { req: { json: () => Promise<unknown> } },
     codespaceId: string | null
   ): Promise<Response> {
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
-    const parsed = searchSchema.safeParse(body);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues[0]?.message ?? 'query is required',
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, memorySearchSchema);
+    if (!parsed.ok) return parsed.response;
 
     return wrapHandler('Failed to search', async () => {
       const result = await memoryService.search(codespaceId, parsed.data.query, parsed.data.limit);
@@ -272,12 +233,29 @@ export function createMemoryRoutes({
   );
 
   app.put('/dream-config/skills/:skillId', async (c) => {
-    let body: unknown;
+    // Body shape: either `null`, `{}` (clear override), or
+    // `{ enabled?, model?, minRuns? }`. Use the structured zod schema to
+    // validate populated payloads; the null/empty-object case is treated as
+    // "clear the override" (matching the previous behaviour).
+    //
+    // HONO-ALLOW-UNTYPED: zod cannot represent a JSON literal `null` at the
+    // root of a request body. We accept null/{}/object here, then validate
+    // the populated case via `dreamSkillOverrideSchema.safeParse` below.
+    let rawBody: unknown;
     try {
-      body = await c.req.json();
-    } catch {
+      rawBody = await c.req.json();
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        return json(
+          { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid JSON' } },
+          400
+        );
+      }
       return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
+        {
+          ok: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Failed to read request body' },
+        },
         400
       );
     }
@@ -285,11 +263,31 @@ export function createMemoryRoutes({
     const skillId = c.req.param('skillId');
 
     // null body OR empty object means clear the override (client sends {} when null
-    // cannot be serialized via JSON, e.g. `override ?? {}`)
-    const override =
-      body === null || (typeof body === 'object' && Object.keys(body as object).length === 0)
-        ? null
-        : (body as { enabled?: boolean; model?: string; minRuns?: number });
+    // cannot be serialized via JSON, e.g. `override ?? {}`).
+    const isClearOverride =
+      rawBody === null ||
+      (typeof rawBody === 'object' &&
+        rawBody !== null &&
+        !Array.isArray(rawBody) &&
+        Object.keys(rawBody as object).length === 0);
+
+    let override: { enabled?: boolean; model?: string; minRuns?: number } | null = null;
+    if (!isClearOverride) {
+      const parsed = dreamSkillOverrideSchema.safeParse(rawBody);
+      if (!parsed.success) {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: parsed.error.issues[0]?.message ?? 'Invalid skill override',
+            },
+          },
+          400
+        );
+      }
+      override = parsed.data ?? null;
+    }
 
     return wrapHandler('Failed to set dream skill override', async () => {
       const result = await dreamService.setSkillOverride(skillId, override);
@@ -312,6 +310,11 @@ export function createMemoryRoutes({
       const { page, size } = parsePagination(c);
       const offset = (page - 1) * size;
 
+      // F02-15: portable JSON-path text extraction. SQLite renders the
+      // array as `'["abc","def"]'`; Postgres `#>>` on a `jsonb` column
+      // renders `'["abc", "def"]'` (with spaces). The downstream
+      // `filtered` step does an exact array-includes check after parsing
+      // the row's JSON column, so the LIKE filter is a coarse pre-filter.
       const rows = await db
         .select({
           id: sessionEvents.id,
@@ -323,7 +326,7 @@ export function createMemoryRoutes({
         .where(
           and(
             eq(sessionEvents.type, 'memory:insights_injected'),
-            sql`json_extract(${sessionEvents.data}, '$.insightIds') LIKE ${`%${insightId}%`}`
+            sql`${jsonExtractText(sessionEvents.data, 'insightIds')} LIKE ${`%${insightId}%`}`
           )
         )
         .orderBy(sql`${sessionEvents.timestamp} DESC`)
@@ -417,29 +420,8 @@ export function createMemoryRoutes({
 
   // POST /api/memory/codespaces/:codespaceId/insights
   app.post('/codespaces/:codespaceId/insights', async (c) => {
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
-    const parsed = createInsightSchema.safeParse(body);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues[0]?.message ?? 'content is required',
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, createMemoryInsightSchema);
+    if (!parsed.ok) return parsed.response;
 
     return wrapHandler('Failed to create insight', async () => {
       const codespaceId = c.req.param('codespaceId');
@@ -561,20 +543,27 @@ export function createMemoryRoutes({
     handleGetSuggestions(c, c.req.param('codespaceId'))
   );
 
-  // Accept and reject share identical structure — only the service method differs
+  // Accept and reject share identical structure — only the service method differs.
+  // Body is optional; userNotes is the only valid field. When Content-Type is
+  // not application/json (or omitted), we treat the body as missing and skip
+  // validation — matching the previous behaviour.
   async function handleSuggestionAction(
-    c: { req: { param: (k: string) => string; json: () => Promise<unknown> } },
+    c: {
+      req: {
+        param: (k: string) => string;
+        header: (name: string) => string | undefined;
+        json: () => Promise<unknown>;
+      };
+    },
     action: 'accept' | 'reject'
   ): Promise<Response> {
-    let body: Record<string, unknown> = {};
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      // body is optional
+    let userNotes: string | undefined;
+    if (c.req.header('Content-Type')?.includes('application/json')) {
+      const parsed = await parseJsonBody(c, memorySuggestionActionSchema);
+      if (!parsed.ok) return parsed.response;
+      userNotes = parsed.data.userNotes;
     }
 
-    const parsed = suggestionActionSchema.safeParse(body);
-    const userNotes = parsed.success ? parsed.data.userNotes : undefined;
     const serviceFn =
       action === 'accept'
         ? dreamService.acceptSuggestion.bind(dreamService)
@@ -591,29 +580,8 @@ export function createMemoryRoutes({
   app.patch('/suggestions/:id/reject', (c) => handleSuggestionAction(c, 'reject'));
 
   app.patch('/suggestions/:id/modify', async (c) => {
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
-    const parsed = modifySuggestionSchema.safeParse(body);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues[0]?.message ?? 'modifiedContent is required',
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, memoryModifySuggestionSchema);
+    if (!parsed.ok) return parsed.response;
 
     return wrapHandler('Failed to modify suggestion', async () => {
       const result = await dreamService.modifySuggestion(

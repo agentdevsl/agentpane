@@ -163,7 +163,7 @@ describe('Nomad Sandbox Routes (IT-580)', () => {
 
       expect(response.status).toBe(400);
       const body = await response.json();
-      expect(body.error.code).toBe('INVALID_JSON');
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('IT-599: returns 400 when address is missing', async () => {
@@ -173,7 +173,8 @@ describe('Nomad Sandbox Routes (IT-580)', () => {
 
       expect(response.status).toBe(400);
       const body = await response.json();
-      expect(body.error.code).toBe('MISSING_PARAMS');
+      // arch29-W2-H / F07-15: standardised to VALIDATION_ERROR.
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('IT-600: returns 400 for SSRF-blocked address', async () => {

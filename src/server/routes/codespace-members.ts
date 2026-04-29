@@ -1,5 +1,9 @@
 /**
- * Project member routes
+ * Codespace member routes
+ *
+ * arch29-W3-D (F12-06): renamed from `project-members.ts`. Codespace members
+ * are tracked in the `codespaceMembers` table and the route is mounted at
+ * `/api/codespaces/:id/members`. Symbol names match.
  */
 
 import { and, eq } from 'drizzle-orm';
@@ -10,14 +14,18 @@ import type { AuthContext } from '../../lib/api/auth-middleware';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { json, requireCodespaceRole, validateIdParam } from '../shared';
-import { addProjectMemberSchema, parseJsonBody, updateProjectMemberSchema } from '../validation';
+import {
+  addCodespaceMemberSchema,
+  parseJsonBody,
+  updateCodespaceMemberSchema,
+} from '../validation';
 
-interface ProjectMembersDeps {
+interface CodespaceMembersDeps {
   db: Database;
   rbacService: RbacService;
 }
 
-export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDeps) {
+export function createCodespaceMembersRoutes({ db, rbacService }: CodespaceMembersDeps) {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
 
   // POST / - Add codespace member override
@@ -29,7 +37,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
     const denied = await requireCodespaceRole(auth, rbacService, codespaceId, 'admin');
     if (denied) return denied;
 
-    const parsed = await parseJsonBody(c, addProjectMemberSchema);
+    const parsed = await parseJsonBody(c, addCodespaceMemberSchema);
     if (!parsed.ok) return parsed.response;
 
     const result = await db.transaction(async (tx) => {
@@ -60,6 +68,8 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
     });
 
     if (result === 'DUPLICATE') {
+      // arch29-W3-D: error code preserved for API stability. Renaming the route
+      // file/symbols is internal; clients keying on `code` would break.
       return json(
         { ok: false, error: { code: 'PROJECT_MEMBER_EXISTS', message: 'Member already exists' } },
         409
@@ -113,6 +123,8 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
       .where(eq(codespaceMembers.codespaceId, codespaceId));
 
     // H4: Enrich with effectiveRole and source
+    // arch29-W3-D (F12-06): emit both `codespaceRole` (new canonical name) and
+    // `projectRole` (deprecated alias) for one release of backward compatibility.
     const enrichedMembers = await Promise.all(
       members.map(async (m) => {
         const effectiveRole = m.userId
@@ -120,6 +132,8 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
           : null;
         return {
           ...m,
+          codespaceRole: m.role,
+          /** @deprecated use `codespaceRole`. Removed in next release. */
           projectRole: m.role,
           effectiveRole: effectiveRole ?? m.role,
           source: 'direct' as const,
@@ -151,7 +165,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
     const adminDenied = await requireCodespaceRole(auth, rbacService, codespaceId, 'admin');
     if (adminDenied) return adminDenied;
 
-    const parsed = await parseJsonBody(c, updateProjectMemberSchema);
+    const parsed = await parseJsonBody(c, updateCodespaceMemberSchema);
     if (!parsed.ok) return parsed.response;
 
     const result = await db

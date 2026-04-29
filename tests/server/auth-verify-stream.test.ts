@@ -74,25 +74,47 @@ describe('/api/auth/verify-stream (F05-07)', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 200 for a valid session + well-formed stream URI', async () => {
+  it('returns 200 for a valid session + cli-monitor singleton URI', async () => {
+    // The cli-monitor stream is a singleton — no entity lookup required.
+    // For session/plan/sandbox kinds the per-stream tenant check now performs
+    // a DB lookup (F05-23 / F06-NEW-11), so an unknown CUID would return 404
+    // rather than 200. See `tests/integration/verify-stream-tenant.test.ts`
+    // for the per-stream tenant happy path.
     const userId = await seedUserAndSession({ token: 'tok-valid', expiresInMs: 60_000 });
     const app = buildApp();
     const res = await app.request('/api/auth/verify-stream', {
       method: 'POST',
       headers: {
-        'X-Original-URI': '/v1/stream/plans/plan-xyz',
+        'X-Original-URI': '/v1/stream/cli-monitor',
         Cookie: 'agentpane_session=tok-valid',
       },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       ok: boolean;
-      data?: { userId: string; streamKind: string; streamId: string };
+      data?: { userId: string; streamKind: string | null; streamId: string | null };
     };
     expect(body.ok).toBe(true);
     expect(body.data?.userId).toBe(userId);
-    expect(body.data?.streamKind).toBe('plans');
-    expect(body.data?.streamId).toBe('plan-xyz');
+    expect(body.data?.streamKind).toBe('cli-monitor');
+    expect(body.data?.streamId).toBe(null);
+  });
+
+  it('returns 404 when the stream entity does not exist (cross-tenant lookup miss)', async () => {
+    // F05-23 / F06-NEW-11: per-stream tenant scope check. If the requested
+    // session/plan/sandbox CUID is not in the DB, treat as not-found rather
+    // than 200; this both blocks cross-tenant subscribes and surfaces stale
+    // links cleanly.
+    await seedUserAndSession({ token: 'tok-miss-stream', expiresInMs: 60_000 });
+    const app = buildApp();
+    const res = await app.request('/api/auth/verify-stream', {
+      method: 'POST',
+      headers: {
+        'X-Original-URI': '/v1/stream/plans/plan-xyz-not-found',
+        Cookie: 'agentpane_session=tok-miss-stream',
+      },
+    });
+    expect(res.status).toBe(404);
   });
 
   it('returns 401 when the session is expired', async () => {

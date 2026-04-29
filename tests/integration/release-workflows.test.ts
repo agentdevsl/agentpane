@@ -55,6 +55,28 @@ describe('F11-01: release.yml workflow', () => {
     expect(yaml).toContain("exit-code: '1'");
   });
 
+  // F06-NEW-12: Critical Dependabot advisory GHSA-69fq-xp46-6x23 (Trivy supply chain compromise).
+  // The trivy-action repo had 76 of 77 version tags force-pushed to malicious commits during
+  // the March 19-22, 2026 incident. Only v0.35.0 onward (protected by GitHub immutable releases)
+  // is safe; tags 0.0.1 - 0.34.2 are forever compromised. We pin to a SHA for defense-in-depth
+  // because the safe tags themselves remain mutable in principle. Failing on `main` (which uses
+  // `@0.30.0` tag — vulnerable) and passing here proves the regression test bar.
+  it('pins EVERY trivy-action ref to a SHA for v0.35.0+ (GHSA-69fq-xp46-6x23)', () => {
+    const yaml = readFileSync(resolve(WORKFLOWS, 'release.yml'), 'utf8');
+    // Reject any vulnerable tag form (anything ≤ 0.34.x without v-prefix; bare `@0.x.y` form).
+    // The safe forms are: `@<40-char SHA>` or `@v0.35.0+` (v-prefix) or `@v0.34.x` (re-pinned).
+    expect(yaml).not.toMatch(/aquasecurity\/trivy-action@0\.(?:[12]\d|3[0-4])\.\d+/);
+    // Require ALL occurrences (not just the first match) to be a 40-char SHA OR v0.35.0+ tag.
+    // Without matchAll, a single safe pin at the top of the file would mask any unsafe pins below.
+    const refs = [...yaml.matchAll(/aquasecurity\/trivy-action@([\w.-]+)/g)].map((m) => m[1]);
+    expect(refs.length).toBeGreaterThan(0);
+    for (const ref of refs) {
+      const sha40 = /^[a-f0-9]{40}$/.test(ref);
+      const safeTag = /^v0\.(3[5-9]|[4-9]\d)\.\d+$/.test(ref) || /^v[1-9]\d*\.\d+\.\d+$/.test(ref);
+      expect(sha40 || safeTag, `unsafe trivy-action ref: ${ref}`).toBe(true);
+    }
+  });
+
   it('packages the Helm chart via helm package', () => {
     const yaml = readFileSync(resolve(WORKFLOWS, 'release.yml'), 'utf8');
     expect(yaml).toContain('helm package charts/agentpane');

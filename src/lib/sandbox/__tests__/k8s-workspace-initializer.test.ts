@@ -28,23 +28,23 @@ describe('initializeK8sWorkspace', () => {
     const sandbox = createMockSandbox();
     const ok = { exitCode: 0, stdout: '', stderr: '' };
 
+    // arch29-W2-I (F04-12): the remote URL is the public token-free form, so
+    // there is NO `git remote set-url` call to strip a token after clone.
     // test -d /workspace/.git → not cloned
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
     // git init
     sandbox.exec.mockResolvedValueOnce(ok);
     // git config --global safe.directory
     sandbox.exec.mockResolvedValueOnce(ok);
-    // git remote add origin
+    // git remote add origin (token-free URL)
     sandbox.exec.mockResolvedValueOnce(ok);
-    // git fetch --depth 1 origin main
+    // git -c http.extraHeader=... fetch --depth 1 origin main
     sandbox.exec.mockResolvedValueOnce(ok);
     // git checkout -f origin/main
     sandbox.exec.mockResolvedValueOnce(ok);
     // git checkout -B main
     sandbox.exec.mockResolvedValueOnce(ok);
-    // git remote set-url origin (strip token)
-    sandbox.exec.mockResolvedValueOnce(ok);
-    // git config credential.helper
+    // git config credential.helper ''
     sandbox.exec.mockResolvedValueOnce(ok);
     // test -d worktree dir → does not exist
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
@@ -114,25 +114,25 @@ describe('initializeK8sWorkspace', () => {
     expect(worktreeAddCalls[1]?.[1]).not.toContain('-b');
   });
 
-  it('strips token from remote URL after clone', async () => {
+  it('arch29-W2-I (F04-12): never embeds the token in any git argv', async () => {
     const sandbox = createMockSandbox();
     const ok = { exitCode: 0, stdout: '', stderr: '' };
 
+    // arch29-W2-I (F04-12): the remote URL is now the public token-free form
+    // and auth is supplied per-invocation via -c http.extraHeader=...
     // test -d /workspace/.git → not cloned
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
     // git init
     sandbox.exec.mockResolvedValueOnce(ok);
     // git config --global safe.directory
     sandbox.exec.mockResolvedValueOnce(ok);
-    // git remote add origin (token in URL)
+    // git remote add origin (token-free URL)
     sandbox.exec.mockResolvedValueOnce(ok);
-    // git fetch --depth 1 origin main
+    // git -c http.extraHeader=... fetch --depth 1 origin main
     sandbox.exec.mockResolvedValueOnce(ok);
     // git checkout -f origin/main
     sandbox.exec.mockResolvedValueOnce(ok);
     // git checkout -B main
-    sandbox.exec.mockResolvedValueOnce(ok);
-    // git remote set-url origin (strip token — clean URL)
     sandbox.exec.mockResolvedValueOnce(ok);
     // git config credential.helper
     sandbox.exec.mockResolvedValueOnce(ok);
@@ -145,26 +145,39 @@ describe('initializeK8sWorkspace', () => {
 
     await initializeK8sWorkspace({ ...defaultOptions, sandbox });
 
-    // Remote add call should contain token in URL
+    // No git command should ever carry the literal `x-access-token:` prefix
+    // (the URL form leaks the token via /proc/<pid>/cmdline). The token is
+    // never in the URL, so `git remote -v` after clone is safe.
+    const gitCalls = sandbox.exec.mock.calls.filter(([cmd]) => cmd === 'git');
+    for (const [, args] of gitCalls) {
+      for (const arg of args ?? []) {
+        expect(arg).not.toContain('x-access-token:');
+        expect(arg).not.toContain('ghp_test123');
+      }
+    }
+
+    // Remote add call should use the token-free public URL.
     const addCall = sandbox.exec.mock.calls.find(
       ([cmd, args]) => cmd === 'git' && args?.includes('add') && args?.includes('origin')
     );
     expect(addCall).toBeTruthy();
-    const addUrl = addCall![1]!.find(
-      (arg: string) => arg.includes('github.com') && arg.includes('x-access-token')
-    );
-    expect(addUrl).toContain('x-access-token:ghp_test123');
+    const addUrl = addCall![1]!.find((arg: string) => arg.includes('github.com'));
+    expect(addUrl).toBe('https://github.com/acme/my-app.git');
 
-    // Remote set-url call should strip the token
-    const setUrlCall = sandbox.exec.mock.calls.find(
-      ([cmd, args]) => cmd === 'git' && args?.includes('set-url')
+    // Fetch should use -c http.extraHeader=... for auth.
+    const fetchCall = sandbox.exec.mock.calls.find(
+      ([cmd, args]) => cmd === 'git' && args?.includes('fetch')
     );
-    expect(setUrlCall).toBeTruthy();
-    const cleanUrl = setUrlCall![1]!.find((arg: string) => arg.includes('github.com'));
-    expect(cleanUrl).toBe('https://github.com/acme/my-app.git');
-    expect(cleanUrl).not.toContain('x-access-token');
+    expect(fetchCall).toBeTruthy();
+    const dashCIdx = fetchCall![1]!.indexOf('-c');
+    expect(dashCIdx).toBeGreaterThanOrEqual(0);
+    const cVal = fetchCall![1]![dashCIdx + 1] ?? '';
+    expect(cVal).toMatch(/^http\.extraHeader=Authorization: Basic /);
+    // The b64 value MUST decode to `x-access-token:TOKEN`, but the b64
+    // string itself MUST NOT contain plaintext `x-access-token:`.
+    expect(cVal).not.toContain('x-access-token:');
 
-    // Credential helper should be disabled
+    // Credential helper should be disabled.
     const credCall = sandbox.exec.mock.calls.find(
       ([cmd, args]) => cmd === 'git' && args?.includes('credential.helper')
     );
@@ -265,21 +278,21 @@ describe('initializeK8sWorkspace', () => {
     const sandbox = createMockSandbox();
     const ok = { exitCode: 0, stdout: '', stderr: '' };
 
+    // arch29-W2-I (F04-12): the URL no longer carries the token, so there is
+    // no `set-url` step to strip a token after clone. The mock list is:
     // test -d /workspace/.git → not cloned
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
     // git init
     sandbox.exec.mockResolvedValueOnce(ok);
     // git config --global safe.directory
     sandbox.exec.mockResolvedValueOnce(ok);
-    // git remote add origin
+    // git remote add origin (token-free)
     sandbox.exec.mockResolvedValueOnce(ok);
-    // git fetch --depth 1 origin develop
+    // git -c http.extraHeader=... fetch --depth 1 origin develop
     sandbox.exec.mockResolvedValueOnce(ok);
     // git checkout -f origin/develop
     sandbox.exec.mockResolvedValueOnce(ok);
     // git checkout -B develop
-    sandbox.exec.mockResolvedValueOnce(ok);
-    // git remote set-url origin (strip token)
     sandbox.exec.mockResolvedValueOnce(ok);
     // git config credential.helper
     sandbox.exec.mockResolvedValueOnce(ok);
@@ -329,6 +342,7 @@ describe('initializeK8sWorkspace', () => {
     const sandbox = createMockSandbox();
     const ok = { exitCode: 0, stdout: '', stderr: '' };
 
+    // arch29-W2-I (F04-12): no `set-url` step (token never in URL).
     // test -d /workspace/.git → throws (isWorkspaceCloned)
     sandbox.exec.mockRejectedValueOnce(new Error('exec failed'));
     // Treated as "not cloned", so init+fetch flow follows:
@@ -336,15 +350,13 @@ describe('initializeK8sWorkspace', () => {
     sandbox.exec.mockResolvedValueOnce(ok);
     // git config --global safe.directory
     sandbox.exec.mockResolvedValueOnce(ok);
-    // git remote add origin
+    // git remote add origin (token-free URL)
     sandbox.exec.mockResolvedValueOnce(ok);
-    // git fetch --depth 1 origin main
+    // git -c http.extraHeader=... fetch --depth 1 origin main
     sandbox.exec.mockResolvedValueOnce(ok);
     // git checkout -f origin/main
     sandbox.exec.mockResolvedValueOnce(ok);
     // git checkout -B main
-    sandbox.exec.mockResolvedValueOnce(ok);
-    // git remote set-url origin (strip token)
     sandbox.exec.mockResolvedValueOnce(ok);
     // git config credential.helper
     sandbox.exec.mockResolvedValueOnce(ok);

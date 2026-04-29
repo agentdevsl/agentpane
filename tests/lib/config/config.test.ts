@@ -40,7 +40,7 @@ describe('Configuration Module', () => {
       mockedFs.readFile.mockResolvedValue(JSON.stringify(fileConfig));
 
       const { loadCodespaceConfigFrom } = await import('@/lib/config/config-service');
-      const result = await loadCodespaceConfigFrom({ projectPath: '/test/project' });
+      const result = await loadCodespaceConfigFrom({ codespacePath: '/test/project' });
 
       expect(mockedFs.readFile).toHaveBeenCalledWith(
         path.join('/test/project', '.claude', 'settings.json'),
@@ -61,7 +61,7 @@ describe('Configuration Module', () => {
       mockedFs.readFile.mockRejectedValue({ code: 'ENOENT' });
 
       const { loadCodespaceConfig } = await import('@/lib/config/config-service');
-      const result = await loadCodespaceConfig({ projectPath: '/test/project' });
+      const result = await loadCodespaceConfig({ codespacePath: '/test/project' });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -75,7 +75,7 @@ describe('Configuration Module', () => {
       const { loadCodespaceConfigFrom } = await import('@/lib/config/config-service');
       const { DEFAULT_CODESPACE_CONFIG } = await import('@/lib/config/types');
 
-      const result = await loadCodespaceConfigFrom({ projectPath: '/nonexistent/path' });
+      const result = await loadCodespaceConfigFrom({ codespacePath: '/nonexistent/path' });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -95,7 +95,7 @@ describe('Configuration Module', () => {
       mockedFs.readFile.mockResolvedValue(JSON.stringify(partialConfig));
 
       const { loadCodespaceConfigFrom } = await import('@/lib/config/config-service');
-      const result = await loadCodespaceConfigFrom({ projectPath: '/test/project' });
+      const result = await loadCodespaceConfigFrom({ codespacePath: '/test/project' });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -117,7 +117,7 @@ describe('Configuration Module', () => {
       mockedFs.readFile.mockResolvedValue(JSON.stringify(invalidConfig));
 
       const { loadCodespaceConfigFrom } = await import('@/lib/config/config-service');
-      const result = await loadCodespaceConfigFrom({ projectPath: '/test/project' });
+      const result = await loadCodespaceConfigFrom({ codespacePath: '/test/project' });
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -140,7 +140,7 @@ describe('Configuration Module', () => {
       mockedFs.readFile.mockResolvedValue(jsonConfig);
 
       const { loadCodespaceConfigFrom } = await import('@/lib/config/config-service');
-      const result = await loadCodespaceConfigFrom({ projectPath: '/test/project' });
+      const result = await loadCodespaceConfigFrom({ codespacePath: '/test/project' });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -153,7 +153,7 @@ describe('Configuration Module', () => {
       mockedFs.readFile.mockResolvedValue('{ invalid json }');
 
       const { loadCodespaceConfigFrom } = await import('@/lib/config/config-service');
-      const result = await loadCodespaceConfigFrom({ projectPath: '/test/project' });
+      const result = await loadCodespaceConfigFrom({ codespacePath: '/test/project' });
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -168,7 +168,7 @@ describe('Configuration Module', () => {
       mockedFs.readFile.mockRejectedValue({ code: 'ENOENT' });
 
       const { loadCodespaceConfig } = await import('@/lib/config/config-service');
-      const result = await loadCodespaceConfig({ projectPath: '/test/project' });
+      const result = await loadCodespaceConfig({ codespacePath: '/test/project' });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -184,7 +184,7 @@ describe('Configuration Module', () => {
       mockedFs.readFile.mockRejectedValue({ code: 'ENOENT' });
 
       const { loadCodespaceConfig } = await import('@/lib/config/config-service');
-      const result = await loadCodespaceConfig({ projectPath: '/test/project' });
+      const result = await loadCodespaceConfig({ codespacePath: '/test/project' });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -197,7 +197,7 @@ describe('Configuration Module', () => {
       mockedFs.readFile.mockResolvedValue('{}');
 
       const { loadCodespaceConfigFrom } = await import('@/lib/config/config-service');
-      const result = await loadCodespaceConfigFrom({ projectPath: '/test/project' });
+      const result = await loadCodespaceConfigFrom({ codespacePath: '/test/project' });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -215,7 +215,7 @@ describe('Configuration Module', () => {
       mockedFs.readFile.mockRejectedValue({ code: 'ENOENT' });
 
       const { loadCodespaceConfig } = await import('@/lib/config/config-service');
-      const result = await loadCodespaceConfig({ projectPath: '/test/project' });
+      const result = await loadCodespaceConfig({ codespacePath: '/test/project' });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -235,7 +235,7 @@ describe('Configuration Module', () => {
       mockedFs.readFile.mockResolvedValue(JSON.stringify(fileConfig));
 
       const { loadCodespaceConfig } = await import('@/lib/config/config-service');
-      const result = await loadCodespaceConfig({ projectPath: '/test/project' });
+      const result = await loadCodespaceConfig({ codespacePath: '/test/project' });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -253,7 +253,7 @@ describe('Configuration Module', () => {
       mockedFs.readFile.mockRejectedValue({ code: 'ENOENT' });
 
       const { loadCodespaceConfig } = await import('@/lib/config/config-service');
-      const result = await loadCodespaceConfig({ projectPath: '/test/project' });
+      const result = await loadCodespaceConfig({ codespacePath: '/test/project' });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -268,7 +268,7 @@ describe('Configuration Module', () => {
       mockedFs.readFile.mockRejectedValue({ code: 'ENOENT' });
 
       const { loadCodespaceConfig } = await import('@/lib/config/config-service');
-      const result = await loadCodespaceConfig({ projectPath: '/test/project' });
+      const result = await loadCodespaceConfig({ codespacePath: '/test/project' });
 
       expect(result.ok).toBe(true);
     });

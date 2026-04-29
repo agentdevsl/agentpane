@@ -1,4 +1,4 @@
-import { PassThrough, type Readable } from 'node:stream';
+import { PassThrough, Readable } from 'node:stream';
 import { type AgentSandboxClient, NotFoundError } from '@agentpane/agent-sandbox-sdk';
 import { K8sErrors } from '../../errors/k8s-errors.js';
 import { createLogger } from '../../logging/logger.js';
@@ -6,6 +6,7 @@ import { errorMessage } from '../../utils/error-message';
 import type { ExecResult, SandboxMetrics, SandboxStatus, TmuxSession } from '../types.js';
 import { SANDBOX_DEFAULTS } from '../types.js';
 import type { ExecStreamOptions, ExecStreamResult, Sandbox } from './sandbox-provider.js';
+import { buildSingleFileTar, splitContainerPath } from './single-file-tar.js';
 
 const log = createLogger('AgentSandboxInstance');
 
@@ -93,6 +94,80 @@ export class AgentSandboxInstance implements Sandbox {
   }
 
   /**
+   * Write a file inside the sandbox pod via the exec channel's stdin.
+   *
+   * theme-04 P1-05 / arch29-W2-I (F04-06): Mirrors the Docker `writeFile`
+   * pattern (which uses `putArchive`) so credential material never lands in
+   * any argv (`ps`, `/proc/<pid>/cmdline`, K8s audit logs). Builds a minimal
+   * single-file USTAR archive, runs `tar xf - -C <dir>` inside the pod, and
+   * pipes the archive over the exec WebSocket's stdin. Uses the same
+   * `cpToPod` algorithm as `@kubernetes/client-node`'s `Cp` helper but
+   * without writing to the local FS first.
+   */
+  async writeFile(filePath: string, content: string | Buffer, mode = 0o600): Promise<void> {
+    this.touch();
+    const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
+
+    const { dir, name } = splitContainerPath(filePath);
+    if (!name) {
+      throw K8sErrors.EXEC_FAILED('writeFile', `invalid path: ${filePath}`);
+    }
+
+    const archive = buildSingleFileTar(name, buf, mode);
+    const stdin = Readable.from(archive);
+
+    let stream: ExecStreamResult | undefined;
+    try {
+      // tar xf - -C <dir>  reads a tarball from stdin, extracts into <dir>.
+      // Run as 'sandbox' container (default) inside the pod.
+      stream = await this.client.execStream({
+        sandboxName: this.sandboxName,
+        command: ['tar', 'xf', '-', '-C', dir],
+        container: 'sandbox',
+        stdin,
+      });
+
+      // Drain stdout/stderr — `tar xf` should produce no output but we must
+      // consume the streams to avoid back-pressure stalls on the WebSocket.
+      const stderrChunks: Buffer[] = [];
+      stream.stdout.on('data', () => {
+        /* noop — tar xf has no stdout */
+      });
+      stream.stderr.on('data', (chunk: Buffer) => {
+        stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+
+      const { exitCode } = await stream.wait();
+      if (exitCode !== 0) {
+        const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
+        throw K8sErrors.EXEC_FAILED(
+          'writeFile',
+          `tar xf failed (exit ${exitCode}) writing ${filePath}: ${stderr || 'no stderr'}`
+        );
+      }
+    } catch (error) {
+      // If the error is already a K8sError (from EXEC_FAILED above), rethrow.
+      // Otherwise wrap the SDK / WebSocket error for consistent shape. K8sErrors
+      // emit codes prefixed with `K8S_` (see src/lib/errors/k8s-errors.ts).
+      const code = (error as { code?: string }).code;
+      if (typeof code === 'string' && code.startsWith('K8S_')) throw error;
+      throw K8sErrors.EXEC_FAILED(
+        'writeFile',
+        `failed to write ${filePath}: ${errorMessage(error)}`
+      );
+    } finally {
+      // Best-effort cleanup if the stream was created but not finalised.
+      if (stream) {
+        try {
+          await stream.kill();
+        } catch {
+          // kill() after wait() resolves is a no-op; ignore.
+        }
+      }
+    }
+  }
+
+  /**
    * Escape a string for safe use in shell commands.
    * Uses single quotes and handles embedded single quotes.
    * Matches the DockerSandbox.shellEscape pattern (docker-provider.ts:261-264).
@@ -150,8 +225,13 @@ export class AgentSandboxInstance implements Sandbox {
         // Already wrapped in shell -- inject env before `exec` so they scope to the
         // exec'd command. Placing them before `cd` only scopes them to `cd` itself.
         // Pattern: sh -c 'cd /cwd && VAR=val exec cmd args'
+        //
+        // arch29-W2-J / F04-03: use `lastIndexOf` (matching Nomad) so a `cwd`
+        // that contains the substring `'exec '` (e.g. `/opt/foo-exec test/bar`)
+        // does not anchor the env-injection point on the embedded `exec ` rather
+        // than the trailing `&& exec <cmd>` keyword.
         const shBody = fullCmd[2] ?? '';
-        const execIdx = shBody.indexOf('exec ');
+        const execIdx = shBody.lastIndexOf('exec ');
         if (execIdx !== -1) {
           fullCmd = [
             'sh',

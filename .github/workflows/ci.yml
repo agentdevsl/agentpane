@@ -60,6 +60,18 @@ jobs:
       - name: Schema drift check
         run: bun run scripts/check-schema-drift.ts
 
+      - name: Supply-chain check (arch29-W1-C / F04-01, F04-02, F04-11)
+        run: bash scripts/check-supply-chain.sh
+
+      - name: API write validation gate (arch29-W2-H / F07-03)
+        run: bash scripts/check-api-write-validation.sh
+
+      - name: Test discipline gate (arch29-W2-S / F09-23, F09-32)
+        run: bash scripts/check-test-discipline.sh
+
+      - name: Frontend design-token gate (arch29-W3-C / F08-01, F08-02)
+        run: bash scripts/check-frontend-tokens.sh
+
       - name: Type check
         run: bun run typecheck
 
@@ -112,6 +124,20 @@ jobs:
       - name: Install agent-runner dependencies
         run: cd agent-runner && bun install --frozen-lockfile
 
+      # F11-15: Fail the build if a stray npm lockfile resurfaces in the
+      # agent-runner workspace. Two lockfiles drift silently — CI uses
+      # `bun install --frozen-lockfile` against bun.lock, but the Dockerfiles
+      # historically used `npm install` against package-lock.json, building
+      # and CI tested different graphs. bun.lock is the only source of truth.
+      - name: Enforce single lockfile in agent-runner
+        run: |
+          if [ -f agent-runner/package-lock.json ]; then
+            echo "ERROR: agent-runner/package-lock.json must not be checked in." >&2
+            echo "       The agent-runner workspace uses bun.lock as the single" >&2
+            echo "       source of truth (see CLAUDE.md 'agent-runner Lockfile')." >&2
+            exit 1
+          fi
+
       - name: Build verification
         run: bun run build
 
@@ -155,6 +181,32 @@ jobs:
             --exclude 'dist/**' \
             --exclude '.worktrees/**' \
             src/ agent-runner/src/ packages/
+
+      # arch29-W2-S / F09-23 + F09-32 — test-discipline rules scoped to
+      # `tests/`. The authoritative gate is `scripts/check-test-discipline.sh`
+      # (run from `lint-and-typecheck`) which understands the
+      # `// TEST-SETUP:` exemption that Semgrep cannot express. Semgrep's
+      # default ignore list excludes `tests/`, so this rule file is primarily
+      # an IDE-time hint; the bash script enforces in CI.
+      - name: Semgrep scan — test discipline (advisory)
+        if: always()
+        continue-on-error: true
+        run: |
+          # Targets paths inside tests/ via explicit patterns. Semgrep's
+          # default exclude of tests/ is overridden by passing each file
+          # explicitly via xargs from `git ls-files`.
+          test_files=$(git ls-files 'tests/functional/*.test.ts' 'tests/integration/*.test.ts' 'tests/services/*.test.ts' 2>/dev/null | head -200)
+          if [ -z "$test_files" ]; then
+            echo "::notice::No test files matched; skipping semgrep test-discipline scan."
+            exit 0
+          fi
+          echo "$test_files" | xargs semgrep scan \
+            --config .semgrep/rules/test-discipline.yml \
+            --severity ERROR \
+            --error \
+            --no-git-ignore \
+            --exclude 'node_modules/**' \
+            --exclude '.worktrees/**'
 
   e2e-smoke:
     runs-on: ubuntu-latest

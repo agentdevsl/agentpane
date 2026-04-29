@@ -34,6 +34,7 @@ import {
   unstable_v2_createSession,
   unstable_v2_resumeSession,
 } from '@anthropic-ai/claude-agent-sdk';
+import { type AgentDefinition, parseAgentFrontmatter } from './agent-frontmatter.js';
 import { createEventEmitter } from './event-emitter.js';
 import { createAgentRunnerLogger } from './logger.js';
 // SC-023: Shared session utilities. index.ts still uses its own writeCredentialsFile
@@ -55,19 +56,21 @@ const VALID_TOPOLOGY_STATUSES = new Set(['completed', 'failed', 'stopped']);
 
 /**
  * Load agent definitions from .claude/agents/*.md files.
- * Parses YAML frontmatter to create SDK AgentDefinition records.
- * Returns a Record<string, AgentDefinition> keyed by agent name.
+ *
+ * Each file is parsed via {@link parseAgentFrontmatter}, which uses a real
+ * YAML parser (`yaml` package) and a strict schema. The previous hand-rolled
+ * regex parser was bypassable by injecting `\n`-laden fields that the host
+ * serialiser correctly quoted but the runner mis-decoded — see F06-NEW-04
+ * in `specs/arch_review_april29/06-security.md` and the comment block in
+ * `agent-frontmatter.ts`.
+ *
+ * Returns a Record<string, AgentDefinition> keyed by agent name. Files that
+ * fail validation are logged and skipped — one bad file never aborts the
+ * whole load, matching the prior behaviour.
  */
-async function loadAgentDefinitions(
-  cwd: string
-): Promise<
-  Record<string, { description: string; tools?: string[]; prompt: string; model?: string }>
-> {
+async function loadAgentDefinitions(cwd: string): Promise<Record<string, AgentDefinition>> {
   const agentsDir = join(cwd, '.claude', 'agents');
-  const agents: Record<
-    string,
-    { description: string; tools?: string[]; prompt: string; model?: string }
-  > = {};
+  const agents: Record<string, AgentDefinition> = {};
 
   try {
     const { readdir } = await import('node:fs/promises');
@@ -76,41 +79,16 @@ async function loadAgentDefinitions(
       if (!file.endsWith('.md')) continue;
       try {
         const content = await readFile(join(agentsDir, file), 'utf-8');
-        // Parse YAML frontmatter between --- delimiters
-        const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)/);
-        if (!match) continue;
-
-        const frontmatter = match[1];
-        const body = match[2]?.trim() ?? '';
-
-        // Simple YAML parsing for key fields. Strip surrounding quotes so
-        // `name: "my-agent"` is read as `my-agent`, matching how the SDK supplies
-        // subagent_type values.
-        const unquote = (v: string | undefined): string | undefined =>
-          v?.replace(/^['"]|['"]$/g, '').trim();
-        const name = unquote(frontmatter.match(/^name:\s*(.+)$/m)?.[1]?.trim());
-        const description = unquote(frontmatter.match(/^description:\s*(.+)$/m)?.[1]?.trim());
-        const model = unquote(frontmatter.match(/^model:\s*(.+)$/m)?.[1]?.trim());
-
-        // Parse tools array
-        const toolsMatch = frontmatter.match(/^tools:\n((?:\s+-\s+.+\n?)*)/m);
-        const tools = toolsMatch
-          ? toolsMatch[1]
-              .split('\n')
-              .map((l) => unquote(l.replace(/^\s+-\s+/, '').trim()))
-              .filter((v): v is string => Boolean(v))
-          : undefined;
-
-        if (!name || !description) continue;
-
-        agents[name] = {
-          description,
-          tools,
-          prompt: body || description,
-          ...(model && model !== 'inherit' ? { model } : {}),
-        };
-      } catch {
-        // Skip individual file parse errors
+        const parsed = parseAgentFrontmatter(content);
+        if (!parsed) {
+          log.error(`[agent-runner] Skipped agent file (invalid frontmatter): ${file}`);
+          continue;
+        }
+        agents[parsed.name] = parsed.definition;
+      } catch (err) {
+        // Skip individual file parse errors but log so we don't lose visibility.
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.error(`[agent-runner] Failed to read agent file ${file}: ${errMsg}`);
       }
     }
     log.error(
@@ -384,9 +362,12 @@ async function flushAndExit(code: number): Promise<never> {
 
 // Validate required configuration
 function validateConfig(): void {
-  if (!config.oauthToken) {
-    throw new Error('CLAUDE_OAUTH_TOKEN is required');
-  }
+  // arch29-W2-I (F04-07, F06-NEW-05): CLAUDE_OAUTH_TOKEN is no longer required.
+  // The host writes ~/.claude/.credentials.json before exec via the sandbox
+  // provider's `writeFile` (out-of-band tar upload), so the token never
+  // appears in argv or env. The agent-runner now trusts the pre-injected
+  // file. If the env var IS set (local dev / legacy callers), the runner
+  // still rewrites the file to remain backward-compatible.
   if (!config.taskId) {
     throw new Error('AGENT_TASK_ID is required');
   }
@@ -408,9 +389,17 @@ function validateConfig(): void {
 }
 
 /**
- * Write OAuth credentials to $HOME/.claude/.credentials.json
- * The Claude Agent SDK reads this file for authentication.
- * OAuth tokens passed via ANTHROPIC_API_KEY env var are blocked by the API.
+ * Ensure the OAuth credentials file at $HOME/.claude/.credentials.json is
+ * present and well-formed before starting the SDK session.
+ *
+ * arch29-W2-I (F04-07, F06-NEW-05): the host writes this file via the sandbox
+ * provider's `writeFile` (out-of-band tar upload) before exec, so the token
+ * never appears in argv or env. This function now:
+ *   1. Verifies the host-injected file exists and is valid JSON with an
+ *      `accessToken` (the canonical pre-injected path).
+ *   2. Falls back to writing from `CLAUDE_OAUTH_TOKEN` env vars when the file
+ *      is absent — preserves local-dev / legacy callers that still set the
+ *      env var directly without involving the host injector.
  *
  * theme-03 F11:
  * - `homedir()` (which reads `process.env.HOME`) is used so that the host
@@ -418,9 +407,7 @@ function validateConfig(): void {
  *   (e.g. /tmp/agents/<taskId>) and avoid interleaved writes to a shared
  *   `/home/node/.claude/.credentials.json`.
  * - `expiresAt` is read from the host via `CLAUDE_OAUTH_EXPIRES_AT` when
- *   available; otherwise a far-future sentinel is used. The previous
- *   `Date.now() + 24h` fiction caused revoked tokens to appear valid to the
- *   SDK for a day.
+ *   available; otherwise a far-future sentinel is used.
  * - `refreshToken` is threaded through from `CLAUDE_OAUTH_REFRESH_TOKEN`
  *   when the host has one; otherwise null (SDK rejects empty string).
  */
@@ -432,15 +419,43 @@ async function writeCredentialsFile(): Promise<void> {
   // Debug: Log paths and token status (never log token contents for security)
   log.error(`[agent-runner] Home directory: ${home}`);
   log.error(`[agent-runner] Credentials path: ${credentialsFile}`);
-  log.error(`[agent-runner] Token received: ${config.oauthToken ? 'YES' : 'NONE'}`);
+  log.error(`[agent-runner] Env-var token received: ${config.oauthToken ? 'YES' : 'NONE'}`);
+
+  // arch29-W2-I: Try the host-injected file first. The host writes it in the
+  // SDK-compatible CLI shape (`{ claudeAiOauth: { accessToken, ... } }`) via
+  // `injectCredentialsBeforeExec` in container-exec.service.ts.
+  let preInjectedValid = false;
+  try {
+    const existing = await readFile(credentialsFile, 'utf-8');
+    const parsed = JSON.parse(existing) as { claudeAiOauth?: { accessToken?: string } };
+    if (parsed.claudeAiOauth?.accessToken) {
+      preInjectedValid = true;
+      log.error(`[agent-runner] Using host-injected credentials at ${credentialsFile}`);
+    }
+  } catch {
+    // File missing or unparseable — fall through to env-var path.
+  }
+
+  if (preInjectedValid) {
+    return;
+  }
+
+  // arch29-W2-I: env-var fallback (local dev only). Production deployments
+  // should always use host-injected files because the env-var path leaks the
+  // token via `/proc/<pid>/environ`.
+  if (!config.oauthToken) {
+    throw new Error(
+      'No credentials available: host-injected ~/.claude/.credentials.json missing AND CLAUDE_OAUTH_TOKEN env var unset. The host should write the file via sandbox.writeFile() before exec.'
+    );
+  }
+
   log.error(
     `[agent-runner] Token expiresAt: ${process.env.CLAUDE_OAUTH_EXPIRES_AT ? 'from host' : 'sentinel (far-future)'}`
   );
   log.error(`[agent-runner] Refresh token: ${config.oauthRefreshToken ? 'provided' : 'none'}`);
-
-  if (!config.oauthToken) {
-    throw new Error('No OAuth token provided via CLAUDE_OAUTH_TOKEN environment variable');
-  }
+  log.error(
+    `[agent-runner] WARNING: writing credentials from CLAUDE_OAUTH_TOKEN env var (legacy/dev path). The token is visible in /proc/<pid>/environ.`
+  );
 
   const credentials = {
     claudeAiOauth: {

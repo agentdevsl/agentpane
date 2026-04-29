@@ -91,9 +91,9 @@ export function FolderRail(): React.JSX.Element {
               >
                 <defs>
                   <radialGradient id="railCoreGrad" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stopColor="#fff" />
-                    <stop offset="50%" stopColor="#3fb950" />
-                    <stop offset="100%" stopColor="#3fb950" stopOpacity="0" />
+                    <stop offset="0%" stopColor="var(--fg-on-emphasis)" />
+                    <stop offset="50%" stopColor="var(--success-fg)" />
+                    <stop offset="100%" stopColor="var(--success-fg)" stopOpacity="0" />
                   </radialGradient>
                 </defs>
                 <line
@@ -101,7 +101,7 @@ export function FolderRail(): React.JSX.Element {
                   y1="14"
                   x2="6"
                   y2="8"
-                  stroke="#58a6ff"
+                  stroke="var(--accent-fg)"
                   strokeOpacity="0.4"
                   strokeWidth="1"
                 />
@@ -110,7 +110,7 @@ export function FolderRail(): React.JSX.Element {
                   y1="14"
                   x2="22"
                   y2="6"
-                  stroke="#a371f7"
+                  stroke="var(--done-fg)"
                   strokeOpacity="0.4"
                   strokeWidth="1"
                 />
@@ -119,7 +119,7 @@ export function FolderRail(): React.JSX.Element {
                   y1="14"
                   x2="26"
                   y2="16"
-                  stroke="#3fb950"
+                  stroke="var(--success-fg)"
                   strokeOpacity="0.4"
                   strokeWidth="1"
                 />
@@ -128,7 +128,7 @@ export function FolderRail(): React.JSX.Element {
                   y1="14"
                   x2="20"
                   y2="26"
-                  stroke="#f778ba"
+                  stroke="var(--secondary-fg)"
                   strokeOpacity="0.4"
                   strokeWidth="1"
                 />
@@ -137,17 +137,17 @@ export function FolderRail(): React.JSX.Element {
                   y1="14"
                   x2="6"
                   y2="22"
-                  stroke="#d29922"
+                  stroke="var(--attention-fg)"
                   strokeOpacity="0.4"
                   strokeWidth="1"
                 />
-                <circle cx="6" cy="8" r="2" fill="#58a6ff" />
-                <circle cx="22" cy="6" r="2.5" fill="#a371f7" />
-                <circle cx="26" cy="16" r="2" fill="#3fb950" />
-                <circle cx="20" cy="26" r="3" fill="#f778ba" />
-                <circle cx="6" cy="22" r="2" fill="#d29922" />
+                <circle cx="6" cy="8" r="2" fill="var(--accent-fg)" />
+                <circle cx="22" cy="6" r="2.5" fill="var(--done-fg)" />
+                <circle cx="26" cy="16" r="2" fill="var(--success-fg)" />
+                <circle cx="20" cy="26" r="3" fill="var(--secondary-fg)" />
+                <circle cx="6" cy="22" r="2" fill="var(--attention-fg)" />
                 <circle cx="14" cy="14" r="5" fill="url(#railCoreGrad)" />
-                <circle cx="14" cy="14" r="2" fill="#fff" />
+                <circle cx="14" cy="14" r="2" fill="var(--fg-on-emphasis)" />
               </svg>
             </button>
           </TooltipTrigger>
@@ -204,7 +204,7 @@ export function FolderRail(): React.JSX.Element {
                   'h-2 w-2 rounded-full',
                   isHealthy
                     ? 'bg-success shadow-[0_0_6px_rgba(52,211,153,0.4)]'
-                    : 'bg-warning shadow-[0_0_6px_rgba(234,179,8,0.4)]'
+                    : 'bg-attention shadow-[0_0_6px_rgba(234,179,8,0.4)]'
                 )}
               />
             </div>

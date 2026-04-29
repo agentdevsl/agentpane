@@ -1,0 +1,70 @@
+rules:
+  # arch29-W3-C / F08-01 — Tailwind `warning` classes are silent no-ops.
+  #
+  # The design system uses `attention` not `warning` for yellow/amber colours.
+  # Tailwind v4 silently emits the literal class with no rule when a token is
+  # missing, so `bg-warning`, `text-warning`, etc. render as no-ops — paused /
+  # cancelled / reconnecting / degraded states render without any colour.
+  #
+  # This is an IDE-time hint. The authoritative gate is the bash grep step in
+  # `.github/workflows/ci.yml` and `scripts/check-frontend-tokens.sh`, which
+  # both run a `! grep -rE "(bg|text|border|ring|fill|stroke|via|from|to)-warning"`
+  # check across `src/app/`.
+  #
+  # See `specs/arch_review_april29/08-frontend.md` (F08-01) and
+  # CLAUDE.md §"Tailwind Color Token Names".
+
+  - id: agentpane.frontend.tailwind-warning-token
+    severity: ERROR
+    message: >
+      Tailwind `*-warning` classes are silent no-ops in this project — the
+      design system uses `attention` not `warning` for yellow/amber. Replace
+      `bg-warning`, `text-warning`, `border-warning`, etc. with their
+      `attention` counterparts. See CLAUDE.md §"Tailwind Color Token Names".
+    languages: [typescript]
+    pattern-regex: '(?<![a-zA-Z0-9_-])(bg|text|border|ring|fill|stroke|via|from|to)-warning(-(muted|emphasis|subtle|fg|hover))?(/|\b)'
+    paths:
+      include:
+        - "**/src/app/**/*.tsx"
+        - "**/src/app/**/*.ts"
+      exclude:
+        - "**/__tests__/**"
+    metadata:
+      category: correctness
+      confidence: HIGH
+      finding: F08-01
+
+  # arch29-W3-C / F08-02 — Hardcoded SVG hex colours violate the theme contract.
+  #
+  # CLAUDE.md §"SVG and Theme Colors" bans hex literals in SVG `fill="#..."`,
+  # `stroke="#..."`, `stopColor="#..."`, and `floodColor="#..."` attributes.
+  # The 30+ violations identified in the April 29 review render with
+  # GitHub-dark-mode literals on the light theme too, breaking the design.
+  #
+  # Allowlist: branded mascot eyes (`ai-action-button.tsx`) carry an inline
+  # justification comment; a future refactor should hoist them to a token too.
+  #
+  # The authoritative gate is the bash grep step in `.github/workflows/ci.yml`
+  # and `scripts/check-frontend-tokens.sh`. This rule provides an IDE-time
+  # hint mirroring that gate.
+
+  - id: agentpane.frontend.svg-hex-literal
+    severity: ERROR
+    message: >
+      Hardcoded SVG hex colour breaks the theme contract. Use a CSS custom
+      property (e.g. `var(--accent-fg)`, `var(--fg-default)`) so the colour
+      adapts to light/dark themes. See CLAUDE.md §"SVG and Theme Colors".
+    languages: [typescript]
+    pattern-regex: '(fill|stroke|stopColor|floodColor)="#[0-9A-Fa-f]{3,8}"'
+    paths:
+      include:
+        - "**/src/app/**/*.tsx"
+      exclude:
+        # Branded mascot eyes — fixed dark colour preserves the mascot's
+        # silhouette across themes; allowlisted with an inline comment.
+        - "**/src/app/components/ui/ai-action-button.tsx"
+        - "**/__tests__/**"
+    metadata:
+      category: correctness
+      confidence: HIGH
+      finding: F08-02

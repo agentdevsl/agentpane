@@ -82,6 +82,7 @@ describe('Task API', () => {
     vi.clearAllMocks();
     tasksRoute = createTasksRoutes({
       taskService: taskServiceMocks as never,
+      db: {} as never,
     });
   });
 

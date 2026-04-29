@@ -5,8 +5,11 @@
 import { Hono } from 'hono';
 import type { SessionStatus } from '../../db/schema/shared/enums.js';
 import { SESSION_STATUS } from '../../db/schema/shared/enums.js';
+import type { AuthContext } from '../../lib/api/auth-middleware.js';
 import { decodeRequestCursor, paginate } from '../../lib/api/pagination.js';
+import { applyTokenTagFilter } from '../../lib/api/rbac-middleware.js';
 import type { SessionService } from '../../services/session.service.js';
+import type { Database } from '../../types/database.js';
 import { errorResponse, json, parseLimit, parseOffset, validateIdParam } from '../shared.js';
 import { createSessionSchema, exportSessionSchema, parseJsonBody } from '../validation.js';
 
@@ -127,10 +130,11 @@ function formatEventsAsCsv(
 
 interface SessionsDeps {
   sessionService: SessionService;
+  db: Database;
 }
 
-export function createSessionsRoutes({ sessionService }: SessionsDeps) {
-  const app = new Hono();
+export function createSessionsRoutes({ sessionService, db }: SessionsDeps) {
+  const app = new Hono<{ Variables: { auth: AuthContext } }>();
 
   // GET /api/sessions
   //
@@ -172,14 +176,28 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
         return errorResponse(result);
       }
 
+      // F06-NEW-07: filter by tag scope when the token is tag-restricted.
+      const auth = c.get('auth') as AuthContext | undefined;
+      const filteredSessions = await applyTokenTagFilter(
+        db,
+        auth,
+        result.value.sessions,
+        (s) => s.id
+      );
+      // Adjust the total when a filter was applied so the UI badge counts
+      // reflect what the token can actually see. When no filter is set,
+      // `filteredSessions === result.value.sessions` and total is unchanged.
+      const totalDelta = result.value.sessions.length - filteredSessions.length;
+      const adjustedTotal = Math.max(0, result.value.total - totalDelta);
+
       return json({
         ok: true,
-        data: result.value.sessions,
+        data: filteredSessions,
         pagination: {
           limit,
           offset,
-          total: result.value.total,
-          hasMore: result.value.sessions.length === limit,
+          total: auth?.tagFilter ? adjustedTotal : result.value.total,
+          hasMore: filteredSessions.length === limit,
         },
       });
     }
@@ -238,7 +256,11 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
       return errorResponse(result);
     }
 
-    const body = paginate(result.value, { limit, sortField, order });
+    // F06-NEW-07: filter by tag scope when the token is tag-restricted.
+    const auth = c.get('auth') as AuthContext | undefined;
+    const filteredItems = await applyTokenTagFilter(db, auth, result.value, (s) => s.id);
+
+    const body = paginate(filteredItems, { limit, sortField, order });
     return json({
       ok: true,
       data: body.items,

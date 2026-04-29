@@ -35,9 +35,17 @@ export function getTestContext(): string | undefined {
 
 /**
  * Get the test container image.
+ *
+ * arch29-W1-C / F04-01: the fallback is digest-pinned to match
+ * `SANDBOX_DEFAULTS.image` in `src/lib/sandbox/types.ts`. CI must not pull
+ * from a mutable `:latest` tag — operators can override via
+ * `K8S_E2E_IMAGE=<other-image@sha256:...>` at runtime if needed.
  */
 export function getTestImage(): string {
-  return process.env.K8S_E2E_IMAGE ?? 'srlynch1/agent-sandbox:latest';
+  return (
+    process.env.K8S_E2E_IMAGE ??
+    'docker.io/srlynch1/agent-sandbox@sha256:9b04cfd8f030360efb7fbd1023ce79b228b61edf82dbc0d82c38c867633d4126'
+  );
 }
 
 /**

@@ -92,6 +92,55 @@
       "when": 1776729600000,
       "tag": "0012_add_event_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1777680000000,
+      "tag": "0013_sandbox_unique_partial",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1777766400000,
+      "tag": "0014_api_keys_refresh_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1777852800000,
+      "tag": "0015_add_session_events_stream_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1777939200000,
+      "tag": "0016_add_rate_limit_buckets",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1778025600000,
+      "tag": "0017_event_outbox_epoch_ms",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1778112000000,
+      "tag": "0018_codespace_tags_assigned_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1778198400000,
+      "tag": "0019_api_tokens_cascade_fix",
+      "breakpoints": true
     }
   ]
 }

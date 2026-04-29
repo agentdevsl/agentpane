@@ -92,8 +92,10 @@ describe('IT-023: Session CRUD Lifecycle', () => {
     const codespace = await createTestProject();
     const session = await createTestSession(codespace.id, { status: 'active' });
 
+    // F05-25: bare CUIDs are session-kind.
     await db.insert(sessionEvents).values({
       sessionId: session.id,
+      streamKind: 'session',
       offset: 0,
       type: 'chunk',
       channel: 'chunks',
@@ -103,6 +105,7 @@ describe('IT-023: Session CRUD Lifecycle', () => {
 
     await db.insert(sessionEvents).values({
       sessionId: session.id,
+      streamKind: 'session',
       offset: 1,
       type: 'tool:start',
       channel: 'toolCalls',

@@ -13,7 +13,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { apiTokens } from '../db/schema/sqlite/api-tokens.js';
 import { userSessions } from '../db/schema/sqlite/user-sessions.js';
 import { getAuthContext } from '../lib/api/auth-middleware.js';
-import { rateLimiter } from '../lib/api/rate-limiter.js';
+import { createSqliteBackend, rateLimiter } from '../lib/api/rate-limiter.js';
 import { enrichAuthContext, requireRole, requireTagAccess } from '../lib/api/rbac-middleware.js';
 import { requestContextStorage } from '../lib/context/request-context.js';
 import { publishEventToStream } from '../lib/events/event-bus.js';
@@ -48,11 +48,16 @@ import type { TerraformComposeService } from '../services/terraform-compose.serv
 import type { TerraformRegistryService } from '../services/terraform-registry.service.js';
 import type { WorkflowService } from '../services/workflow.service.js';
 import type { Database } from '../types/database.js';
+import { bodyLimit, DEFAULT_BODY_LIMIT_BYTES } from './middleware/body-limit.js';
 import { createAdminMetricsRoutes } from './routes/admin-metrics.js';
 import { createAgentsRoutes } from './routes/agents.js';
 import { createApiKeysRoutes } from './routes/api-keys.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createCliMonitorRoutes } from './routes/cli-monitor.js';
+// arch29-W3-D (F12-06): renamed from `project-folders.ts` / `project-members.ts`.
+// Old paths `/api/project-folders/*` issue 308 redirects below for one release.
+import { createCodespaceFoldersRoutes } from './routes/codespace-folders.js';
+import { createCodespaceMembersRoutes } from './routes/codespace-members.js';
 import { createCodespacesRoutes } from './routes/codespaces.js';
 import { createEventsRoutes } from './routes/events.js';
 import { createFilesystemRoutes } from './routes/filesystem.js';
@@ -66,8 +71,6 @@ import { createMarketplacesRoutes } from './routes/marketplaces.js';
 import { createMeRoutes } from './routes/me.js';
 import { createMemoryRoutes } from './routes/memory.js';
 import { createMetricsRoutes } from './routes/metrics.js';
-import { createProjectFoldersRoutes } from './routes/project-folders.js';
-import { createProjectMembersRoutes } from './routes/project-members.js';
 import { createRbacTokensRoutes } from './routes/rbac-tokens.js';
 import { createSandboxConfigRoutes } from './routes/sandbox-configs.js';
 import { createK8sRoutes } from './routes/sandbox-k8s.js';
@@ -175,6 +178,34 @@ export function __resetMetricsRouteCache(): void {
   observedMetricsRoutes.clear();
 }
 
+/**
+ * F06-NEW-10: production CSP. The April 29 security review (`specs/
+ * arch_review_april29/06-security.md`) tightened this from the prior
+ * `script-src 'self'` baseline to:
+ *
+ * - `'wasm-unsafe-eval'` in `script-src` — Shiki uses WebAssembly for
+ *   grammar parsing (`markdown-content.tsx`, `terraform-right-panel.tsx`).
+ *   Without this directive Chrome blocks the WASM compile and syntax
+ *   highlighting silently degrades to plain text.
+ * - `https://avatars.githubusercontent.com` in `img-src` — the team-member
+ *   list and codespace owner views render avatars from GitHub's CDN.
+ *   Without this allow-list the avatars showed as broken images in
+ *   production builds.
+ *
+ * The remaining directives stay minimal: `default-src 'self'` so anything
+ * not explicitly allowed above is denied; `style-src 'unsafe-inline'`
+ * because Tailwind injects classes (no inline styles produced by the
+ * framework, but third-party SVGs may carry inline `<style>`). `data:` is
+ * kept on `img-src` for inline icon data URIs used by Phosphor.
+ */
+const PRODUCTION_CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https://avatars.githubusercontent.com",
+  "connect-src 'self'",
+].join('; ');
+
 async function securityHeaders(c: Context, next: Next) {
   await next();
   c.header('X-Content-Type-Options', 'nosniff');
@@ -183,10 +214,7 @@ async function securityHeaders(c: Context, next: Next) {
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   if (process.env.NODE_ENV === 'production') {
     c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-    c.header(
-      'Content-Security-Policy',
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
-    );
+    c.header('Content-Security-Policy', PRODUCTION_CSP);
   }
 }
 
@@ -315,6 +343,13 @@ function useRoleGuard(
 export function createRouter(deps: RouterDependencies) {
   const app = new Hono();
 
+  // F06-NEW-08: shared SQLite-backed rate-limit store. Persists buckets so a
+  // process restart does not reset limit counters. The same backend instance
+  // is reused across all four rate-limit middlewares below — they only differ
+  // in `max`, `windowMs`, and `keyFrom`, so sharing the backend avoids
+  // creating four independent in-memory stores.
+  const rateLimitBackend = createSqliteBackend(deps.db);
+
   // AR-026: CORS is configured as single-origin by design.
   // In production with Caddy as front door, browser requests are same-origin
   // so CORS is not strictly needed. However, CORS is kept for:
@@ -337,10 +372,42 @@ export function createRouter(deps: RouterDependencies) {
   app.use('*', securityHeaders);
   // F10-01: record per-request counters for /api/metrics.
   app.use('*', metricsMiddleware);
+
+  // arch29-W3-D (F12-06): one-release backward-compat redirect from the old
+  // `/api/project-folders` mount path to the new `/api/codespace-folders`. We
+  // emit a 308 (Permanent Redirect) to preserve the request method (GET/POST/
+  // PATCH/DELETE) on the rewritten target. The matcher must run *before* the
+  // auth middleware so unauthenticated probes still see the redirect, and
+  // *before* the body-size middleware so a POST/PATCH with a body is not
+  // double-buffered. The query string is preserved.
+  app.use('/api/project-folders/*', async (c) => {
+    const url = new URL(c.req.url);
+    const newPath = url.pathname.replace(/^\/api\/project-folders/, '/api/codespace-folders');
+    const location = `${newPath}${url.search}`;
+    return c.redirect(location, 308);
+  });
+  app.use('/api/project-folders', async (c) => {
+    const url = new URL(c.req.url);
+    return c.redirect(`/api/codespace-folders${url.search}`, 308);
+  });
+
+  // F06-NEW-09: cap incoming body size on the public-facing surfaces.
+  // Default is 5MB (matches the prior cli-monitor cap). Applied early so
+  // webhook handlers that call `c.req.text()` and route handlers that call
+  // `zValidator('json', ...)` reject oversized payloads before any
+  // buffering. cli-monitor keeps its existing 5MB cap (in
+  // `src/server/routes/cli-monitor.ts`) — same value, applied at the
+  // route handler for backward compatibility with that service's own
+  // error envelope.
+  app.use('/api/*', bodyLimit({ maxBytes: DEFAULT_BODY_LIMIT_BYTES }));
+  app.use('/hooks/*', bodyLimit({ maxBytes: DEFAULT_BODY_LIMIT_BYTES }));
   // Public webhook endpoint - no auth required (signature-verified by plugin)
   if (deps.eventProcessingService) {
     // Rate-limit webhooks: 60 requests per minute per IP
-    app.use('/hooks/events/*', rateLimiter({ max: 60, windowMs: 60_000 }));
+    app.use(
+      '/hooks/events/*',
+      rateLimiter({ max: 60, windowMs: 60_000, backend: rateLimitBackend })
+    );
     app.post('/hooks/events/:slug', async (c) => {
       try {
         const slug = c.req.param('slug');
@@ -384,7 +451,10 @@ export function createRouter(deps: RouterDependencies) {
 
   // Public GitHub App webhook endpoint — no auth required (signature-verified)
   if (deps.githubAppService && deps.eventProcessingService) {
-    app.use('/hooks/github-app', rateLimiter({ max: 60, windowMs: 60_000 }));
+    app.use(
+      '/hooks/github-app',
+      rateLimiter({ max: 60, windowMs: 60_000, backend: rateLimitBackend })
+    );
     app.route(
       '/hooks/github-app',
       createGitHubAppWebhooksRoutes({
@@ -395,13 +465,16 @@ export function createRouter(deps: RouterDependencies) {
     );
   }
 
-  app.use('/api/*', rateLimiter({ max: 200, windowMs: 60_000 }));
+  app.use('/api/*', rateLimiter({ max: 200, windowMs: 60_000, backend: rateLimitBackend }));
   app.use('/api/*', createAuthMiddleware(deps.db));
   app.use('/api/*', enrichAuthContext(deps.db));
   // Per-token rate limiter: applies a stricter limit to API token requests.
   // Must run after enrichAuthContext which populates tokenScope on the auth context.
   // Non-token requests (session/dev auth) skip this limiter entirely.
-  app.use('/api/*', rateLimiter({ max: 100, windowMs: 60_000, keyOnToken: true }));
+  app.use(
+    '/api/*',
+    rateLimiter({ max: 100, windowMs: 60_000, keyOnToken: true, backend: rateLimitBackend })
+  );
   app.use('/api/*', requireTagAccess(deps.db));
 
   // --- RBAC role guards for existing routes ---
@@ -418,8 +491,10 @@ export function createRouter(deps: RouterDependencies) {
   useRoleGuard(app, '/api/memory', 'viewer', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/codespaces', 'viewer', rbacService);
+  // arch29-W3-D (F12-06): renamed from `/api/project-folders`. Role guard is
+  // applied to the new path; redirects from the old path are registered below.
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
-  useRoleGuard(app, '/api/project-folders', 'viewer', rbacService);
+  useRoleGuard(app, '/api/codespace-folders', 'viewer', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/tasks', 'viewer', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
@@ -513,15 +588,15 @@ export function createRouter(deps: RouterDependencies) {
     })
   );
   app.route(
-    '/api/project-folders',
-    createProjectFoldersRoutes({ projectFolderService: deps.projectFolderService })
+    '/api/codespace-folders',
+    createCodespaceFoldersRoutes({ projectFolderService: deps.projectFolderService })
   );
-  app.route('/api/agents', createAgentsRoutes({ agentService: deps.agentService }));
+  app.route('/api/agents', createAgentsRoutes({ agentService: deps.agentService, db: deps.db }));
   app.route(
     '/api/tasks/create-with-ai',
     createTaskCreationRoutes({ taskCreationService: deps.taskCreationService })
   );
-  app.route('/api/tasks', createTasksRoutes({ taskService: deps.taskService }));
+  app.route('/api/tasks', createTasksRoutes({ taskService: deps.taskService, db: deps.db }));
   app.route('/api/workflows', createWorkflowsRoutes({ workflowService: deps.workflowService }));
   app.route('/api/templates', createTemplatesRoutes({ templateService: deps.templateService }));
   app.route(
@@ -532,6 +607,7 @@ export function createRouter(deps: RouterDependencies) {
     '/api/sessions',
     createSessionsRoutes({
       sessionService: deps.sessionService,
+      db: deps.db,
     })
   );
   app.route('/api/github', createGitHubRoutes({ githubService: deps.githubService }));
@@ -635,7 +711,7 @@ export function createRouter(deps: RouterDependencies) {
   app.route('/api/invitations', createInvitationAcceptRoutes({ db: deps.db }));
   app.route(
     '/api/codespaces/:id/members',
-    createProjectMembersRoutes({ db: deps.db, rbacService })
+    createCodespaceMembersRoutes({ db: deps.db, rbacService })
   );
   app.route('/api/tokens', createRbacTokensRoutes({ db: deps.db, rbacService }));
   app.route('/api/tags', createTagsRoutes({ db: deps.db, rbacService }));

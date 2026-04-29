@@ -6,10 +6,15 @@ import { randomBytes } from 'node:crypto';
 import { createId } from '@paralleldrive/cuid2';
 import { eq, lt } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { planSessions } from '../../db/schema/sqlite/plan-sessions';
+import { sandboxInstances } from '../../db/schema/sqlite/sandboxes';
+import { sessions } from '../../db/schema/sqlite/sessions';
 import { userSessions } from '../../db/schema/sqlite/user-sessions';
 import { users } from '../../db/schema/sqlite/users';
 import { type AuthContext, SESSION_COOKIE_NAME } from '../../lib/api/auth-middleware.js';
+import { isDevAuthAllowed } from '../../lib/api/dev-auth.js';
 import { createLogger } from '../../lib/logging/logger';
+import { RbacService } from '../../services/rbac.service.js';
 import type { Database } from '../../types/database';
 import { hashToken, json, requireQueryParam } from '../shared';
 
@@ -18,6 +23,41 @@ const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 interface AuthDeps {
   db: Database;
+}
+
+/**
+ * F05-23 / F06-NEW-11: Resolve a stream's underlying codespace.
+ *
+ * Returns the codespaceId that owns the given (kind, id), or `null` if the
+ * stream's entity is unknown. This is the lookup half of per-stream tenant
+ * scope enforcement at `verify-stream` — the role check itself is performed
+ * by `RbacService.resolveUserRole`.
+ */
+async function resolveStreamCodespaceId(
+  db: Database,
+  streamKind: 'sessions' | 'plans' | 'sandboxes',
+  streamId: string
+): Promise<string | null> {
+  if (streamKind === 'sessions') {
+    const row = await db.query.sessions.findFirst({
+      where: eq(sessions.id, streamId),
+      columns: { codespaceId: true },
+    });
+    return row?.codespaceId ?? null;
+  }
+  if (streamKind === 'plans') {
+    const row = await db.query.planSessions.findFirst({
+      where: eq(planSessions.id, streamId),
+      columns: { codespaceId: true },
+    });
+    return row?.codespaceId ?? null;
+  }
+  // streamKind === 'sandboxes'
+  const row = await db.query.sandboxInstances.findFirst({
+    where: eq(sandboxInstances.id, streamId),
+    columns: { codespaceId: true },
+  });
+  return row?.codespaceId ?? null;
 }
 
 export function createAuthRoutes({ db }: AuthDeps) {
@@ -307,19 +347,30 @@ export function createAuthRoutes({ db }: AuthDeps) {
     }
   });
 
-  // F05-07: Caddy `forward_auth` hook for `/v1/stream/*` endpoints.
+  // F05-07 / F05-23 / F06-NEW-11: Caddy `forward_auth` hook for `/v1/stream/*`.
   //
   // Caddy sends the original request URI in the `X-Original-URI` header (or
   // `X-Forwarded-Uri` depending on the version). We validate:
   //   1. The session cookie maps to an active user session.
   //   2. The URI path matches a known stream shape (`/v1/stream/{sessions,plans,sandboxes,terraform}/{id}`).
+  //   3. The authenticated user has access to the SPECIFIC stream — i.e. the
+  //      requesting user is a member of the codespace that owns the session /
+  //      plan / sandbox. This closes the cross-tenant subscribe gap noted in
+  //      F05-23 and F06-NEW-11. Without this check, any authenticated user
+  //      who knows or guesses a CUID can subscribe to another tenant's
+  //      session, plan, or sandbox stream.
   //
-  // A 200 response greenlights the stream connection; any other status blocks it.
+  // A 200 response greenlights the stream connection; 401 blocks unauthenticated
+  // clients; 403 blocks authenticated-but-unauthorized clients; 404 indicates the
+  // stream's underlying entity does not exist.
   //
-  // Note: path-level authorization (does THIS user have access to THIS plan/sandbox?)
-  // is a follow-up that requires resolving the team membership for each ID. For the
-  // minimum viable version, the cookie check alone closes the default-deny gap against
-  // unauthenticated network clients.
+  // The kind→entity→codespaceId resolver is encapsulated in a small switch below.
+  // Cli-monitor remains a singleton stream, accessible to any authenticated user.
+  // Terraform compose jobs are short-lived in-memory state and are not yet
+  // FK-tracked in the DB — they keep the authenticated-only guard until the
+  // schema migrates (see F05-24).
+  const rbacService = new RbacService(db);
+
   app.all('/verify-stream', async (c) => {
     const originalUri =
       c.req.header('X-Original-URI') ??
@@ -339,6 +390,19 @@ export function createAuthRoutes({ db }: AuthDeps) {
         { ok: false, error: { code: 'INVALID_URI', message: 'Malformed stream URI' } },
         400
       );
+    }
+
+    const streamKind = streamMatch[1] ?? null;
+    const streamId = streamMatch[2] ?? null;
+
+    // F06-05: dev-mode auth bypass. Honored only when both `SKIP_AUTH=true`
+    // AND `NODE_ENV !== 'production'` are set at call time. In production the
+    // helper returns false unconditionally regardless of `SKIP_AUTH`.
+    if (isDevAuthAllowed()) {
+      return json({
+        ok: true,
+        data: { userId: 'dev-user', streamKind, streamId },
+      });
     }
 
     // Cookie-based auth. We intentionally reuse the existing session cookie
@@ -368,13 +432,61 @@ export function createAuthRoutes({ db }: AuthDeps) {
           401
         );
       }
+
+      // F05-23 / F06-NEW-11: per-stream tenant scope check.
+      //
+      // For session/plan/sandbox kinds we resolve the underlying codespaceId
+      // and require the requesting user to have at least viewer role on that
+      // codespace via `RbacService.resolveUserRole`. The resolver walks the
+      // direct → folder → team membership chain that already governs every
+      // other authorization path in the app.
+      //
+      // For the index path (`/v1/stream`), `cli-monitor`, and the bare-kind
+      // path (no `streamId`), only the cookie check is required — these are
+      // either singleton, broadcast, or the IDs are not addressable. For
+      // `terraform/:id` we keep the cookie-only check until the underlying
+      // entity gets a DB row (tracked in F05-24).
+      if (
+        streamId &&
+        (streamKind === 'sessions' || streamKind === 'plans' || streamKind === 'sandboxes')
+      ) {
+        const codespaceId = await resolveStreamCodespaceId(db, streamKind, streamId);
+        if (!codespaceId) {
+          // Unknown stream id — treat as not-found. A 404 here surfaces stale
+          // links cleanly without leaking whether the entity exists in another
+          // tenant.
+          return json(
+            { ok: false, error: { code: 'NOT_FOUND', message: 'Stream not found' } },
+            404
+          );
+        }
+        const role = await rbacService.resolveUserRole(session.userId, codespaceId);
+        if (!role) {
+          log.warn('Cross-tenant stream subscribe denied', {
+            data: {
+              userId: session.userId,
+              streamKind,
+              streamId,
+              codespaceId,
+            },
+          });
+          return json(
+            {
+              ok: false,
+              error: { code: 'FORBIDDEN', message: 'Not authorized for this stream' },
+            },
+            403
+          );
+        }
+      }
+
       // 200 response signals Caddy to allow the stream connection.
       return json({
         ok: true,
         data: {
           userId: session.userId,
-          streamKind: streamMatch[1] ?? null,
-          streamId: streamMatch[2] ?? null,
+          streamKind,
+          streamId,
         },
       });
     } catch (error) {

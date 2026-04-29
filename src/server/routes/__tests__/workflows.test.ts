@@ -324,7 +324,7 @@ describe('Workflows API Routes', () => {
 
       expect(res.status).toBe(400);
       const json = await res.json();
-      expect(json.error.code).toBe('INVALID_JSON');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 404 when workflow not found', async () => {

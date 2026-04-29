@@ -422,10 +422,10 @@ export function ProjectSettings({
 
         {/* Custom config indicator with reset option */}
         {!isLoadingDefaults && globalDefaults && hasCustomConfig && (
-          <div className="mb-4 flex items-center justify-between rounded-lg border border-warning/30 bg-warning/5 px-4 py-3">
+          <div className="mb-4 flex items-center justify-between rounded-lg border border-attention/30 bg-attention/5 px-4 py-3">
             <div className="flex items-center gap-2 text-sm">
               <span className="text-fg-muted">Using</span>
-              <span className="font-medium text-warning">custom codespace settings</span>
+              <span className="font-medium text-attention">custom codespace settings</span>
             </div>
             <Button
               variant="ghost"

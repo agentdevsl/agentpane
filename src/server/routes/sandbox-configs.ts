@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { SANDBOX_TYPES } from '../../db/schema/shared/enums.js';
 import type { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import { errorResponse, json, parseLimit, parseOffset, validateIdParam } from '../shared.js';
+import { parseJsonBody } from '../validation.js';
 import { validateNomadAddress } from './sandbox-nomad.js';
 
 const sandboxConfigBodySchema = z.object({
@@ -102,28 +103,8 @@ export function createSandboxConfigRoutes({ sandboxConfigService }: SandboxConfi
 
   // POST /api/sandbox-configs
   app.post('/', async (c) => {
-    let rawBody: unknown;
-    try {
-      rawBody = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
-        400
-      );
-    }
-    const parsed = sandboxConfigCreateSchema.safeParse(rawBody);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, sandboxConfigCreateSchema);
+    if (!parsed.ok) return parsed.response;
     const body = parsed.data;
     if (body.nomadAddress) {
       const addrValidation = await validateNomadAddress(body.nomadAddress);
@@ -170,28 +151,8 @@ export function createSandboxConfigRoutes({ sandboxConfigService }: SandboxConfi
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    let rawBody: unknown;
-    try {
-      rawBody = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
-        400
-      );
-    }
-    const parsed = sandboxConfigBodySchema.safeParse(rawBody);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, sandboxConfigBodySchema);
+    if (!parsed.ok) return parsed.response;
     const body = parsed.data;
     if (body.nomadAddress) {
       const addrValidation = await validateNomadAddress(body.nomadAddress);

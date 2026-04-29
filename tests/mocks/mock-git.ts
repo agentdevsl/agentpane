@@ -94,7 +94,27 @@ export function createMockCommandRunner(responses: CommandResponseMap = {}): Com
       return { stdout: '', stderr: '' };
     });
 
-  return { exec };
+  // F06-NEW-01: WorktreeService now uses positional `execArgs` for every
+  // git/cp invocation. Map the argv form back to the `command` pattern
+  // matcher by joining argv with spaces — this lets existing tests using
+  // patterns like 'branch --list' or 'worktree add' continue to match.
+  const execArgs = vi
+    .fn()
+    .mockImplementation(async (argv: string[], cwd: string): Promise<CommandResult> => {
+      const command = argv.join(' ');
+      for (const [pattern, response] of Object.entries(responses)) {
+        if (command.includes(pattern)) {
+          if (typeof response === 'function') {
+            const result = response(command, cwd);
+            return result instanceof Promise ? await result : result;
+          }
+          return response;
+        }
+      }
+      return { stdout: '', stderr: '' };
+    });
+
+  return { exec, execArgs };
 }
 
 // =============================================================================

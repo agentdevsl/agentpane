@@ -1,9 +1,26 @@
-// Hoisted static style objects to avoid re-creating on every render
-const nodeStyleBlue = { filter: 'drop-shadow(0 0 2px #58a6ff)' } as const;
-const nodeStylePurple = { filter: 'drop-shadow(0 0 3px #a371f7)', animationDelay: '0.4s' } as const;
-const nodeStyleGreen = { filter: 'drop-shadow(0 0 2px #3fb950)', animationDelay: '0.8s' } as const;
-const nodeStylePink = { filter: 'drop-shadow(0 0 3px #f778ba)', animationDelay: '1.2s' } as const;
-const nodeStyleGold = { filter: 'drop-shadow(0 0 2px #d29922)', animationDelay: '1.6s' } as const;
+// Hoisted static style objects to avoid re-creating on every render.
+// Drop-shadow filters reference CSS custom properties that resolve to the
+// design-system "*-fg" tokens — see globals.css. This keeps the logo glow
+// theme-aware (light/dark) instead of hard-coded GitHub-dark hex values.
+const nodeStyleBlue = {
+  filter: 'drop-shadow(0 0 2px var(--accent-fg))',
+} as const;
+const nodeStylePurple = {
+  filter: 'drop-shadow(0 0 3px var(--done-fg))',
+  animationDelay: '0.4s',
+} as const;
+const nodeStyleGreen = {
+  filter: 'drop-shadow(0 0 2px var(--success-fg))',
+  animationDelay: '0.8s',
+} as const;
+const nodeStylePink = {
+  filter: 'drop-shadow(0 0 3px var(--secondary-fg))',
+  animationDelay: '1.2s',
+} as const;
+const nodeStyleGold = {
+  filter: 'drop-shadow(0 0 2px var(--attention-fg))',
+  animationDelay: '1.6s',
+} as const;
 
 /**
  * Animated AgentPane logo icon for welcome/empty screens.
@@ -28,20 +45,36 @@ export function AgentPaneLogo({
       >
         <defs>
           <radialGradient id={gradientId} cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#fff" />
-            <stop offset="50%" stopColor="#3fb950" />
-            <stop offset="100%" stopColor="#3fb950" stopOpacity="0" />
+            <stop offset="0%" stopColor="var(--fg-on-emphasis)" />
+            <stop offset="50%" stopColor="var(--success-fg)" />
+            <stop offset="100%" stopColor="var(--success-fg)" stopOpacity="0" />
           </radialGradient>
         </defs>
         {/* Connection lines */}
-        <line x1="14" y1="14" x2="6" y2="8" stroke="#58a6ff" strokeOpacity="0.4" strokeWidth="1" />
-        <line x1="14" y1="14" x2="22" y2="6" stroke="#a371f7" strokeOpacity="0.4" strokeWidth="1" />
+        <line
+          x1="14"
+          y1="14"
+          x2="6"
+          y2="8"
+          stroke="var(--accent-fg)"
+          strokeOpacity="0.4"
+          strokeWidth="1"
+        />
+        <line
+          x1="14"
+          y1="14"
+          x2="22"
+          y2="6"
+          stroke="var(--done-fg)"
+          strokeOpacity="0.4"
+          strokeWidth="1"
+        />
         <line
           x1="14"
           y1="14"
           x2="26"
           y2="16"
-          stroke="#3fb950"
+          stroke="var(--success-fg)"
           strokeOpacity="0.4"
           strokeWidth="1"
         />
@@ -50,18 +83,26 @@ export function AgentPaneLogo({
           y1="14"
           x2="20"
           y2="26"
-          stroke="#f778ba"
+          stroke="var(--secondary-fg)"
           strokeOpacity="0.4"
           strokeWidth="1"
         />
-        <line x1="14" y1="14" x2="6" y2="22" stroke="#d29922" strokeOpacity="0.4" strokeWidth="1" />
+        <line
+          x1="14"
+          y1="14"
+          x2="6"
+          y2="22"
+          stroke="var(--attention-fg)"
+          strokeOpacity="0.4"
+          strokeWidth="1"
+        />
         {/* Outer nodes */}
         <circle
           className="animate-pulse"
           cx="6"
           cy="8"
           r="2"
-          fill="#58a6ff"
+          fill="var(--accent-fg)"
           style={nodeStyleBlue}
         />
         <circle
@@ -69,7 +110,7 @@ export function AgentPaneLogo({
           cx="22"
           cy="6"
           r="2.5"
-          fill="#a371f7"
+          fill="var(--done-fg)"
           style={nodeStylePurple}
         />
         <circle
@@ -77,7 +118,7 @@ export function AgentPaneLogo({
           cx="26"
           cy="16"
           r="2"
-          fill="#3fb950"
+          fill="var(--success-fg)"
           style={nodeStyleGreen}
         />
         <circle
@@ -85,7 +126,7 @@ export function AgentPaneLogo({
           cx="20"
           cy="26"
           r="3"
-          fill="#f778ba"
+          fill="var(--secondary-fg)"
           style={nodeStylePink}
         />
         <circle
@@ -93,12 +134,12 @@ export function AgentPaneLogo({
           cx="6"
           cy="22"
           r="2"
-          fill="#d29922"
+          fill="var(--attention-fg)"
           style={nodeStyleGold}
         />
         {/* Center hub */}
         <circle cx="14" cy="14" r="5" fill={`url(#${gradientId})`} />
-        <circle cx="14" cy="14" r="2" fill="#fff" />
+        <circle cx="14" cy="14" r="2" fill="var(--fg-on-emphasis)" />
       </svg>
     </div>
   );

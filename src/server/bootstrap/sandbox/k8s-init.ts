@@ -9,6 +9,8 @@
  * - Warm pool initialization
  */
 
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import * as sqliteSchema from '../../../db/schema/sqlite/index.js';
@@ -19,6 +21,25 @@ import type { EventEmittingSandboxProvider } from '../../../lib/sandbox/provider
 import type { Database } from '../../../types/database.js';
 import type { SandboxState } from '../types.js';
 import { ensureDefaultSandbox } from './sandbox-helpers.js';
+
+/**
+ * arch29-W1-C / F04-11 — vendored upstream agent-sandbox controller manifest.
+ *
+ * Replaces the previous bootstrap path of
+ *   `kubectl apply -f https://github.com/.../releases/latest/download/install.yaml`
+ * which was a full cluster-takeover supply-chain vector. The manifest is
+ * verified against the SHA-256 below before each apply; mismatches abort
+ * the install with an explicit error.
+ *
+ * To rotate this version, see `k8s/vendored/README.md`.
+ */
+export const VENDORED_AGENT_SANDBOX_MANIFEST = path.join(
+  'k8s',
+  'vendored',
+  'agent-sandbox-v0.4.3.yaml'
+);
+export const VENDORED_AGENT_SANDBOX_SHA256 =
+  '189033364c143e53dc36e1aceb5dfc3dc019754a96863e2cdb363ba1aac4d49b';
 
 declare const Bun: {
   spawn: (
@@ -231,6 +252,13 @@ export async function initK8sProvider(
     let health = await k8sProvider.healthCheck();
 
     if (health.healthy) {
+      // arch29-W2-J / F04-09: when SANDBOX_DEFAULT_NETWORK_MODE=none, verify
+      // the cluster supports networking.k8s.io/v1 NetworkPolicy resources
+      // before declaring the provider healthy. We fail-closed at boot so the
+      // operator notices the gap rather than silently shipping sandboxes
+      // with bridge-level network access.
+      await k8sProvider.assertNetworkIsolationSupport();
+
       sandboxState.k8sProvider = k8sProvider;
       log.info('Kubernetes CRD sandbox provider initialized', {
         data: {
@@ -297,6 +325,14 @@ export async function initK8sProvider(
 
     return null;
   } catch (error) {
+    // arch29-W2-J / F04-09: if the operator explicitly requested
+    // SANDBOX_DEFAULT_NETWORK_MODE=none and the cluster doesn't support
+    // NetworkPolicy enforcement, re-throw so bootstrap fails loudly rather
+    // than silently falling back to a no-network-isolation Docker provider.
+    // This is intentionally fail-closed.
+    if ((error as { code?: string }).code === 'K8S_NETWORK_ISOLATION_UNSUPPORTED') {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     if (k8sFallbackToDocker) {
       log.warn(
@@ -350,17 +386,34 @@ async function attemptCrdAutoInstall(
       log.warn('CRD registration timed out after 10s - custom resources may fail');
     }
 
-    // Try to install the external CRD controller
+    // arch29-W1-C / F04-11 — Apply the vendored upstream controller manifest
+    // (verified by SHA-256). Replaces the previous live `kubectl apply -f
+    // <github releases/latest URL>` which was a supply-chain takeover vector.
     try {
-      await execAsync(
-        'kubectl apply -f "https://github.com/kubernetes-sigs/agent-sandbox/releases/latest/download/install.yaml"',
-        { timeout: 60_000 }
-      );
-      log.info('CRD controller installed from release URL');
+      const manifestPath = path.join(process.cwd(), VENDORED_AGENT_SANDBOX_MANIFEST);
+      const manifestBytes = await readFile(manifestPath);
+      const actualSha = createHash('sha256').update(manifestBytes).digest('hex');
+      if (actualSha !== VENDORED_AGENT_SANDBOX_SHA256) {
+        log.error('Vendored agent-sandbox manifest SHA-256 mismatch — refusing to apply', {
+          data: {
+            path: manifestPath,
+            expected: VENDORED_AGENT_SANDBOX_SHA256,
+            actual: actualSha,
+          },
+        });
+      } else {
+        await execAsync(`kubectl apply -f "${manifestPath}"`, { timeout: 60_000 });
+        log.info('CRD controller installed from vendored manifest', {
+          data: { path: manifestPath, sha256: actualSha },
+        });
+      }
     } catch (ctrlErr) {
-      log.warn('CRD controller install from URL failed (continuing with local CRDs)', {
-        error: ctrlErr instanceof Error ? ctrlErr.message : String(ctrlErr),
-      });
+      log.warn(
+        'CRD controller install from vendored manifest failed (continuing with local CRDs)',
+        {
+          error: ctrlErr instanceof Error ? ctrlErr.message : String(ctrlErr),
+        }
+      );
     }
 
     // Apply custom resources
