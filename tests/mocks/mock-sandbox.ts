@@ -123,6 +123,9 @@ export function createMockSandbox(overrides: Partial<Sandbox> = {}): Sandbox {
     touch: vi.fn(),
     getLastActivity: vi.fn().mockReturnValue(new Date()),
     execStream: vi.fn().mockResolvedValue(createMockExecStreamResult()),
+    // arch29-W2-I (F04-06): every provider implements writeFile so credentials
+    // can be injected out-of-band (no token in argv).
+    writeFile: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }

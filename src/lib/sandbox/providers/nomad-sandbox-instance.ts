@@ -14,6 +14,7 @@ import type { ExecResult, SandboxMetrics, SandboxStatus, TmuxSession } from '../
 import { SANDBOX_DEFAULTS } from '../types.js';
 import { mapNomadJobStatus } from './nomad-sandbox-provider.js';
 import type { ExecStreamOptions, ExecStreamResult, Sandbox } from './sandbox-provider.js';
+import { buildSingleFileTar, splitContainerPath } from './single-file-tar.js';
 
 const log = createLogger('NomadSandboxInstance');
 
@@ -126,6 +127,115 @@ export class NomadSandboxInstance implements Sandbox {
       const message = errorMessage(error);
       this._status = 'error';
       throw NomadErrors.JOB_STOP_FAILED(this.jobName, message);
+    }
+  }
+
+  /**
+   * Write a file inside the sandbox allocation via the exec channel's stdin.
+   *
+   * theme-04 P1-05 / arch29-W2-I (F04-06): Mirrors the Docker `writeFile`
+   * pattern (which uses `putArchive`) so credential material never lands in
+   * any argv (`ps`, `/proc/<pid>/cmdline`, Nomad audit logs). Builds a minimal
+   * single-file USTAR archive, runs `tar xf - -C <dir>` inside the allocation,
+   * and pipes the archive over the exec WebSocket's stdin.
+   *
+   * Implementation note: the SDK exposes `stdin` as a `WritableStream<Uint8Array>`
+   * (Web Streams API, not Node Streams). We write the entire archive in one
+   * chunk then close to signal EOF.
+   */
+  async writeFile(filePath: string, content: string | Buffer, mode = 0o600): Promise<void> {
+    this.assertRunning();
+    this.touch();
+
+    const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
+    const { dir, name } = splitContainerPath(filePath);
+    if (!name) {
+      throw NomadErrors.EXEC_FAILED('writeFile', `invalid path: ${filePath}`);
+    }
+
+    const archive = buildSingleFileTar(name, buf, mode);
+
+    // tar xf - -C <dir>  reads a tarball from stdin, extracts into <dir>.
+    const stream = this.client.execStream({
+      allocId: this.allocId,
+      task: 'sandbox',
+      command: ['tar', 'xf', '-', '-C', dir],
+    });
+
+    try {
+      // Drain stderr so the WebSocket back-pressure doesn't stall the process.
+      // We don't expect tar xf to write anything to stdout/stderr on success.
+      const stderrChunks: Uint8Array[] = [];
+      void (async () => {
+        const reader = stream.stderr.getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) stderrChunks.push(value);
+          }
+        } catch {
+          // Stream errors surface via wait(); drain best-effort only.
+        }
+      })();
+      void (async () => {
+        const reader = stream.stdout.getReader();
+        try {
+          while (true) {
+            const { done } = await reader.read();
+            if (done) break;
+          }
+        } catch {
+          // ignore
+        }
+      })();
+
+      // Write the entire archive then close stdin to signal EOF.
+      const writer = stream.stdin.getWriter();
+      try {
+        // Use a Uint8Array view over the same underlying buffer (Buffer is a
+        // Uint8Array subclass; the SDK requires a plain Uint8Array).
+        await writer.write(new Uint8Array(archive.buffer, archive.byteOffset, archive.byteLength));
+        await writer.close();
+      } finally {
+        try {
+          writer.releaseLock();
+        } catch {
+          // releaseLock after close is harmless.
+        }
+      }
+
+      const { exitCode } = await stream.wait();
+      if (exitCode !== 0) {
+        const stderrLen = stderrChunks.reduce((n, c) => n + c.byteLength, 0);
+        const stderrBuf = Buffer.alloc(stderrLen);
+        let off = 0;
+        for (const c of stderrChunks) {
+          stderrBuf.set(c, off);
+          off += c.byteLength;
+        }
+        const stderr = stderrBuf.toString('utf8').trim();
+        throw NomadErrors.EXEC_FAILED(
+          'writeFile',
+          `tar xf failed (exit ${exitCode}) writing ${filePath}: ${stderr || 'no stderr'}`
+        );
+      }
+    } catch (error) {
+      // If the error is already a NomadError shape, rethrow. NomadErrors
+      // emit codes like 'NOMAD-300' (see src/lib/errors/nomad-errors.ts).
+      const code = (error as { code?: string }).code;
+      if (typeof code === 'string' && code.startsWith('NOMAD-')) throw error;
+      throw NomadErrors.EXEC_FAILED(
+        'writeFile',
+        `failed to write ${filePath}: ${errorMessage(error)}`
+      );
+    } finally {
+      // Best-effort cleanup if the stream is still open.
+      try {
+        stream.kill();
+      } catch {
+        // kill() after wait() resolves is a no-op; ignore.
+      }
     }
   }
 

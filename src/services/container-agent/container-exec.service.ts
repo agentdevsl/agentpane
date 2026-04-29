@@ -110,6 +110,15 @@ export class ContainerExecService {
 
   /**
    * Build environment variables and create the container bridge for agent execution.
+   *
+   * arch29-W2-I (F04-07, F06-NEW-05): the OAuth access token is NOT passed via
+   * the container env. Credentials live exclusively in `~/.claude/.credentials.json`
+   * inside the sandbox, written by `CredentialsInjector.writeFile()` before
+   * the exec call. This keeps the token out of `/proc/<pid>/environ`,
+   * `printenv`, and any tool capturing the agent-runner's environment for
+   * diagnostics. `CLAUDE_OAUTH_EXPIRES_AT` and `CLAUDE_OAUTH_REFRESH_TOKEN`
+   * are similarly removed — they live in the credentials file alongside the
+   * access token.
    */
   private prepareContainerExec(params: {
     taskId: string;
@@ -121,11 +130,6 @@ export class ContainerExecService {
     agentConfig: AgentConfig;
     worktreePath: string;
     stopFilePath: string;
-    oauthToken: string;
-    /** theme-03 F11: real OAuth expiry ms since epoch (null when host has no record). */
-    oauthExpiresAtMs?: number | null;
-    /** theme-03 F11: OAuth refresh token when the host registry carries one. */
-    oauthRefreshToken?: string | null;
   }): { env: Record<string, string>; bridge: ContainerBridge } {
     const {
       taskId,
@@ -137,8 +141,6 @@ export class ContainerExecService {
       agentConfig,
       worktreePath,
       stopFilePath,
-      oauthExpiresAtMs,
-      oauthRefreshToken,
     } = params;
 
     // F10-03: propagate the spawning HTTP request id as the agent-runner's
@@ -147,7 +149,6 @@ export class ContainerExecService {
     const correlationId = getRequestId();
 
     const env: Record<string, string> = {
-      CLAUDE_OAUTH_TOKEN: '[REDACTED]',
       AGENT_TASK_ID: taskId,
       AGENT_SESSION_ID: sessionId,
       AGENT_PROMPT: prompt,
@@ -160,11 +161,6 @@ export class ContainerExecService {
       AGENT_STOP_FILE: stopFilePath,
       AGENT_PHASE: phase,
       ...(sdkSessionId ? { AGENT_SDK_SESSION_ID: sdkSessionId } : {}),
-      // theme-03 F11: pass real OAuth metadata through to the agent-runner when
-      // the host registry has it. Omitted entries leave the agent-runner to use
-      // its far-future sentinel rather than a fabricated 24h expiry.
-      ...(oauthExpiresAtMs ? { CLAUDE_OAUTH_EXPIRES_AT: String(oauthExpiresAtMs) } : {}),
-      ...(oauthRefreshToken ? { CLAUDE_OAUTH_REFRESH_TOKEN: oauthRefreshToken } : {}),
       ...(correlationId ? { CORRELATION_ID: correlationId } : {}),
     };
     log.debug('Env vars prepared', {
@@ -198,6 +194,83 @@ export class ContainerExecService {
     });
 
     return { env, bridge };
+  }
+
+  /**
+   * Refresh the in-sandbox credentials file in the SDK-compatible CLI shape
+   * (`{ claudeAiOauth: { accessToken, refreshToken, expiresAt, scopes,
+   * subscriptionType } }`) immediately before the agent-runner is exec'd.
+   *
+   * arch29-W2-I (F04-07, F06-NEW-05): the OAuth access token, refresh token,
+   * and expiry MUST NOT be passed via container env vars (visible in
+   * `/proc/<pid>/environ`, `printenv`, crash dumps, etc.). They live
+   * exclusively in `~/.claude/.credentials.json` inside the sandbox.
+   *
+   * Uses `sandbox.writeFile` (out-of-band tar upload over the exec channel
+   * stdin for K8s/Nomad, `putArchive` for Docker) so the JSON content never
+   * appears in argv.
+   */
+  private async injectCredentialsBeforeExec(
+    sandbox: Sandbox,
+    oauthToken: string,
+    oauthRefreshToken: string | null,
+    oauthExpiresAtMs: number | null
+  ): Promise<Result<void, SandboxError>> {
+    const credentialsPath = `${SANDBOX_DEFAULTS.userHome}/.claude/.credentials.json`;
+
+    // Use a far-future sentinel when the host registry has no expiry; matches
+    // the agent-runner's previous fallback (theme-03 F11) so the SDK does not
+    // see a stale `expiresAt` and immediately try to refresh.
+    const expiresAt = oauthExpiresAtMs ?? 100_000_000_000_000;
+
+    const credentialsJson = JSON.stringify({
+      claudeAiOauth: {
+        accessToken: oauthToken,
+        refreshToken: oauthRefreshToken,
+        expiresAt,
+        scopes: ['user:inference', 'user:profile', 'user:sessions:claude_code'],
+        subscriptionType: 'max',
+      },
+    });
+
+    // Ensure the .claude directory exists. mkdir -p is idempotent and the
+    // path is fixed (no user-supplied data) so this is safe.
+    try {
+      await sandbox.exec('mkdir', ['-p', `${SANDBOX_DEFAULTS.userHome}/.claude`]);
+    } catch (mkdirErr) {
+      return err(
+        SandboxErrors.CREDENTIALS_INJECTION_FAILED(
+          `Failed to ensure .claude directory: ${
+            mkdirErr instanceof Error ? mkdirErr.message : String(mkdirErr)
+          }`
+        )
+      );
+    }
+
+    if (typeof sandbox.writeFile !== 'function') {
+      // arch29-W2-I requires `writeFile` parity across Docker/K8s/Nomad. If a
+      // provider still lacks it, fail closed rather than fall through to a
+      // shell-exec path that puts the token in argv.
+      return err(
+        SandboxErrors.CREDENTIALS_INJECTION_FAILED(
+          'Sandbox provider does not implement writeFile — refusing to inject credentials via shell exec (would leak token via argv).'
+        )
+      );
+    }
+
+    try {
+      await sandbox.writeFile(credentialsPath, credentialsJson, 0o600);
+    } catch (writeErr) {
+      return err(
+        SandboxErrors.CREDENTIALS_INJECTION_FAILED(
+          `Failed to write credentials via writeFile: ${
+            writeErr instanceof Error ? writeErr.message : String(writeErr)
+          }`
+        )
+      );
+    }
+
+    return ok(undefined);
   }
 
   /**
@@ -731,7 +804,10 @@ export class ContainerExecService {
       });
     }
 
-    // Build env vars and create container bridge
+    // Build env vars and create container bridge.
+    // arch29-W2-I (F04-07, F06-NEW-05): no OAuth token / refresh / expiry flow
+    // through the env any more — those values live in the credentials file
+    // injected below via `injectCredentialsBeforeExec`.
     const { env, bridge } = this.prepareContainerExec({
       taskId,
       sessionId,
@@ -742,18 +818,39 @@ export class ContainerExecService {
       agentConfig,
       worktreePath,
       stopFilePath,
-      oauthToken,
-      oauthExpiresAtMs,
-      // F03-09 (arch29-W2-C): refresh token now flows from `api_keys.
-      // encrypted_refresh_token` through `ApiKeyService.getDecryptedRefreshToken`.
-      // Null when no refresh token is stored for this service (legacy rows or
-      // non-OAuth keys); the agent-runner falls back to its "no refresh" path.
-      oauthRefreshToken,
     });
 
+    // arch29-W2-I (F04-07, F06-NEW-05): refresh ~/.claude/.credentials.json
+    // inside the sandbox immediately before exec. The host already retrieved
+    // a fresh `oauthToken` (line ~526). For shared sandboxes the file may
+    // belong to a previous tenant; for per-project sandboxes a previous run
+    // may have stale rotation data. Either way, write the current token
+    // (and refresh token + real expiry when available) via `writeFile` so
+    // the credential never appears in argv. F03-09 keeps the refresh token
+    // in DB; we surface it through the file, not through env.
+    const credentialsRefreshResult = await this.injectCredentialsBeforeExec(
+      sandbox,
+      oauthToken,
+      oauthRefreshToken,
+      oauthExpiresAtMs
+    );
+    if (!credentialsRefreshResult.ok) {
+      log.error('Failed to refresh credentials file before agent exec', {
+        data: {
+          taskId,
+          sandboxId: sandbox.id,
+          error: credentialsRefreshResult.error.message,
+        },
+      });
+      if (worktreeId) {
+        await this.worktreeInit.cleanupWorktree(taskId, worktreeId);
+      }
+      return err(credentialsRefreshResult.error);
+    }
+
     // Merge project-level env vars (sandbox.env setting) into container env.
-    // Agent-specific vars (CLAUDE_OAUTH_TOKEN, AGENT_*, etc.) are already set
-    // in `env` by prepareContainerExec, so they take precedence on conflict.
+    // Agent-specific vars (AGENT_*, etc.) are already set in `env` by
+    // prepareContainerExec, so they take precedence on conflict.
     if (Object.keys(sandboxEnv).length > 0) {
       let applied = 0;
       for (const [key, value] of Object.entries(sandboxEnv)) {
@@ -819,12 +916,15 @@ export class ContainerExecService {
         }
       }
 
+      // arch29-W2-I (F04-07, F06-NEW-05): the OAuth token does NOT flow
+      // through env any more. The agent-runner reads
+      // `~/.claude/.credentials.json` (refreshed above by
+      // `injectCredentialsBeforeExec`) as its only authentication source.
       const execResult = await sandbox.execStream({
         cmd: 'node',
         args: ['/opt/agent-runner/dist/index.js'],
         env: {
           ...env,
-          CLAUDE_OAUTH_TOKEN: oauthToken,
           AGENT_PROMPT: prompt,
         },
         cwd: worktreePath,

@@ -142,6 +142,9 @@ function createMockSandbox(overrides: Record<string, unknown> = {}) {
     killTmuxSession: vi.fn(),
     sendKeysToTmux: vi.fn(),
     captureTmuxPane: vi.fn(),
+    // arch29-W2-I (F04-06): all providers implement writeFile so credentials
+    // can be injected out-of-band (no token in argv).
+    writeFile: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -2110,7 +2113,7 @@ describe('ContainerAgentService', () => {
       );
     });
 
-    it('includes CLAUDE_OAUTH_TOKEN in env vars', async () => {
+    it('arch29-W2-I (F04-07, F06-NEW-05): does NOT pass CLAUDE_OAUTH_TOKEN via env', async () => {
       const project = await createTestProject();
       const task = await createTestTask(project.id, { title: 'Token test' });
 
@@ -2121,12 +2124,26 @@ describe('ContainerAgentService', () => {
         prompt: 'Do something',
       });
 
-      expect(sandbox.execStream).toHaveBeenCalledWith(
-        expect.objectContaining({
-          env: expect.objectContaining({
-            CLAUDE_OAUTH_TOKEN: 'sk-ant-oat01-test-token',
-          }),
-        })
+      // The OAuth access token MUST NOT appear in the agent-runner's env.
+      // It lives only in `~/.claude/.credentials.json` written by the host
+      // via `sandbox.writeFile()` (out-of-band) before exec.
+      const calls = (sandbox.execStream as ReturnType<typeof vi.fn>).mock.calls as Array<
+        [{ env?: Record<string, string> }]
+      >;
+      expect(calls.length).toBeGreaterThan(0);
+      for (const [opts] of calls) {
+        const envKeys = Object.keys(opts.env ?? {});
+        const oauthKeys = envKeys.filter((k) => k.startsWith('CLAUDE_OAUTH'));
+        expect(oauthKeys).toEqual([]);
+      }
+
+      // The credentials file IS written via the sandbox's writeFile, with the
+      // token in the body. The body should be the SDK-compatible CLI shape
+      // (`{ claudeAiOauth: { accessToken, ... } }`).
+      expect(sandbox.writeFile).toHaveBeenCalledWith(
+        expect.stringContaining('.credentials.json'),
+        expect.stringContaining('sk-ant-oat01-test-token'),
+        0o600
       );
     });
 

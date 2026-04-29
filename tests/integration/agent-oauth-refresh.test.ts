@@ -166,7 +166,7 @@ describe('Agent OAuth refresh token plumbing (F03-09 / arch29-W2-C)', () => {
     await clearTestDatabase();
   });
 
-  it('refresh token from api_keys flows into CLAUDE_OAUTH_REFRESH_TOKEN env var', async () => {
+  it('refresh token from api_keys flows into the credentials file (not env var)', async () => {
     // Seed: api_keys row with both access and refresh token.
     const REFRESH = 'rt_test_secret_value';
     const saveResult = await realApiKeyService.saveKey(
@@ -196,10 +196,33 @@ describe('Agent OAuth refresh token plumbing (F03-09 / arch29-W2-C)', () => {
 
     expect(result.ok, JSON.stringify(result)).toBe(true);
 
-    // The env passed to the agent-runner exec must contain the refresh token.
+    // arch29-W2-I (F04-07, F06-NEW-05): the refresh token flows through the
+    // credentials file, NOT through env vars. Verify:
+    //   1. env passed to agent-runner contains NO CLAUDE_OAUTH_* keys
+    //   2. sandbox.writeFile was called with credentials JSON containing the
+    //      refresh token in the SDK-compatible CLI shape.
     expect(execStreamSpy).toHaveBeenCalled();
     const execArgs = execStreamSpy.mock.calls[0][0] as { env: Record<string, string> };
-    expect(execArgs.env.CLAUDE_OAUTH_REFRESH_TOKEN).toBe(REFRESH);
+    const oauthKeys = Object.keys(execArgs.env).filter((k) => k.startsWith('CLAUDE_OAUTH'));
+    expect(oauthKeys).toEqual([]);
+
+    // Locate the writeFile call that wrote the credentials JSON.
+    const writeFileSpy = mockSandbox.writeFile as ReturnType<typeof vi.fn>;
+    expect(writeFileSpy).toHaveBeenCalledWith(
+      expect.stringContaining('.credentials.json'),
+      expect.any(String),
+      0o600
+    );
+    const credCall = writeFileSpy.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('.credentials.json')
+    );
+    expect(credCall).toBeDefined();
+    const credContent = credCall?.[1] as string;
+    const parsed = JSON.parse(credContent) as {
+      claudeAiOauth?: { accessToken?: string; refreshToken?: string };
+    };
+    expect(parsed.claudeAiOauth?.refreshToken).toBe(REFRESH);
+    expect(parsed.claudeAiOauth?.accessToken).toBe('sk-ant-oat01-test-access');
   });
 
   it('absence of refresh token in api_keys leaves CLAUDE_OAUTH_REFRESH_TOKEN unset (no empty-string injection)', async () => {
