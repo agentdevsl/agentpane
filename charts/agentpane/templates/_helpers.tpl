@@ -165,9 +165,8 @@ Container image reference
 {{- end }}
 
 {{/*
-Sandbox container image reference
+F11-20: a `agentpane.sandbox.image` helper used to live here; it was unused
+by every template and the chart `sandbox.image` value was never read by the
+runtime (the DB `sandbox.defaults.image` setting is the source of truth).
+Both have been removed to eliminate operator confusion.
 */}}
-{{- define "agentpane.sandbox.image" -}}
-{{- $tag := .Values.sandbox.image.tag | default .Chart.AppVersion }}
-{{- printf "%s:%s" .Values.sandbox.image.repository $tag }}
-{{- end }}

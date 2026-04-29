@@ -1,0 +1,29 @@
+{{- if and .Values.backup.enabled .Values.backup.pvc.create }}
+{{- /*
+F11-21: PVC for the backup CronJob (cronjob-backup.yaml). Only rendered when
+both `backup.enabled` and `backup.pvc.create` are true. Operators who manage
+their own backup volume (e.g. via a CSI snapshot pipeline) should set
+`backup.pvc.create: false` and pre-create a PVC named
+`<release>-agentpane-backup`.
+*/ -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "agentpane.fullname" . }}-backup
+  labels:
+    {{- include "agentpane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+  {{- with .Values.backup.pvc.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    - {{ .Values.backup.pvc.accessMode | default "ReadWriteOnce" }}
+  resources:
+    requests:
+      storage: {{ .Values.backup.pvc.size | default "5Gi" | quote }}
+  {{- if .Values.backup.pvc.storageClass }}
+  storageClassName: {{ .Values.backup.pvc.storageClass | quote }}
+  {{- end }}
+{{- end }}

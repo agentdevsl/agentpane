@@ -2,7 +2,7 @@ apiVersion: v2
 name: agentpane
 description: AgentPane - AI agent orchestration platform with Kubernetes-native agent execution
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "1.0.0"
 kubeVersion: ">=1.28.0-0"
 keywords:
