@@ -10,6 +10,7 @@
  * failure in one job's `stop()` does not strand timers in another.
  */
 
+import { createRateLimitCleanupJob } from '../../../lib/api/rate-limiter.js';
 import { type BackgroundJob, BackgroundJobRegistry } from '../../../lib/background/job.js';
 import { createLogger } from '../../../lib/logging/logger.js';
 import { EventCleanupService } from '../../../services/event-cleanup.service.js';
@@ -58,6 +59,13 @@ export async function startSchedulers(
   // wire, every non-ephemeral `DurableStreamsService.publish()` call would
   // silently accumulate rows in `event_outbox` that never get delivered.
   registry.register(services.eventOutboxRelayService satisfies BackgroundJob);
+
+  // F06-NEW-08: register the rate-limit cleanup job. The SQLite-backed
+  // backend writes one row per (key, windowStart); without this sweep the
+  // table grows unbounded. Trim policy: rows older than 24h are deleted
+  // hourly. The job is a thin wrapper around a Drizzle DELETE so registering
+  // a fresh instance per bootstrap is safe.
+  registry.register(createRateLimitCleanupJob(db) satisfies BackgroundJob);
 
   // Register the registry drain with the shutdown handler *before* any
   // scheduler-start failure can return early. Without this, a task scheduler

@@ -6,18 +6,24 @@
  * present, and finally falls back to the (trusted-proxy-aware) client IP
  * for unauthenticated requests.
  *
- * Storage is in-process (`Map`) for the default backend. Swapping in Redis
- * is a drop-in change: implement the tiny `RateLimitBackend` interface and
- * pass it in via `rateLimiter({ backend: redisBackend })`. The in-memory
- * backend logs a one-time warning on startup so multi-instance deployments
- * know they are running with per-instance counters until Redis is wired.
+ * F06-NEW-08: persistence backends.
+ *   - `createInMemoryBackend()` — default for tests / dev. Counters reset on
+ *     restart, so do not use in production.
+ *   - `createSqliteBackend(db)` — persists buckets in the `rate_limit_buckets`
+ *     Drizzle table. Counters survive process restarts so a deploy or crash
+ *     no longer grants every limited client a fresh quota. Uses `INSERT ...
+ *     ON CONFLICT DO UPDATE` for atomic per-tick increment.
  *
- * IMPORTANT (AR-031): When running multiple app instances behind a load
- * balancer, the in-memory backend multiplies the effective limit by the
- * number of instances. Use a Redis-backed `RateLimitBackend` in production.
+ * Hard constraint: no Redis, no external infrastructure. Multi-instance
+ * deployments still suffer the documented drift at `:131-141` because each
+ * process owns its own SQLite file; for hosted multi-instance, a follow-up
+ * is needed to share state. Single-instance is the supported topology.
  */
 
+import { lt, sql } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
+import { rateLimitBuckets } from '../../db/schema/sqlite/rate-limit-buckets.js';
+import type { Database } from '../../types/database.js';
 import { createLogger } from '../logging/logger.js';
 import type { AuthContext } from './auth-middleware.js';
 
@@ -180,6 +186,153 @@ export function createInMemoryBackend(): RateLimitBackend {
       }
       entry.count += 1;
       return entry;
+    },
+  };
+}
+
+/**
+ * F06-NEW-08: SQLite-backed rate-limit backend.
+ *
+ * Each rate-limit window is persisted as a row in `rate_limit_buckets`. The
+ * window-start timestamp quantises the bucket: every request inside the same
+ * window upserts the same `(key, windowStart)` row, atomically incrementing
+ * `count` via Drizzle's `onConflictDoUpdate`. On process restart the rows
+ * persist, so a client that exceeded the limit before the restart is still
+ * blocked for the remainder of the window.
+ *
+ * Drizzle-only — no raw SQL. Per-tick latency adds one upsert; the composite
+ * primary key on `(key, window_start)` makes this an O(log n) write. The
+ * cleanup job (see {@link createRateLimitCleanupJob}) trims expired rows
+ * older than 24h so the table stays bounded.
+ *
+ * Caveats:
+ *   - Multi-instance deployments still drift because each process writes to
+ *     its own SQLite file (per the hard "no Redis" constraint). The single
+ *     supported topology is single-instance. Hosted multi-instance is a
+ *     follow-up; the architectural note at `:131-141` still applies.
+ *   - The window is *aligned*, not *sliding* — `windowStart = floor(now /
+ *     windowMs) * windowMs`. A burst that crosses a window boundary may
+ *     temporarily exceed the soft cap by 2x just like the in-memory limiter.
+ *     This matches the original Map-backed semantics; a sliding window would
+ *     require a different schema (rolling sum or token bucket).
+ */
+export function createSqliteBackend(db: Database): RateLimitBackend {
+  return {
+    incr: async (key, windowMs) => {
+      const now = Date.now();
+      // Align the bucket to the windowMs boundary so the same window
+      // accumulates into a single row regardless of when the request hits.
+      const windowStart = Math.floor(now / windowMs) * windowMs;
+      const resetAt = windowStart + windowMs;
+
+      // Drizzle-only upsert: insert a fresh row for a new bucket, or atomically
+      // bump count + updatedAt for an existing one. The composite primary key
+      // (key, windowStart) guarantees per-bucket dedupe under concurrent
+      // requests. `count + 1` runs server-side so two concurrent inserts can
+      // never lose an increment.
+      const inserted = await db
+        .insert(rateLimitBuckets)
+        .values({
+          key,
+          windowStart,
+          windowMs,
+          count: 1,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [rateLimitBuckets.key, rateLimitBuckets.windowStart],
+          set: {
+            count: sql`${rateLimitBuckets.count} + 1`,
+            updatedAt: now,
+          },
+        })
+        .returning({ count: rateLimitBuckets.count });
+
+      const count = inserted[0]?.count ?? 1;
+      return { count, resetAt };
+    },
+  };
+}
+
+/**
+ * F06-NEW-08: BackgroundJob that periodically deletes expired rate-limit
+ * rows. Kept as a standalone job so it can register with the existing
+ * {@link import('../background/job.js').BackgroundJobRegistry} alongside
+ * EventCleanup, EventOutboxRelay, etc.
+ *
+ * Cleanup policy: rows whose window ended >24h ago are deleted. The 24h
+ * grace period is generous — a 1-minute window's row is "expired" the
+ * moment `windowStart + windowMs < now`, but we keep them around for the
+ * same period as a session-event retention floor so audit queries can see
+ * "did this IP get rate-limited yesterday?".
+ */
+const CLEANUP_RETENTION_MS = 24 * 60 * 60 * 1000;
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // hourly
+
+export interface RateLimitCleanupJob {
+  readonly name: string;
+  start(): void;
+  stop(): void;
+  /** Run a single cleanup pass synchronously — useful in tests. */
+  runOnce(): Promise<number>;
+  healthSnapshot(): { name: string; running: boolean; lastRunAt?: string; lastError?: string };
+}
+
+export function createRateLimitCleanupJob(db: Database): RateLimitCleanupJob {
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let running = false;
+  let lastRunAt: string | null = null;
+  let lastError: string | null = null;
+
+  async function runOnce(): Promise<number> {
+    const cutoff = Date.now() - CLEANUP_RETENTION_MS;
+    try {
+      // Delete rows whose window ended (windowStart + windowMs) before the cutoff.
+      // We compare on `updatedAt` because it always points at the most recent
+      // touch; an idle bucket will not be re-touched and is safe to prune.
+      const result = await db
+        .delete(rateLimitBuckets)
+        .where(lt(rateLimitBuckets.updatedAt, cutoff))
+        .returning({ key: rateLimitBuckets.key });
+      lastRunAt = new Date().toISOString();
+      lastError = null;
+      return result.length;
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      log.warn('Rate-limit cleanup failed', { data: { error: lastError } });
+      return 0;
+    }
+  }
+
+  return {
+    name: 'rateLimitCleanup',
+    start() {
+      if (running) return;
+      running = true;
+      // First sweep happens on a delay so we don't stall the boot phase.
+      timer = setInterval(() => {
+        void runOnce();
+      }, CLEANUP_INTERVAL_MS);
+      if (timer && typeof timer === 'object' && 'unref' in timer) {
+        (timer as { unref: () => void }).unref();
+      }
+    },
+    stop() {
+      if (!running) return;
+      running = false;
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    },
+    runOnce,
+    healthSnapshot() {
+      return {
+        name: 'rateLimitCleanup',
+        running,
+        lastRunAt: lastRunAt ?? undefined,
+        lastError: lastError ?? undefined,
+      };
     },
   };
 }

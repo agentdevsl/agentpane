@@ -287,6 +287,23 @@ CREATE INDEX IF NOT EXISTS session_events_stream_kind_session_idx ON session_eve
     // Idempotent — table may already have been rebuilt
   }
 
+  // F06-NEW-08: rate_limit_buckets (runtime v35).
+  try {
+    testSqlite.exec(`
+CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+  key TEXT NOT NULL,
+  window_start INTEGER NOT NULL,
+  window_ms INTEGER NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (key, window_start)
+);
+CREATE INDEX IF NOT EXISTS rate_limit_buckets_updated_at_idx ON rate_limit_buckets(updated_at);
+`);
+  } catch {
+    // Table may already exist
+  }
+
   return testDb;
 }
 
@@ -338,6 +355,7 @@ export async function clearTestDatabase(): Promise<void> {
       DELETE FROM audit_logs;
       DELETE FROM event_log;
       DELETE FROM event_outbox;
+      DELETE FROM rate_limit_buckets;
       DELETE FROM event_subscriptions;
       DELETE FROM event_sources;
       DELETE FROM agent_runs;

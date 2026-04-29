@@ -13,7 +13,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { apiTokens } from '../db/schema/sqlite/api-tokens.js';
 import { userSessions } from '../db/schema/sqlite/user-sessions.js';
 import { getAuthContext } from '../lib/api/auth-middleware.js';
-import { rateLimiter } from '../lib/api/rate-limiter.js';
+import { createSqliteBackend, rateLimiter } from '../lib/api/rate-limiter.js';
 import { enrichAuthContext, requireRole, requireTagAccess } from '../lib/api/rbac-middleware.js';
 import { requestContextStorage } from '../lib/context/request-context.js';
 import { publishEventToStream } from '../lib/events/event-bus.js';
@@ -341,6 +341,13 @@ function useRoleGuard(
 export function createRouter(deps: RouterDependencies) {
   const app = new Hono();
 
+  // F06-NEW-08: shared SQLite-backed rate-limit store. Persists buckets so a
+  // process restart does not reset limit counters. The same backend instance
+  // is reused across all four rate-limit middlewares below — they only differ
+  // in `max`, `windowMs`, and `keyFrom`, so sharing the backend avoids
+  // creating four independent in-memory stores.
+  const rateLimitBackend = createSqliteBackend(deps.db);
+
   // AR-026: CORS is configured as single-origin by design.
   // In production with Caddy as front door, browser requests are same-origin
   // so CORS is not strictly needed. However, CORS is kept for:
@@ -376,7 +383,10 @@ export function createRouter(deps: RouterDependencies) {
   // Public webhook endpoint - no auth required (signature-verified by plugin)
   if (deps.eventProcessingService) {
     // Rate-limit webhooks: 60 requests per minute per IP
-    app.use('/hooks/events/*', rateLimiter({ max: 60, windowMs: 60_000 }));
+    app.use(
+      '/hooks/events/*',
+      rateLimiter({ max: 60, windowMs: 60_000, backend: rateLimitBackend })
+    );
     app.post('/hooks/events/:slug', async (c) => {
       try {
         const slug = c.req.param('slug');
@@ -420,7 +430,10 @@ export function createRouter(deps: RouterDependencies) {
 
   // Public GitHub App webhook endpoint — no auth required (signature-verified)
   if (deps.githubAppService && deps.eventProcessingService) {
-    app.use('/hooks/github-app', rateLimiter({ max: 60, windowMs: 60_000 }));
+    app.use(
+      '/hooks/github-app',
+      rateLimiter({ max: 60, windowMs: 60_000, backend: rateLimitBackend })
+    );
     app.route(
       '/hooks/github-app',
       createGitHubAppWebhooksRoutes({
@@ -431,13 +444,16 @@ export function createRouter(deps: RouterDependencies) {
     );
   }
 
-  app.use('/api/*', rateLimiter({ max: 200, windowMs: 60_000 }));
+  app.use('/api/*', rateLimiter({ max: 200, windowMs: 60_000, backend: rateLimitBackend }));
   app.use('/api/*', createAuthMiddleware(deps.db));
   app.use('/api/*', enrichAuthContext(deps.db));
   // Per-token rate limiter: applies a stricter limit to API token requests.
   // Must run after enrichAuthContext which populates tokenScope on the auth context.
   // Non-token requests (session/dev auth) skip this limiter entirely.
-  app.use('/api/*', rateLimiter({ max: 100, windowMs: 60_000, keyOnToken: true }));
+  app.use(
+    '/api/*',
+    rateLimiter({ max: 100, windowMs: 60_000, keyOnToken: true, backend: rateLimitBackend })
+  );
   app.use('/api/*', requireTagAccess(deps.db));
 
   // --- RBAC role guards for existing routes ---

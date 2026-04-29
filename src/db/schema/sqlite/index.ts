@@ -20,6 +20,7 @@ export * from './memory-insights';
 export * from './memory-messages';
 export * from './plan-sessions';
 export * from './project-folders';
+export * from './rate-limit-buckets';
 export * from './relations';
 export * from './sandbox-configs';
 export * from './sandboxes';
