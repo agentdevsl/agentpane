@@ -1,12 +1,15 @@
 /**
- * Shared session helpers used by the Docker agent-runner (index.ts).
+ * SC-023: Shared logic extracted from index.ts and agentcore-handler.ts.
  *
- * Concerns:
+ * Both the Docker agent-runner (index.ts) and the AgentCore handler
+ * (agentcore-handler.ts) duplicate the following concerns:
  *   - OAuth credential file writing
  *   - Stop-file checking for cancellation
  *   - Assistant text extraction from SDK messages
  *   - File-change detection from tool calls
  *   - ExitPlanMode type definitions
+ *
+ * This module provides shared implementations to eliminate that duplication.
  */
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';

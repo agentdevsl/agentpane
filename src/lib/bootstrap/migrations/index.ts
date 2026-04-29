@@ -97,16 +97,17 @@ export const MIGRATIONS: Migration[] = [
     ],
   },
 
-  // 14. AgentCore sandbox columns — REMOVED (arch29-W2-D, F04-04 / F04-05).
-  //     The AgentCore feature has been deleted from the codebase. The columns
-  //     were added by Drizzle migration 0010 and dropped by 0011. Existing
-  //     databases that ran the old version-14 step retain the dropped columns;
-  //     fresh installs never receive them. Kept as a tombstone (no-op) to
-  //     preserve sequential version numbering.
+  // 14. AgentCore sandbox columns
   {
     version: 14,
-    name: 'sandbox-agentcore-columns-removed',
-    statements: [],
+    name: 'sandbox-agentcore-columns',
+    statements: [
+      `ALTER TABLE sandbox_configs ADD COLUMN aws_access_key_id TEXT`,
+      `ALTER TABLE sandbox_configs ADD COLUMN aws_secret_access_key TEXT`,
+      `ALTER TABLE sandbox_configs ADD COLUMN aws_region TEXT`,
+      `ALTER TABLE sandbox_configs ADD COLUMN agentcore_runtime_arn TEXT`,
+      `ALTER TABLE sandbox_configs ADD COLUMN ecr_repository_uri TEXT`,
+    ],
   },
 
   // 15. Agents parent_agent_id column

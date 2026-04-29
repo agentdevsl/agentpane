@@ -3,12 +3,13 @@
  *
  * Centralizes:
  * - runningAgents map (Docker/K8s/Nomad container exec path)
+ * - runningAgentCoreAgents map (AgentCore invoke + SSE path)
  * - pendingPlans map (plans awaiting user approval)
  * - startingAgents set (prevents concurrent startAgent races)
  */
 
 import { createLogger } from '../../lib/logging/logger.js';
-import type { PlanData, RunningAgent } from './types.js';
+import type { PlanData, RunningAgent, RunningAgentCoreAgent } from './types.js';
 import { PENDING_PLAN_TTL_MS, PLAN_CLEANUP_INTERVAL_MS } from './types.js';
 
 const log = createLogger('SandboxStateManager');
@@ -16,6 +17,9 @@ const log = createLogger('SandboxStateManager');
 export class SandboxStateManager {
   /** Map of taskId -> running agent (Docker/K8s/Nomad) */
   private runningAgents = new Map<string, RunningAgent>();
+
+  /** Map of taskId -> running AgentCore agent */
+  private runningAgentCoreAgents = new Map<string, RunningAgentCoreAgent>();
 
   /** Map of taskId -> pending plan data (awaiting approval) */
   private pendingPlans = new Map<string, PlanData>();
@@ -68,19 +72,50 @@ export class SandboxStateManager {
   }
 
   // ---------------------------------------------------------------------------
-  // Combined helpers
+  // Running agents (AgentCore path)
   // ---------------------------------------------------------------------------
 
-  /** Check if a task has any running agent */
-  hasAnyRunningAgent(taskId: string): boolean {
-    return this.runningAgents.has(taskId);
+  getRunningAgentCoreAgent(taskId: string): RunningAgentCoreAgent | undefined {
+    return this.runningAgentCoreAgents.get(taskId);
   }
 
-  /** Get running agent info */
+  setRunningAgentCoreAgent(taskId: string, agent: RunningAgentCoreAgent): void {
+    if (this.runningAgentCoreAgents.has(taskId)) {
+      log.warn('Overwriting existing running AgentCore agent entry', { data: { taskId } });
+    }
+    this.runningAgentCoreAgents.set(taskId, agent);
+  }
+
+  deleteRunningAgentCoreAgent(taskId: string): boolean {
+    return this.runningAgentCoreAgents.delete(taskId);
+  }
+
+  hasRunningAgentCoreAgent(taskId: string): boolean {
+    return this.runningAgentCoreAgents.has(taskId);
+  }
+
+  get runningAgentCoreAgentCount(): number {
+    return this.runningAgentCoreAgents.size;
+  }
+
+  getAllRunningAgentCoreAgents(): RunningAgentCoreAgent[] {
+    return Array.from(this.runningAgentCoreAgents.values());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Combined helpers (both maps)
+  // ---------------------------------------------------------------------------
+
+  /** Check if a task has any running agent (container or AgentCore) */
+  hasAnyRunningAgent(taskId: string): boolean {
+    return this.runningAgents.has(taskId) || this.runningAgentCoreAgents.has(taskId);
+  }
+
+  /** Get running agent info from either map */
   getAnyRunningAgent(
     taskId: string
   ): { codespaceId: string; sessionId: string; startedAt: Date } | null {
-    const agent = this.runningAgents.get(taskId);
+    const agent = this.runningAgents.get(taskId) ?? this.runningAgentCoreAgents.get(taskId);
     if (!agent) return null;
     return {
       codespaceId: agent.codespaceId,
@@ -89,9 +124,9 @@ export class SandboxStateManager {
     };
   }
 
-  /** Total count of running agents */
+  /** Total count of all running agents across both maps */
   get totalRunningAgentCount(): number {
-    return this.runningAgents.size;
+    return this.runningAgents.size + this.runningAgentCoreAgents.size;
   }
 
   // ---------------------------------------------------------------------------

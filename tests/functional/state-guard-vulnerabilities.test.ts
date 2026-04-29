@@ -124,7 +124,8 @@ function createPlanApprovalService(
     { db, streams, provider: { get: vi.fn() } as any },
     stateManager,
     mockWorktreeInit as any,
-    mockStartAgentFn
+    mockStartAgentFn,
+    () => false
   );
 
   return { planService, mockStartAgentFn, mockWorktreeInit };
@@ -1035,7 +1036,8 @@ describe('State Machine Guard Vulnerabilities', () => {
       { db, streams, provider: { get: vi.fn() } as any },
       stateManager,
       mockWorktreeInit as any,
-      failingStartAgentFn
+      failingStartAgentFn,
+      () => false
     );
 
     // Store plan via real handlePlanReady

@@ -10,6 +10,7 @@
  * @see ./container-agent/sandbox-state.ts            (state management)
  * @see ./container-agent/worktree-init.service.ts    (worktree operations)
  * @see ./container-agent/container-exec.service.ts   (container lifecycle)
+ * @see ./container-agent/agentcore-bridge.service.ts (AgentCore SSE bridge)
  * @see ./container-agent/plan-approval.service.ts    (plan approve/reject)
  */
 

@@ -505,8 +505,8 @@ describe('Enum Constants', () => {
     expect(SANDBOX_TYPES).toContain('docker');
     expect(SANDBOX_TYPES).toContain('kubernetes');
     expect(SANDBOX_TYPES).toContain('nomad');
-    expect(SANDBOX_TYPES).toContain('devcontainer');
-    expect(SANDBOX_TYPES).toHaveLength(4);
+    expect(SANDBOX_TYPES).toContain('agentcore');
+    expect(SANDBOX_TYPES).toHaveLength(5);
   });
 
   it('RBAC_ROLES contains expected roles', () => {
