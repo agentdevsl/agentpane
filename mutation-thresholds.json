@@ -17,5 +17,16 @@
       "src/lib/api/auth-middleware.ts",
       "src/lib/api/rbac-middleware.ts"
     ]
+  },
+  "orchestration": {
+    "break": 50,
+    "warn": 60,
+    "files": [
+      "src/services/agent/agent-execution.service.ts",
+      "src/services/container-agent/plan-approval.service.ts",
+      "src/services/task.service.ts",
+      "src/lib/agents/stream-handler.ts"
+    ],
+    "comment": "arch29-W2-S / F09-22: initial baseline thresholds. Ratchet up as the orchestration test suite expands. The orchestration matrix entry runs on PR (not just cron) when files in `files` are touched."
   }
 }

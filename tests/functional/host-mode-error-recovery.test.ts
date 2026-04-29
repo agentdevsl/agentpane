@@ -260,12 +260,14 @@ describe('Host-Mode Agent Error Recovery (arch29-W2-B / F03-06)', () => {
       expect(a?.status).toBe('planning');
     });
 
-    // Mid-flow setup: planning persists 'waiting_approval' on the task. To
-    // exercise the execution-phase catch we need the task back in 'in_progress'
-    // (which is what PlanApprovalService.approvePlan / TaskService.approve do
-    // before resume() runs). For this functional test we use the real resume()
-    // path — it sets agent.status='running' and fires executeAgentExecution()
-    // in the background.
+    // TEST-SETUP: Mid-flow setup — planning persists 'waiting_approval' on
+    // the task. To exercise the execution-phase catch we need the task back
+    // in 'in_progress' (which is what PlanApprovalService.approvePlan /
+    // TaskService.approve do before resume() runs). The real plan-approve
+    // path requires a sandbox container we don't have in this functional
+    // test. For this test we use the real resume() path — it sets
+    // agent.status='running' and fires executeAgentExecution() in the
+    // background; the direct write is the precondition for resume().
     await db
       .update(tasks)
       .set({

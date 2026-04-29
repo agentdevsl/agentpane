@@ -105,6 +105,7 @@ async function setTaskLastAgentStatus(
   taskId: string,
   status: NonNullable<typeof tasks.$inferSelect.lastAgentStatus>
 ): Promise<void> {
+  // TEST-SETUP: see JSDoc above; centralises the lastAgentStatus precondition.
   await db.update(tasks).set({ lastAgentStatus: status }).where(eq(tasks.id, taskId));
 }
 
@@ -198,7 +199,9 @@ describe('State Machine Guard Vulnerabilities', () => {
     expect(taskBefore!.column).toBe('waiting_approval');
     expect(taskBefore!.lastAgentStatus).toBe('planning');
 
-    // Attach worktreeId so approve() would get past the NO_DIFF check if the guard wasn't there
+    // TEST-SETUP: attach worktreeId/branch so approve() reaches the
+    // PLAN_NOT_EXECUTED guard (the bug under test) instead of bailing on a
+    // missing worktree. No service API attaches a worktree to a planning task.
     await db
       .update(tasks)
       .set({ worktreeId: worktree.id, branch: worktree.branch })
@@ -294,6 +297,9 @@ describe('State Machine Guard Vulnerabilities', () => {
 
     // Set up worktree for diff check
     const worktree = await createTestWorktree(codespace.id, { taskId, status: 'active' });
+    // TEST-SETUP: re-link the freshly-created worktree so approve() can
+    // locate it for diff/merge. `updateTaskOnAgentComplete()` cleared
+    // `worktreeId`/`branch` (production behaviour); no service API re-attaches.
     await db
       .update(tasks)
       .set({ worktreeId: worktree.id, branch: worktree.branch })
@@ -372,6 +378,9 @@ describe('State Machine Guard Vulnerabilities', () => {
 
     // Set up worktree
     const worktree = await createTestWorktree(codespace.id, { taskId, status: 'active' });
+    // TEST-SETUP: re-link the freshly-created worktree so approve() can
+    // locate it for diff/merge. `updateTaskOnAgentComplete()` cleared
+    // `worktreeId`/`branch` (production behaviour); no service API re-attaches.
     await db
       .update(tasks)
       .set({ worktreeId: worktree.id, branch: worktree.branch })

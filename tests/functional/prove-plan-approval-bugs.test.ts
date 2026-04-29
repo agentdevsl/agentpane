@@ -709,7 +709,12 @@ describe('Prove/Disprove Plan Approval Bugs', () => {
         makePlanData({ plan: 'Race plan' })
       );
 
-      // Simulate user moving the task back to backlog before approval
+      // TEST-SETUP: simulate a race where the user moves the task back to
+      // backlog after handlePlanReady but before approvePlan. This exercises
+      // approvePlan's atomic `WHERE column = 'waiting_approval'` guard. The
+      // real path (TaskService.moveColumn → backlog) requires a worktree
+      // teardown chain we don't need here; direct write is the minimal
+      // surface for the race condition under test.
       await db
         .update(tasks)
         .set({ column: 'backlog', lastAgentStatus: null })

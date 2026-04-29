@@ -415,7 +415,12 @@ describe('Advanced Task Lifecycle Scenarios', () => {
       status: 'active',
     });
 
-    // Link worktree to task
+    // TEST-SETUP: link the freshly-created worktree to the task so approve()
+    // can locate it for the diff/merge step. The bug under test is approve()'s
+    // merge-failure handling — we already set lastAgentStatus='completed' via
+    // direct write above (justified there); attaching the worktree is the same
+    // setup pattern. No service API attaches a worktree to a task, and routing
+    // through the full lifecycle harness would obscure the assertion.
     await db
       .update(tasks)
       .set({ worktreeId: worktree.id, branch: worktree.branch })

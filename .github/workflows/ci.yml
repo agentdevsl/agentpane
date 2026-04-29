@@ -66,6 +66,9 @@ jobs:
       - name: API write validation gate (arch29-W2-H / F07-03)
         run: bash scripts/check-api-write-validation.sh
 
+      - name: Test discipline gate (arch29-W2-S / F09-23, F09-32)
+        run: bash scripts/check-test-discipline.sh
+
       - name: Type check
         run: bun run typecheck
 
@@ -175,6 +178,32 @@ jobs:
             --exclude 'dist/**' \
             --exclude '.worktrees/**' \
             src/ agent-runner/src/ packages/
+
+      # arch29-W2-S / F09-23 + F09-32 — test-discipline rules scoped to
+      # `tests/`. The authoritative gate is `scripts/check-test-discipline.sh`
+      # (run from `lint-and-typecheck`) which understands the
+      # `// TEST-SETUP:` exemption that Semgrep cannot express. Semgrep's
+      # default ignore list excludes `tests/`, so this rule file is primarily
+      # an IDE-time hint; the bash script enforces in CI.
+      - name: Semgrep scan — test discipline (advisory)
+        if: always()
+        continue-on-error: true
+        run: |
+          # Targets paths inside tests/ via explicit patterns. Semgrep's
+          # default exclude of tests/ is overridden by passing each file
+          # explicitly via xargs from `git ls-files`.
+          test_files=$(git ls-files 'tests/functional/*.test.ts' 'tests/integration/*.test.ts' 'tests/services/*.test.ts' 2>/dev/null | head -200)
+          if [ -z "$test_files" ]; then
+            echo "::notice::No test files matched; skipping semgrep test-discipline scan."
+            exit 0
+          fi
+          echo "$test_files" | xargs semgrep scan \
+            --config .semgrep/rules/test-discipline.yml \
+            --severity ERROR \
+            --error \
+            --no-git-ignore \
+            --exclude 'node_modules/**' \
+            --exclude '.worktrees/**'
 
   e2e-smoke:
     runs-on: ubuntu-latest

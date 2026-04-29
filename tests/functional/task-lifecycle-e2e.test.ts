@@ -318,7 +318,12 @@ describe('Functional E2E: Real Service Transitions', () => {
     //          getDiff → merge → move to verified → remove worktree
     // ═══════════════════════════════════════════════════════════════════
 
-    // Re-link worktree (cleared by updateTaskOnAgentComplete)
+    // TEST-SETUP: re-link worktree/branch after `updateTaskOnAgentComplete()`
+    // intentionally cleared them in Phase 5. There is no service method to
+    // re-attach a worktree to a completed task — the production path goes
+    // straight to approve()/merge — so this fixture restoration is a direct
+    // write. The subsequent `taskService.approve()` call is the real-service
+    // assertion under test.
     await db
       .update(tasks)
       .set({ worktreeId: WORKTREE_ID, branch: worktree.branch })
@@ -504,6 +509,11 @@ describe('Functional E2E: Real Service Transitions', () => {
 
     // Final approval
     const wt = await createTestWorktree(codespace.id, { taskId, status: 'active' });
+    // TEST-SETUP: re-link the freshly-created worktree to the task so
+    // approve() can locate it for diff/merge. `updateTaskOnAgentComplete()`
+    // above cleared `worktreeId`/`branch`, mirroring production behaviour;
+    // there is no service API to re-attach. The next call exercises the real
+    // taskService.approve() merge path — that is the assertion under test.
     await db
       .update(tasks)
       .set({ worktreeId: wt.id, branch: wt.branch })
@@ -533,11 +543,34 @@ describe('Functional E2E: Real Service Transitions', () => {
     const move = await taskService.moveColumn(taskId, 'in_progress');
     expect(move.ok).toBe(true);
 
-    // Store plan via DB (simulating handlePlanReady → approve → executing)
-    await db
-      .update(tasks)
-      .set({ plan: 'Refactoring plan text', planOptions: { sdkSessionId: 'sdk-turns' } })
-      .where(eq(tasks.id, taskId));
+    // Drive plan storage through the REAL PlanApprovalService transitions
+    // (handlePlanReady → approvePlan) so the precondition state is produced
+    // by service code, not raw DB writes. This satisfies CLAUDE.md
+    // §"Functional Tests: Real Service Transitions" — the turn_limit handler
+    // is the assertion under test.
+    const mockWorktreeInit = {
+      cleanupWorktree: vi.fn().mockResolvedValue(undefined),
+      resolveWorktree: vi.fn(),
+      initializeWorkspace: vi.fn(),
+    };
+    const mockStartAgentFn = vi.fn().mockResolvedValue({ ok: true, value: undefined });
+    const planService = new PlanApprovalService(
+      { db, streams, provider: { get: vi.fn() } as any },
+      stateManager,
+      mockWorktreeInit as any,
+      mockStartAgentFn,
+      () => false
+    );
+
+    await planService.handlePlanReady(taskId, SESSION_ID, codespace.id, {
+      plan: 'Refactoring plan text',
+      turnCount: 1,
+      sdkSessionId: 'sdk-turns',
+    });
+
+    const approveResult = await planService.approvePlan(taskId);
+    expect(approveResult.ok).toBe(true);
+    expect(mockStartAgentFn).toHaveBeenCalledOnce();
 
     // Real turn limit handler
     const ok = await updateTaskOnAgentComplete(db, taskId, 'turn_limit', streams, SESSION_ID);
@@ -590,6 +623,11 @@ describe('Functional E2E: Real Service Transitions', () => {
     expect(planned!.column).toBe('waiting_approval');
     expect(planned!.lastAgentStatus).toBe('planning');
 
+    // TEST-SETUP: link a worktree to the task so the failing approve() call
+    // below cannot bail early on a "no worktree" guard. The bug under test is
+    // that approve() must reject when lastAgentStatus='planning'; we want the
+    // assertion to land on the status guard, not on a worktree-missing branch.
+    // No service API attaches a worktree to a planning task — direct write.
     await db
       .update(tasks)
       .set({ worktreeId: worktree.id, branch: worktree.branch })
