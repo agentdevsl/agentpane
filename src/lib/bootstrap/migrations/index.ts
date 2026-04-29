@@ -527,4 +527,25 @@ CREATE INDEX IF NOT EXISTS session_events_session_type_idx ON session_events(ses
 CREATE INDEX IF NOT EXISTS session_events_stream_kind_session_idx ON session_events(stream_kind, session_id);
 `,
   },
+
+  // 35. F06-NEW-08: persist rate-limit counters across restarts.
+  // Each row is a single bucket: (key, window_start, count). Composite primary
+  // key on (key, window_start) lets concurrent inserts dedupe via INSERT ...
+  // ON CONFLICT DO UPDATE. Cleanup of expired buckets older than 24h runs as
+  // a BackgroundJob.
+  {
+    version: 35,
+    name: 'rate-limit-buckets',
+    sql: `
+CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+  key TEXT NOT NULL,
+  window_start INTEGER NOT NULL,
+  window_ms INTEGER NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (key, window_start)
+);
+CREATE INDEX IF NOT EXISTS rate_limit_buckets_updated_at_idx ON rate_limit_buckets(updated_at);
+`,
+  },
 ];
