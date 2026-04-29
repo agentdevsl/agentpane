@@ -64,46 +64,46 @@ describe('SandboxService (IT-1550)', () => {
     db = getTestDb();
     vi.clearAllMocks();
 
-    // H4: Raw SQL CREATE TABLE required because sandbox_instances and sandbox_tmux_sessions
-    // are created by a migration that runs after the base schema. The test setup helper
-    // setupTestDatabase() only applies the base schema. If these tables are ever added to
-    // the base setup, this raw SQL can be removed.
-    try {
-      execRawSql(`
-        CREATE TABLE IF NOT EXISTS "sandbox_instances" (
-          "id" TEXT PRIMARY KEY NOT NULL,
-          "codespace_id" TEXT NOT NULL UNIQUE,
-          "container_id" TEXT NOT NULL,
-          "status" TEXT NOT NULL DEFAULT 'stopped',
-          "image" TEXT NOT NULL,
-          "memory_mb" INTEGER NOT NULL,
-          "cpu_cores" INTEGER NOT NULL,
-          "idle_timeout_minutes" INTEGER NOT NULL DEFAULT 30,
-          "volume_mounts" TEXT DEFAULT '[]',
-          "env" TEXT,
-          "error_message" TEXT,
-          "created_at" TEXT NOT NULL DEFAULT (datetime('now')),
-          "last_activity_at" TEXT NOT NULL DEFAULT (datetime('now')),
-          "stopped_at" TEXT,
-          "updated_at" TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-      `);
-      execRawSql(`
-        CREATE TABLE IF NOT EXISTS "sandbox_tmux_sessions" (
-          "id" TEXT PRIMARY KEY NOT NULL,
-          "sandbox_id" TEXT NOT NULL,
-          "session_name" TEXT NOT NULL,
-          "task_id" TEXT,
-          "window_count" INTEGER NOT NULL DEFAULT 1,
-          "attached" INTEGER NOT NULL DEFAULT 0,
-          "created_at" TEXT NOT NULL DEFAULT (datetime('now')),
-          "last_activity_at" TEXT NOT NULL DEFAULT (datetime('now')),
-          UNIQUE("sandbox_id", "session_name")
-        );
-      `);
-    } catch (e: unknown) {
-      if (!(e instanceof Error) || !e.message.includes('already exists')) throw e;
-    }
+    // H4: Recreate sandbox_instances and sandbox_tmux_sessions without the
+    // codespace_id FK constraint. F09-21 (arch29-W2-Q) added these tables to
+    // the base test harness with a `REFERENCES codespaces(id) ON DELETE CASCADE`
+    // FK; this CRUD test inserts arbitrary `codespaceId` values for service-
+    // unit-level coverage and does not seed real codespaces. DROP+CREATE
+    // mirrors the sandbox-unique-lifecycle pattern.
+    execRawSql('DROP TABLE IF EXISTS sandbox_tmux_sessions');
+    execRawSql('DROP TABLE IF EXISTS sandbox_instances');
+    execRawSql(`
+      CREATE TABLE "sandbox_instances" (
+        "id" TEXT PRIMARY KEY NOT NULL,
+        "codespace_id" TEXT NOT NULL UNIQUE,
+        "container_id" TEXT NOT NULL,
+        "status" TEXT NOT NULL DEFAULT 'stopped',
+        "image" TEXT NOT NULL,
+        "memory_mb" INTEGER NOT NULL,
+        "cpu_cores" INTEGER NOT NULL,
+        "idle_timeout_minutes" INTEGER NOT NULL DEFAULT 30,
+        "volume_mounts" TEXT DEFAULT '[]',
+        "env" TEXT,
+        "error_message" TEXT,
+        "created_at" TEXT NOT NULL DEFAULT (datetime('now')),
+        "last_activity_at" TEXT NOT NULL DEFAULT (datetime('now')),
+        "stopped_at" TEXT,
+        "updated_at" TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+    execRawSql(`
+      CREATE TABLE "sandbox_tmux_sessions" (
+        "id" TEXT PRIMARY KEY NOT NULL,
+        "sandbox_id" TEXT NOT NULL,
+        "session_name" TEXT NOT NULL,
+        "task_id" TEXT,
+        "window_count" INTEGER NOT NULL DEFAULT 1,
+        "attached" INTEGER NOT NULL DEFAULT 0,
+        "created_at" TEXT NOT NULL DEFAULT (datetime('now')),
+        "last_activity_at" TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE("sandbox_id", "session_name")
+      );
+    `);
 
     mockSandbox = createMockSandbox({
       id: 'sandbox-crud-1',

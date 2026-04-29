@@ -26,9 +26,10 @@ import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../
 
 /**
  * Recreate the schema shape this PR ships, mirroring the bootstrap migration
- * v33 ("sandbox-unique-partial-index"). The base test migration chain does
- * not include `sandbox_instances` (it's in MISSING_IN_TEST_DB), so we set
- * it up here in the post-fix shape.
+ * v33 ("sandbox-unique-partial-index"). The harness now creates
+ * `sandbox_instances` (F09-21 / arch29-W2-Q), but each test in this file
+ * needs deterministic state, so we recreate the table per-test in the
+ * post-fix shape.
  */
 function ensureSandboxInstancesTableWithPartialIndex(): void {
   // Drop any prior table so each test starts from a known state. The DROP

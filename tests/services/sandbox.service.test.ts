@@ -39,8 +39,15 @@ CREATE TABLE IF NOT EXISTS "sandbox_tmux_sessions" (
 );
 `;
 
-// Helper to setup sandbox tables in test DB
+// Helper to setup sandbox tables in test DB.
+// F09-21 (arch29-W2-Q): the test harness now creates sandbox_instances and
+// sandbox_tmux_sessions with `REFERENCES codespaces(id) ON DELETE CASCADE`
+// FKs. This service-unit test inserts arbitrary `codespaceId` values without
+// seeding real codespaces, so DROP+CREATE removes the FK and lets the
+// existing test logic work without rewriting the entire suite.
 function setupSandboxTables(): void {
+  execRawSql('DROP TABLE IF EXISTS sandbox_tmux_sessions');
+  execRawSql('DROP TABLE IF EXISTS sandbox_instances');
   execRawSql(SANDBOX_TABLES_SQL);
 }
 
