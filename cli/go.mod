@@ -26,6 +26,10 @@ require (
 	github.com/posener/complete v1.1.1 // indirect
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/spf13/cast v1.3.1 // indirect
-	golang.org/x/crypto v0.0.0-20200820211705-5c72a883971a // indirect
-	golang.org/x/sys v0.25.0 // indirect
+	// Pinned to v0.31.0+ to address GHSA-v778-237x-gjrc (critical: ServerConfig.PublicKeyCallback
+	// authorization bypass) plus four high-severity SSH vulnerabilities. The `cli/` directory
+	// only uses sprig (templating) which transitively pulls x/crypto for blowfish/scrypt; SSH
+	// surface is unused but the bump removes the advisory.
+	golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/sys v0.28.0 // indirect
 )
