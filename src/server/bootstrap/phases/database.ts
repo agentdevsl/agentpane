@@ -9,7 +9,7 @@ import { Database as BunSQLite } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js';
 import { migrate as migratePg } from 'drizzle-orm/postgres-js/migrator';
-import postgres from 'postgres';
+import { createPgClient } from '../../../db/postgres-client.js';
 import * as pgSchema from '../../../db/schema/postgres/index.js';
 import * as sqliteSchema from '../../../db/schema/sqlite/index.js';
 import { MIGRATIONS } from '../../../lib/bootstrap/migrations/index.js';
@@ -75,21 +75,14 @@ async function initializePostgres(config: ServerConfig): Promise<DatabaseResult>
     throw new MissingDatabaseUrlError();
   }
 
-  // F02-05: pass validated pool / client config to postgres-js.
+  // F02-05 / F02-17 (arch29-W2-R): pass validated pool / client config to
+  // postgres-js via the centralised `createPgClient` helper. The helper is
+  // shared across this primary bootstrap path, the worker/CLI path
+  // (`src/db/client.ts`), and the legacy bootstrap (`src/lib/bootstrap/
+  // phases/postgres.ts`) so all three production code paths see the same
+  // pool / SSL / application_name settings in `pg_stat_activity`.
   const pg = config.postgres;
-  const pgClient = postgres(connectionString, {
-    max: pg.max,
-    idle_timeout: pg.idleTimeoutSeconds,
-    max_lifetime: pg.maxLifetimeSeconds,
-    connect_timeout: pg.connectTimeoutSeconds,
-    connection: { application_name: pg.applicationName },
-    ssl:
-      pg.ssl === 'disable'
-        ? false
-        : pg.ssl === 'require' || pg.ssl === 'prefer'
-          ? pg.ssl
-          : undefined,
-  });
+  const pgClient = createPgClient(connectionString, pg);
   log.info('PostgreSQL client initialized', {
     data: {
       max: pg.max,

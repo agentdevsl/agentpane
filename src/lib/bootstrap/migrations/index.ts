@@ -548,4 +548,73 @@ CREATE TABLE IF NOT EXISTS rate_limit_buckets (
 CREATE INDEX IF NOT EXISTS rate_limit_buckets_updated_at_idx ON rate_limit_buckets(updated_at);
 `,
   },
+
+  // 36. F02-18 (arch29-W2-R): event_outbox timestamps as epoch ms.
+  //
+  // Convert `next_attempt_at` / `created_at` / `published_at` from TEXT (ISO
+  // string) to INTEGER (epoch ms) so the relay's `lte(nextAttemptAt, now)`
+  // comparison is numeric on both SQLite and Postgres. The previous lex-string
+  // ordering only worked for UTC ISO timestamps and was brittle across
+  // dialects.
+  //
+  // The migration uses the established v29/v30/v33 table-rebuild pattern:
+  // SQLite cannot ALTER COLUMN type in place, so we create a staging table,
+  // copy existing rows with `strftime('%s', ...) * 1000` to convert ISO text
+  // to epoch ms, drop the original, and rename the staging table. Indexes
+  // are recreated post-rename.
+  //
+  // Idempotency: leftover staging tables from a partial prior run are dropped
+  // first. On a fresh install the original `event_outbox` table was created
+  // by v32 with TEXT timestamps; this rebuild converts those to INTEGER.
+  // Schema-drift parity with the Drizzle declaration (now `integer` in both
+  // dialects) is verified by `tests/integration/event-outbox-schema-drift.test.ts`.
+  {
+    version: 36,
+    name: 'event-outbox-epoch-ms',
+    sql: `
+-- Step 1: Drop any leftover staging table from a partial prior run.
+DROP TABLE IF EXISTS event_outbox_new_v36;
+
+-- Step 2: Create the rebuilt table with INTEGER epoch-ms timestamps.
+CREATE TABLE event_outbox_new_v36 (
+  id TEXT PRIMARY KEY NOT NULL,
+  stream_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER NOT NULL,
+  last_error TEXT,
+  created_at INTEGER NOT NULL,
+  published_at INTEGER
+);
+
+-- Step 3: Copy rows, converting ISO-text timestamps to epoch ms.
+-- strftime('%s', text) returns seconds since epoch; multiply by 1000 for ms.
+-- For NULL published_at, preserve NULL via a CASE.
+INSERT INTO event_outbox_new_v36 (
+  id, stream_id, type, payload, status, attempts,
+  next_attempt_at, last_error, created_at, published_at
+)
+SELECT
+  id, stream_id, type, payload, status, attempts,
+  CAST(strftime('%s', next_attempt_at) AS INTEGER) * 1000,
+  last_error,
+  CAST(strftime('%s', created_at) AS INTEGER) * 1000,
+  CASE
+    WHEN published_at IS NULL THEN NULL
+    ELSE CAST(strftime('%s', published_at) AS INTEGER) * 1000
+  END
+FROM event_outbox;
+
+-- Step 4: Pivot the table.
+DROP TABLE event_outbox;
+ALTER TABLE event_outbox_new_v36 RENAME TO event_outbox;
+
+-- Step 5: Recreate the supporting indexes.
+CREATE INDEX IF NOT EXISTS event_outbox_status_idx ON event_outbox(status);
+CREATE INDEX IF NOT EXISTS event_outbox_next_attempt_at_idx ON event_outbox(next_attempt_at);
+CREATE INDEX IF NOT EXISTS event_outbox_status_next_attempt_idx ON event_outbox(status, next_attempt_at);
+`,
+  },
 ];

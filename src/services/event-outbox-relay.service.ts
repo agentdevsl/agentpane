@@ -98,12 +98,15 @@ export class EventOutboxRelayService implements BackgroundJob {
     if (!this.running || this.inFlight) return;
     this.inFlight = true;
     try {
-      const now = new Date().toISOString();
-      this.lastTickAt = now;
+      // F02-18: timestamps now stored as epoch-ms integers on both dialects.
+      // The lex-string ordering risk on PG (`timestamptz` coercion of an ISO
+      // string) is gone — comparison is purely numeric and dialect-neutral.
+      const nowMs = Date.now();
+      this.lastTickAt = new Date(nowMs).toISOString();
       const rows = await this.db
         .select()
         .from(eventOutbox)
-        .where(and(eq(eventOutbox.status, 'pending'), lte(eventOutbox.nextAttemptAt, now)))
+        .where(and(eq(eventOutbox.status, 'pending'), lte(eventOutbox.nextAttemptAt, nowMs)))
         .orderBy(eventOutbox.nextAttemptAt)
         .limit(BATCH_SIZE);
 
@@ -141,7 +144,8 @@ export class EventOutboxRelayService implements BackgroundJob {
         .update(eventOutbox)
         .set({
           status: 'published',
-          publishedAt: new Date().toISOString(),
+          // F02-18: epoch ms — Drizzle accepts a number for both dialects.
+          publishedAt: Date.now(),
           lastError: null,
         })
         .where(eq(eventOutbox.id, row.id));
@@ -149,7 +153,8 @@ export class EventOutboxRelayService implements BackgroundJob {
       const nextAttempts = row.attempts + 1;
       const isDead = nextAttempts >= MAX_ATTEMPTS;
       const backoff = Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** Math.min(nextAttempts, 10));
-      const nextAt = new Date(Date.now() + backoff).toISOString();
+      // F02-18: backoff now expressed as epoch ms (Date.now() + delay).
+      const nextAt = Date.now() + backoff;
       await this.db
         .update(eventOutbox)
         .set({
@@ -174,10 +179,11 @@ export class EventOutboxRelayService implements BackgroundJob {
 
   private async trimPublished(): Promise<void> {
     try {
-      const cutoff = new Date(Date.now() - RETENTION_MINUTES * 60 * 1000).toISOString();
+      // F02-18: cutoff is epoch ms — comparison numeric on both dialects.
+      const cutoffMs = Date.now() - RETENTION_MINUTES * 60 * 1000;
       await this.db
         .delete(eventOutbox)
-        .where(and(eq(eventOutbox.status, 'published'), lt(eventOutbox.publishedAt, cutoff)));
+        .where(and(eq(eventOutbox.status, 'published'), lt(eventOutbox.publishedAt, cutoffMs)));
     } catch (err) {
       log.warn('EventOutboxRelay retention trim failed', {
         data: { error: err instanceof Error ? err.message : String(err) },
