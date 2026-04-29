@@ -68,7 +68,7 @@
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@vitest/coverage-v8": "4.1.4",
+    "@vitest/coverage-v8": "4.1.5",
     "agent-browser": "0.26.0",
     "drizzle-kit": "^0.31.10",
     "fast-check": "^4.7.0",
