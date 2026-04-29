@@ -61,8 +61,8 @@ describe('HighlightedCode', () => {
     expect(container.querySelector('img')).toBeNull();
     // Check every element's attributes for onerror.
     const elements = container.querySelectorAll('*');
-    for (const el of Array.from(elements)) {
-      for (const attr of Array.from(el.attributes)) {
+    for (const el of Array.from(elements) as Element[]) {
+      for (const attr of Array.from(el.attributes) as Attr[]) {
         expect(attr.name).not.toBe('onerror');
       }
     }

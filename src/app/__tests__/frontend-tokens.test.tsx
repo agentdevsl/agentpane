@@ -71,7 +71,7 @@ describe('F08-02: SVG hex literals are gone', () => {
 
   it('AIActionButton SVG carries only the allow-listed mascot eyes (#1a1a1a)', () => {
     const { container } = render(<AIActionButton>Test</AIActionButton>);
-    const svgs = Array.from(container.querySelectorAll('svg'));
+    const svgs = Array.from(container.querySelectorAll('svg')) as SVGSVGElement[];
     const html = svgs.map((s) => s.outerHTML).join('');
     const hits = html.match(HEX_LITERAL_RE) ?? [];
     // The mascot's eyes are intentionally fixed to preserve the silhouette
