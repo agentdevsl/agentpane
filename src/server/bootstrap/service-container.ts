@@ -60,18 +60,35 @@ const log = createLogger('ServiceContainer');
 /**
  * Create the Bun-based CommandRunner for shell operations.
  *
- * F06-02 surfaces two entry points:
- *   - `exec(command, cwd)` — legacy `sh -c` path for callers that need
- *     pipes or shell features (git-service reads from pipes, init scripts
- *     are user-authored shell). Callers on this path MUST pre-validate any
- *     user-supplied values they interpolate; see `validateShellCommand`.
- *   - `execArgs(argv, cwd)` — safe positional-argv path. `Bun.spawn(argv)`
- *     passes arguments literally so shell metacharacters cannot be
- *     interpreted. New callers with untrusted input should prefer this.
+ * F06-02 / F06-NEW-01: `execArgs(argv, cwd)` is the canonical, safe path.
+ * `Bun.spawn(argv)` passes arguments literally so shell metacharacters
+ * cannot be interpreted. ALL new callers with any external/user input MUST
+ * use `execArgs`.
+ *
+ * `exec(command, cwd)` is the deprecated legacy `sh -c` path retained only
+ * for callers that genuinely require shell features (init-script execution,
+ * pipes). Each invocation emits a `log.warn` so a future PR can audit and
+ * remove remaining call sites. New callers MUST NOT use this path.
  */
 function createBunCommandRunner(): CommandRunner {
   return {
+    /**
+     * @deprecated F06-NEW-01 — `sh -c` shell evaluation is unsafe for any
+     * input that was not authored entirely by the deployment operator.
+     * Use {@link CommandRunner.execArgs} instead. Remaining callers (init
+     * scripts) emit a runtime warning so we can finish migrating in a
+     * follow-up PR before removing this path.
+     */
     exec: async (command: string, cwd: string) => {
+      // F06-NEW-01: emit a warning every time the legacy shell path is used
+      // so we can audit and remove remaining call sites in a follow-up PR.
+      // The preview is truncated so a noisy command does not balloon the log.
+      log.warn('CommandRunner.exec (sh -c) is deprecated; migrate caller to execArgs', {
+        data: {
+          commandPreview: command.slice(0, 200),
+          cwd,
+        },
+      });
       const proc = Bun.spawn(['sh', '-c', command], {
         cwd,
         stdout: 'pipe',
@@ -89,9 +106,9 @@ function createBunCommandRunner(): CommandRunner {
       return { stdout, stderr };
     },
     execArgs: async (argv: string[], cwd: string) => {
-      // Positional-argv form (F06-02). No shell is invoked: `Bun.spawn(argv)`
-      // passes arguments literally, so metacharacters in user-controlled
-      // values cannot be interpreted by sh.
+      // Positional-argv form (F06-02 / F06-NEW-01). No shell is invoked:
+      // `Bun.spawn(argv)` passes arguments literally, so metacharacters in
+      // user-controlled values cannot be interpreted by sh.
       if (argv.length === 0) {
         throw new Error('argv must contain at least one element');
       }
