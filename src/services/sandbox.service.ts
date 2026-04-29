@@ -204,8 +204,13 @@ export class SandboxService {
       // This ensures one consistent ID across stream, DB, and provider lookups.
       const sandbox = await this.provider.create({ ...config, id: sandboxId });
 
-      // Inject credentials - emit warning event if this fails so user is informed
-      const credResult = await this.credentialsInjector.inject(sandbox);
+      // Inject credentials - emit warning event if this fails so user is informed.
+      // F06-NEW-02 / arch29-W1-E: pass injection context so the multi-tenant
+      // gate fires when MULTI_TENANT=true and sandbox.mode='shared'.
+      const credResult = await this.credentialsInjector.inject(sandbox, undefined, {
+        db: this.db,
+        codespaceId: config.codespaceId,
+      });
       if (!credResult.ok) {
         // Emit warning event so user is aware credentials are missing
         await this.streams.publish(streamId, 'sandbox:error', {
@@ -460,7 +465,10 @@ export class SandboxService {
   }
 
   /**
-   * Refresh credentials in a sandbox
+   * Refresh credentials in a sandbox.
+   *
+   * F06-NEW-02 / arch29-W1-E: passes injection context so the multi-tenant
+   * gate fires on refresh (a refresh = re-inject from host credentials).
    */
   async refreshCredentials(sandboxId: string): Promise<Result<void, SandboxError>> {
     const sandbox = await this.provider.getById(sandboxId);
@@ -468,7 +476,24 @@ export class SandboxService {
       return err(SandboxErrors.CONTAINER_NOT_FOUND);
     }
 
-    return this.credentialsInjector.refresh(sandbox);
+    // Look up the codespaceId for the sandbox so the gate can include it
+    // in the error details. Falls back to undefined if the lookup fails;
+    // the gate still triggers correctly without a codespaceId.
+    let codespaceId: string | undefined;
+    try {
+      const dbRow = await this.db.query.sandboxInstances.findFirst({
+        where: (table, { eq: sqlEq }) => sqlEq(table.id, sandboxId),
+        columns: { codespaceId: true },
+      });
+      codespaceId = dbRow?.codespaceId ?? undefined;
+    } catch {
+      // Best-effort lookup; gate still works without codespaceId.
+    }
+
+    return this.credentialsInjector.refresh(sandbox, {
+      db: this.db,
+      codespaceId,
+    });
   }
 
   /**

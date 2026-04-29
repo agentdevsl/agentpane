@@ -52,6 +52,17 @@ export interface ServerConfig {
   skipAuth: boolean;
   sandboxInitTimeoutMs: number;
   caddyStreamsUrl: string;
+  /**
+   * F06-NEW-02 (P0) / arch29-W1-E — Multi-tenant deployment gate.
+   *
+   * When `true`, shared-sandbox mode is forbidden because the single
+   * Anthropic OAuth credentials file and single `/workspace` bind mount
+   * would let one tenant agent read another tenant's secrets.
+   *
+   * Default: `false` (self-hosted single-team install). Set
+   * `MULTI_TENANT=true` in the environment to enable enforcement.
+   */
+  multiTenant: boolean;
   /** PostgreSQL connection pool / client configuration (F02-05). */
   postgres: PostgresClientConfig;
 }
