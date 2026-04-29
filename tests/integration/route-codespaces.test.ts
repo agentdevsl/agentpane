@@ -203,7 +203,7 @@ describe('Codespaces Routes (IT-1150)', () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.ok).toBe(false);
-    expect(body.error.code).toBe('INVALID_JSON');
+    expect(body.error.code).toBe('VALIDATION_ERROR');
   });
 
   it('IT-1158: POST / returns service error code for duplicate path', async () => {
@@ -368,7 +368,7 @@ describe('Codespaces Routes (IT-1150)', () => {
 
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error.code).toBe('INVALID_JSON');
+    expect(body.error.code).toBe('VALIDATION_ERROR');
   });
 
   // ─── DELETE /:id ──────────────────────────────────────

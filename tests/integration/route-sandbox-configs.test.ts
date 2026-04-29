@@ -80,7 +80,7 @@ describe('Sandbox Config Routes (IT-400)', () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.ok).toBe(false);
-    expect(body.error.code).toBe('INVALID_JSON');
+    expect(body.error.code).toBe('VALIDATION_ERROR');
   });
 
   it('IT-404: POST / returns 400 for invalid nomadAddress (SSRF-blocked metadata endpoint)', async () => {
@@ -242,7 +242,7 @@ describe('Sandbox Config Routes (IT-400)', () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.ok).toBe(false);
-    expect(body.error.code).toBe('INVALID_JSON');
+    expect(body.error.code).toBe('VALIDATION_ERROR');
   });
 
   it('IT-415: PATCH /:id rejects invalid nomadAddress', async () => {

@@ -349,22 +349,34 @@ describe('Tasks API Routes', () => {
       expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
-    it('returns agent error info when agent start fails', async () => {
+    it('returns ok:false with AGENT_START_FAILED when agent start fails', async () => {
+      // arch29-W2-H / F07-06: when the move succeeds but agent auto-start
+      // fails, the route MUST surface the failure as `ok:false` with
+      // `error.code === 'AGENT_START_FAILED'`. Previously it returned
+      // `ok:true` with a hidden `data.agentError` field, masking the
+      // failure from any client that keys on `result.ok` (the canonical
+      // pattern across the entire client). The service has already
+      // reverted the column to backlog by this point.
       const { app, taskService } = createTestApp();
-      const movedTask = { id: 'task-1', column: 'in_progress' };
+      const revertedTask = { id: 'task-1', column: 'backlog' };
       taskService.moveColumn.mockResolvedValue({
         ok: true,
-        value: { task: movedTask, agentError: 'No idle agents available' },
+        value: { task: revertedTask, agentError: 'No idle agents available' },
       });
 
       const res = await request(app, 'PATCH', '/api/tasks/task-1/move', {
         column: 'in_progress',
       });
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
       const json = await res.json();
-      expect(json.ok).toBe(true);
-      expect(json.data.agentError).toBe('No idle agents available');
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('AGENT_START_FAILED');
+      expect(json.error.message).toBe('No idle agents available');
+      // The reverted task is included in details so the client can patch
+      // local state without a separate fetch.
+      expect(json.error.details.task.column).toBe('backlog');
+      expect(json.error.details.taskId).toBe('task-1');
     });
   });
 
@@ -549,7 +561,7 @@ describe('Tasks API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
       expect(json.error.message).toContain('reason');
     });
 
@@ -563,7 +575,7 @@ describe('Tasks API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when reason is whitespace-only', async () => {
@@ -576,7 +588,7 @@ describe('Tasks API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when reason is non-string type', async () => {
@@ -589,7 +601,7 @@ describe('Tasks API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 for invalid id', async () => {

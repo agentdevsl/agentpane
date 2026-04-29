@@ -63,6 +63,9 @@ jobs:
       - name: Supply-chain check (arch29-W1-C / F04-01, F04-02, F04-11)
         run: bash scripts/check-supply-chain.sh
 
+      - name: API write validation gate (arch29-W2-H / F07-03)
+        run: bash scripts/check-api-write-validation.sh
+
       - name: Type check
         run: bun run typecheck
 

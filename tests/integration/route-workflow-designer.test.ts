@@ -85,7 +85,7 @@ describe('Workflow Designer Routes (IT-650)', () => {
 
       expect(response.status).toBe(400);
       const body = await response.json();
-      expect(body.error.code).toBe('INVALID_JSON');
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('IT-652: returns 400 when no content source provided', async () => {

@@ -210,7 +210,7 @@ describe('terraform routes', () => {
 
       expect(res.status).toBe(400);
       expect(body.ok).toBe(false);
-      expect(body.error.code).toBe('INVALID_JSON');
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when name is missing', async () => {
@@ -532,7 +532,7 @@ describe('terraform routes', () => {
       const body = await res.json();
 
       expect(res.status).toBe(400);
-      expect(body.error.code).toBe('INVALID_JSON');
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 for invalid syncIntervalMinutes (too low)', async () => {
@@ -866,7 +866,7 @@ describe('terraform routes', () => {
       const body = await res.json();
 
       expect(res.status).toBe(400);
-      expect(body.error.code).toBe('INVALID_JSON');
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when code field is missing', async () => {
@@ -994,7 +994,7 @@ describe('terraform routes', () => {
       const body = await res.json();
 
       expect(res.status).toBe(400);
-      expect(body.error.code).toBe('INVALID_JSON');
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when messages is empty', async () => {

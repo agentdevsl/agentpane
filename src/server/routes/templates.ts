@@ -5,6 +5,7 @@
 import { Hono } from 'hono';
 import type { TemplateService } from '../../services/template.service.js';
 import { errorResponse, json, parseLimit, validateIdParam } from '../shared.js';
+import { createTemplateSchema, parseJsonBody, updateTemplateSchema } from '../validation.js';
 
 interface TemplatesDeps {
   templateService: TemplateService;
@@ -38,52 +39,14 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
 
   // POST /api/templates
   app.post('/', async (c) => {
-    let body: {
-      name?: string;
-      description?: string;
-      scope?: string;
-      githubUrl?: string;
-      branch?: string;
-      configPath?: string;
-      codespaceId?: string;
-      codespaceIds?: string[];
-    };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
-    // Validate required fields
-    if (!body.name) {
-      return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'name is required' } },
-        400
-      );
-    }
-    if (!body.scope || !['org', 'codespace'].includes(body.scope)) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'MISSING_PARAMS', message: 'scope must be "org" or "project"' },
-        },
-        400
-      );
-    }
-    if (!body.githubUrl) {
-      return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'githubUrl is required' } },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, createTemplateSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const result = await templateService.create({
       name: body.name,
       description: body.description,
-      scope: body.scope as 'org' | 'codespace',
+      scope: body.scope,
       githubUrl: body.githubUrl,
       branch: body.branch,
       configPath: body.configPath,
@@ -130,21 +93,9 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    let body: {
-      name?: string;
-      description?: string;
-      branch?: string;
-      configPath?: string;
-      codespaceIds?: string[];
-    };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, updateTemplateSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const result = await templateService.update(id, {
       name: body.name,

@@ -24,6 +24,7 @@ import { workflowEdgeSchema, workflowNodeSchema } from '../../lib/workflow-dsl/t
 import type { SettingsService } from '../../services/settings.service.js';
 import type { TemplateService } from '../../services/template.service.js';
 import { json } from '../shared.js';
+import { parseJsonBody } from '../validation.js';
 
 interface WorkflowDesignerDeps {
   templateService: TemplateService;
@@ -395,28 +396,8 @@ export function createWorkflowDesignerRoutes({
 
   // POST /api/workflow-designer/analyze
   app.post('/analyze', async (c) => {
-    // Parse request body
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
-    // Validate request
-    const parseResult = analyzeWorkflowRequestSchema.safeParse(body);
-    if (!parseResult.success) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'VALIDATION_ERROR', message: parseResult.error.message },
-        },
-        400
-      );
-    }
+    const parseResult = await parseJsonBody(c, analyzeWorkflowRequestSchema);
+    if (!parseResult.ok) return parseResult.response;
 
     const { templateId, skills, commands, agents: agentsData, name } = parseResult.data;
 

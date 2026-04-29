@@ -16,6 +16,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import type { Database } from '../../types/database.js';
 import { errorResponse, json, parseLimit, parseOffset, validateIdParam } from '../shared.js';
+import { parseJsonBody, sandboxNomadValidateSchema } from '../validation.js';
 
 const sandboxConfigBodySchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -102,28 +103,8 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
 
   // POST /api/sandbox-configs
   app.post('/', async (c) => {
-    let rawBody: unknown;
-    try {
-      rawBody = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
-        400
-      );
-    }
-    const parsed = sandboxConfigCreateSchema.safeParse(rawBody);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, sandboxConfigCreateSchema);
+    if (!parsed.ok) return parsed.response;
     const body = parsed.data;
     if (body.nomadAddress) {
       const addrValidation = await validateNomadAddress(body.nomadAddress);
@@ -170,28 +151,8 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    let rawBody: unknown;
-    try {
-      rawBody = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
-        400
-      );
-    }
-    const parsed = sandboxConfigBodySchema.safeParse(rawBody);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, sandboxConfigBodySchema);
+    if (!parsed.ok) return parsed.response;
     const body = parsed.data;
     if (body.nomadAddress) {
       const addrValidation = await validateNomadAddress(body.nomadAddress);
@@ -1285,22 +1246,9 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
 
   // POST /api/sandbox/nomad/validate - Validate connection
   app.post('/validate', async (c) => {
-    let body: { address: string; token?: string; namespace?: string };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
-        400
-      );
-    }
-
-    if (!body.address) {
-      return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'Nomad address is required' } },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, sandboxNomadValidateSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     // Validate address to prevent SSRF
     const addrValidation = await validateNomadAddress(body.address);
