@@ -17,6 +17,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { and, desc, eq, gt, gte, lt, lte, sql } from 'drizzle-orm';
 import type { NewSessionSummary, SessionSummary } from '../../db/schema';
 import { sessionEvents, sessionSummaries, sessions } from '../../db/schema';
+import { runRaw } from '../../lib/db/dialect.js';
 import type { SessionError } from '../../lib/errors/session-errors.js';
 import { SessionErrors } from '../../lib/errors/session-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
@@ -241,12 +242,19 @@ export class SessionStreamService {
       // - PostgreSQL: The UNIQUE index on (session_id, offset) prevents duplicates.
       //   If a constraint violation occurs, the error is caught below and returned
       //   as SYNC_FAILED — the caller (publish()) can retry.
-      await this.db.run(
+      // F02-15: capture `created_at` as a JS-side ISO string so the same
+      // value round-trips through both SQLite and Postgres without relying
+      // on the SQLite-only `datetime('now')` literal. `runRaw` dispatches
+      // to `db.run()` (SQLite) or `db.execute()` (Postgres) — both support
+      // this INSERT...SELECT pattern.
+      const createdAtIso = new Date().toISOString();
+      await runRaw(
+        this.db,
         sql`INSERT INTO session_events (id, session_id, "offset", type, channel, data, timestamp, created_at)
             SELECT ${eventId}, ${sessionId},
                    COALESCE(MAX("offset"), -1) + 1,
                    ${event.type}, ${channel}, ${JSON.stringify(event.data)},
-                   ${event.timestamp}, datetime('now')
+                   ${event.timestamp}, ${createdAtIso}
             FROM session_events
             WHERE session_id = ${sessionId}`
       );
