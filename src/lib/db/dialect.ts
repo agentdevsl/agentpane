@@ -211,7 +211,9 @@ export async function runRaw(db: Database, query: SQL): Promise<{ changes: numbe
   // SQLite — better-sqlite3 / bun-sqlite returns `{ changes, lastInsertRowid }`
   // synchronously. Some test mocks return a Promise via `mockResolvedValue`,
   // so we `await` the result to handle both cases uniformly.
-  const result = (await (db as unknown as { run: (q: SQL) => { changes: number } | Promise<{ changes: number }> }).run(query)) as { changes: number };
+  const result = (await (
+    db as unknown as { run: (q: SQL) => { changes: number } | Promise<{ changes: number }> }
+  ).run(query)) as { changes: number };
   return { changes: result.changes };
 }
 
