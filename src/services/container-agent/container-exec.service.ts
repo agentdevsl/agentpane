@@ -31,6 +31,7 @@ import { getAgentMaxRuntimeMs, getGlobalDefaultModel } from '../settings.service
 import { TemplateService } from '../template.service.js';
 import type { SandboxStateManager } from './sandbox-state.js';
 import {
+  assertSharedSandboxAllowed,
   resolveOAuthExpiresAtMs,
   resolveOAuthToken,
   updateAgentStatus,
@@ -237,6 +238,26 @@ export class ContainerExecService {
     if (!codespace) {
       log.info('Codespace not found', { data: { codespaceId } });
       return err(SandboxErrors.PROJECT_NOT_FOUND);
+    }
+
+    // F06-NEW-02 / arch29-W1-E: enforce the multi-tenant gate before any
+    // sandbox lookup or auto-creation. When MULTI_TENANT=true is set in the
+    // environment AND the resolved sandbox.mode is 'shared', refuse to
+    // start the agent — shared mode uses a single Anthropic OAuth file
+    // that every tenant agent could read. Default behaviour for self-
+    // hosted single-team installs is unchanged (MULTI_TENANT defaults to
+    // false). Throws a typed AppError on violation; convert to Result.
+    try {
+      await assertSharedSandboxAllowed(db, codespaceId);
+    } catch (gateErr) {
+      log.error('Multi-tenant gate rejected agent start', {
+        data: {
+          codespaceId,
+          taskId,
+          error: gateErr instanceof Error ? gateErr.message : String(gateErr),
+        },
+      });
+      return err(SandboxErrors.MULTI_TENANT_REQUIRES_PER_PROJECT_SANDBOX(codespaceId));
     }
 
     // Use shared sandbox mode by default (fastest path - no per-codespace container creation)

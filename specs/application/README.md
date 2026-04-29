@@ -86,6 +86,7 @@ specs/application/
 │   ├── authentication.md              # OAuth, sessions, API tokens
 │   ├── rbac.md                        # Role-based access control (4 roles)
 │   ├── sandbox.md                     # Container isolation, multi-provider
+│   ├── sandbox-tenant-isolation.md    # Multi-tenant gate (F06-NEW-02 P0)
 │   └── security-model.md              # Tool sandboxing, audit logging
 │
 ├── services/                          # Business Logic Services (9 specs)
@@ -202,6 +203,7 @@ specs/application/
 | [authentication.md](./security/authentication.md) | Auth | GitHub OAuth, sessions, API tokens |
 | [rbac.md](./security/rbac.md) | RBAC | 4 roles, team-based access |
 | [sandbox.md](./security/sandbox.md) | Isolation | Multi-provider (Docker, K8s, Nomad, AgentCore) |
+| [sandbox-tenant-isolation.md](./security/sandbox-tenant-isolation.md) | Multi-tenant gate | `MULTI_TENANT=true` forbids shared sandbox mode (F06-NEW-02 P0) |
 | [security-model.md](./security/security-model.md) | Security | Tool sandbox, audit logging |
 
 ### Integrations
