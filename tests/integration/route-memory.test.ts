@@ -675,10 +675,12 @@ describe('Memory Routes (IT-1200)', () => {
       position: 0,
     });
 
-    // Insert a session event with memory injection data
+    // Insert a session event with memory injection data.
+    // F05-25: 'session-for-injection' is a bare ID (session-kind).
     await db.insert(sessionEvents).values({
       id: createId(),
       sessionId: 'session-for-injection',
+      streamKind: 'session',
       offset: 0,
       channel: 'system',
       type: 'memory:insights_injected',

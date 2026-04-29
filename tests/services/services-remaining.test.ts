@@ -1421,11 +1421,13 @@ describe('DurableStreamsService', () => {
     });
 
     it('publishes events to stream', async () => {
-      await streamsService.createStream('stream-1', {});
-      await streamsService.publish('stream-1', 'plan:started', { sessionId: 'session-1' });
+      // F05-20: plan:* events must go to plan-prefixed stream IDs.
+      const planStream = 'plan:stream-1';
+      await streamsService.createStream(planStream, {});
+      await streamsService.publish(planStream, 'plan:started', { sessionId: 'session-1' });
 
       expect(mockServer.publish).toHaveBeenCalledWith(
-        'stream-1',
+        planStream,
         'plan:started',
         expect.objectContaining({ sessionId: 'session-1' })
       );
@@ -1434,30 +1436,32 @@ describe('DurableStreamsService', () => {
 
   describe('Plan Mode Events', () => {
     it('publishes plan started event', async () => {
-      await streamsService.createStream('stream-1', {});
-      await streamsService.publishPlanStarted('stream-1', {
+      const planStream = 'plan:stream-1';
+      await streamsService.createStream(planStream, {});
+      await streamsService.publishPlanStarted(planStream, {
         sessionId: 'session-1',
         taskId: 'task-1',
         codespaceId: 'project-1',
       });
 
       expect(mockServer.publish).toHaveBeenCalledWith(
-        'stream-1',
+        planStream,
         'plan:started',
         expect.objectContaining({ sessionId: 'session-1' })
       );
     });
 
     it('publishes plan completed event', async () => {
-      await streamsService.createStream('stream-1', {});
-      await streamsService.publishPlanCompleted('stream-1', {
+      const planStream = 'plan:stream-1';
+      await streamsService.createStream(planStream, {});
+      await streamsService.publishPlanCompleted(planStream, {
         sessionId: 'session-1',
         issueUrl: 'https://github.com/test/issue/1',
         issueNumber: 1,
       });
 
       expect(mockServer.publish).toHaveBeenCalledWith(
-        'stream-1',
+        planStream,
         'plan:completed',
         expect.objectContaining({ issueUrl: 'https://github.com/test/issue/1' })
       );
@@ -1466,38 +1470,42 @@ describe('DurableStreamsService', () => {
 
   describe('Sandbox Events', () => {
     it('publishes sandbox creating event', async () => {
-      await streamsService.createStream('sandbox-1', {});
-      await streamsService.publish('sandbox-1', 'sandbox:creating', {
+      // F05-20: sandbox:* events must go to sandbox-prefixed stream IDs.
+      const sandboxStream = 'sandbox:sandbox-1';
+      await streamsService.createStream(sandboxStream, {});
+      await streamsService.publish(sandboxStream, 'sandbox:creating', {
         sandboxId: 'sandbox-1',
         codespaceId: 'project-1',
         image: 'node:22-slim',
       });
 
       expect(mockServer.publish).toHaveBeenCalledWith(
-        'sandbox-1',
+        sandboxStream,
         'sandbox:creating',
         expect.objectContaining({ image: 'node:22-slim' })
       );
     });
 
     it('publishes sandbox ready event', async () => {
-      await streamsService.createStream('sandbox-1', {});
-      await streamsService.publish('sandbox-1', 'sandbox:ready', {
+      const sandboxStream = 'sandbox:sandbox-1';
+      await streamsService.createStream(sandboxStream, {});
+      await streamsService.publish(sandboxStream, 'sandbox:ready', {
         sandboxId: 'sandbox-1',
         codespaceId: 'project-1',
         containerId: 'container-123',
       });
 
       expect(mockServer.publish).toHaveBeenCalledWith(
-        'sandbox-1',
+        sandboxStream,
         'sandbox:ready',
         expect.objectContaining({ containerId: 'container-123' })
       );
     });
 
     it('publishes sandbox error event', async () => {
-      await streamsService.createStream('sandbox-1', {});
-      await streamsService.publish('sandbox-1', 'sandbox:error', {
+      const sandboxStream = 'sandbox:sandbox-1';
+      await streamsService.createStream(sandboxStream, {});
+      await streamsService.publish(sandboxStream, 'sandbox:error', {
         sandboxId: 'sandbox-1',
         codespaceId: 'project-1',
         error: 'Container failed to start',
@@ -1505,7 +1513,7 @@ describe('DurableStreamsService', () => {
       });
 
       expect(mockServer.publish).toHaveBeenCalledWith(
-        'sandbox-1',
+        sandboxStream,
         'sandbox:error',
         expect.objectContaining({ error: 'Container failed to start' })
       );

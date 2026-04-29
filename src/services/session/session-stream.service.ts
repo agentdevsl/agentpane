@@ -247,11 +247,24 @@ export class SessionStreamService {
       // on the SQLite-only `datetime('now')` literal. `runRaw` dispatches
       // to `db.run()` (SQLite) or `db.execute()` (Postgres) — both support
       // this INSERT...SELECT pattern.
+      // F05-25: derive `stream_kind` from the streamId prefix and persist it.
       const createdAtIso = new Date().toISOString();
+      const streamKind =
+        sessionId === 'cli-monitor'
+          ? 'cli-monitor'
+          : sessionId.startsWith('plan:')
+            ? 'plan'
+            : sessionId.startsWith('sandbox:')
+              ? 'sandbox'
+              : sessionId.startsWith('terraform:')
+                ? 'terraform'
+                : sessionId.startsWith('topology:')
+                  ? 'topology'
+                  : 'session';
       await runRaw(
         this.db,
-        sql`INSERT INTO session_events (id, session_id, "offset", type, channel, data, timestamp, created_at)
-            SELECT ${eventId}, ${sessionId},
+        sql`INSERT INTO session_events (id, session_id, stream_kind, "offset", type, channel, data, timestamp, created_at)
+            SELECT ${eventId}, ${sessionId}, ${streamKind},
                    COALESCE(MAX("offset"), -1) + 1,
                    ${event.type}, ${channel}, ${JSON.stringify(event.data)},
                    ${event.timestamp}, ${createdAtIso}

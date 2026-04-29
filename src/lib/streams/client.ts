@@ -838,6 +838,14 @@ export class DurableStreamsClient {
     const markConnected = () => {
       const previousState = state;
       hasConnected = true;
+      // F05-28: reset the reconnect-attempt budget when a stable connection
+      // re-arms. Without this, sleeping laptops re-enter the reconnect loop
+      // with reconnectCount already at 1-8 from prior history; on the next
+      // failure `onTerminalDisconnect` fires immediately even though the
+      // network just recovered. Resetting here means each successful
+      // (re)connect gets the full MAX_RECONNECT_ATTEMPTS budget on the
+      // following disconnect.
+      reconnectCount = 0;
       setConnectionState('connected');
 
       if (previousState === 'reconnecting') {

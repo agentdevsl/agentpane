@@ -17,9 +17,23 @@ async function insertSessionEvent(
   createdAt: string,
   offset: number
 ) {
+  // F05-25: bare CUIDs are session-kind streams.
+  const streamKind: 'session' | 'plan' | 'sandbox' | 'terraform' | 'topology' | 'cli-monitor' =
+    sessionId === 'cli-monitor'
+      ? 'cli-monitor'
+      : sessionId.startsWith('plan:')
+        ? 'plan'
+        : sessionId.startsWith('sandbox:')
+          ? 'sandbox'
+          : sessionId.startsWith('terraform:')
+            ? 'terraform'
+            : sessionId.startsWith('topology:')
+              ? 'topology'
+              : 'session';
   await db.insert(sessionEvents).values({
     id: createId(),
     sessionId,
+    streamKind,
     offset,
     type: 'chunk',
     channel: 'chunks',

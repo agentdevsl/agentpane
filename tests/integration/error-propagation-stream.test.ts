@@ -25,9 +25,11 @@ describe('Error Propagation: Stream (IT-209 to IT-210)', () => {
     const session = await createTestSession(codespace.id, { status: 'active' });
 
     const eventId = createId();
+    // F05-25: bare CUIDs are session-kind.
     await db.insert(sessionEvents).values({
       id: eventId,
       sessionId: session.id,
+      streamKind: 'session',
       offset: 0,
       type: 'chunk',
       channel: 'chunks',

@@ -79,11 +79,13 @@ describe('API Route Validation Patterns (IT-163 to IT-170)', () => {
     const codespace = await createTestProject();
     const session = await createTestSession(codespace.id);
 
-    // Insert 5 session events with incrementing offsets
+    // Insert 5 session events with incrementing offsets.
+    // F05-25: bare CUIDs are session-kind streams.
     for (let i = 0; i < 5; i++) {
       await db.insert(sessionEvents).values({
         id: createId(),
         sessionId: session.id,
+        streamKind: 'session',
         offset: i,
         type: 'chunk',
         channel: 'chunks',

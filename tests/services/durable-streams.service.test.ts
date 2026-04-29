@@ -52,6 +52,11 @@ describe('DurableStreamsService', () => {
   let service: DurableStreamsService;
   let codespaceId: string;
   let sessionId: string;
+  /** F05-20: prefixed stream IDs used for non-session event types so the
+      hard-reject kind validator accepts the publish. */
+  let planStreamId: string;
+  let sandboxStreamId: string;
+  let terraformStreamId: string;
 
   beforeAll(async () => {
     await setupTestDatabase();
@@ -64,6 +69,9 @@ describe('DurableStreamsService', () => {
     const project = await createTestProject({ name: 'Streams Test Project' });
     codespaceId = project.id;
     sessionId = await createTestSession(codespaceId);
+    planStreamId = `plan:${sessionId}`;
+    sandboxStreamId = `sandbox:${sessionId}`;
+    terraformStreamId = `terraform:${sessionId}`;
 
     service = new DurableStreamsService(mockServer, getTestDb() as any);
   });
@@ -147,7 +155,7 @@ describe('DurableStreamsService', () => {
         codespaceId,
       };
 
-      const result = await service.publish(sessionId, 'plan:started', data);
+      const result = await service.publish(planStreamId, 'plan:started', data);
       expect(result.ok).toBe(true);
 
       // F05-19: server.publish is called by the relay, not from publish().
@@ -156,12 +164,14 @@ describe('DurableStreamsService', () => {
       // Should persist to session_events (durable replay).
       const db = getTestDb();
       const events = await db.query.sessionEvents.findMany({
-        where: eq(sessionEvents.sessionId, sessionId),
+        where: eq(sessionEvents.sessionId, planStreamId),
       });
       expect(events).toHaveLength(1);
       expect(events[0]?.type).toBe('plan:started');
       expect(events[0]?.channel).toBe('plan');
       expect(events[0]?.offset).toBe(0);
+      // F05-25: streamKind discriminator is populated from the prefix.
+      expect(events[0]?.streamKind).toBe('plan');
       if (result.ok) expect(result.value).toBe(0);
 
       // Should also enqueue an outbox row for the relay to drain.
@@ -169,14 +179,14 @@ describe('DurableStreamsService', () => {
       const outboxRows = await db
         .select()
         .from(eventOutbox)
-        .where(eq(eventOutbox.streamId, sessionId));
+        .where(eq(eventOutbox.streamId, planStreamId));
       expect(outboxRows).toHaveLength(1);
       expect(outboxRows[0]?.type).toBe('plan:started');
       expect(outboxRows[0]?.status).toBe('pending');
     });
 
     it('increments offsets for successive events', async () => {
-      await service.publish(sessionId, 'plan:started', {
+      await service.publish(planStreamId, 'plan:started', {
         sessionId,
         taskId: 'task-1',
         codespaceId,
@@ -184,7 +194,7 @@ describe('DurableStreamsService', () => {
 
       // RS-008: Use plan:turn instead of plan:token since token events are
       // now batched with a 50ms delay and won't be in the DB immediately.
-      await service.publish(sessionId, 'plan:turn', {
+      await service.publish(planStreamId, 'plan:turn', {
         sessionId,
         turnId: 'turn-1',
         role: 'assistant',
@@ -193,7 +203,7 @@ describe('DurableStreamsService', () => {
 
       const db = getTestDb();
       const events = await db.query.sessionEvents.findMany({
-        where: eq(sessionEvents.sessionId, sessionId),
+        where: eq(sessionEvents.sessionId, planStreamId),
       });
       expect(events).toHaveLength(2);
       expect(events[0]?.offset).toBe(0);
@@ -212,6 +222,55 @@ describe('DurableStreamsService', () => {
       }
     });
 
+    it('F05-20: rejects publish when stream ID kind does not match event type (hard reject)', async () => {
+      // Publishing a plan event to a session-kind stream ID (no prefix)
+      // must return STREAM_PROTOCOL_MISMATCH instead of silently landing
+      // in session_events. Previously this was warn-only.
+      const result = await service.publish(sessionId, 'plan:started', {
+        sessionId,
+        taskId: 'task-1',
+        codespaceId,
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('STREAM_PROTOCOL_MISMATCH');
+        expect(result.error.message).toContain('plan');
+      }
+      expect(mockServer.publish).not.toHaveBeenCalled();
+
+      // Nothing should have been persisted to DB or outbox.
+      const db = getTestDb();
+      const events = await db.query.sessionEvents.findMany();
+      expect(events).toHaveLength(0);
+    });
+
+    it('F05-20: rejects sandbox event published to session stream ID', async () => {
+      const result = await service.publish(sessionId, 'sandbox:ready', {
+        sandboxId: 'sb-1',
+        codespaceId,
+        containerId: 'ctr-1',
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('STREAM_PROTOCOL_MISMATCH');
+      }
+    });
+
+    it('F05-20: rejects session-kind event published to plan stream ID', async () => {
+      // The reverse direction — an event whose expected kind is 'session'
+      // (e.g. 'chunk') sent to a plan-prefixed stream ID must also reject.
+      const result = await service.publish(planStreamId, 'chunk', {
+        text: 'illegal',
+      } as never);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('STREAM_PROTOCOL_MISMATCH');
+      }
+    });
+
     it('still persists to DB when server publish fails', async () => {
       const failServer = createMockServer({
         publish: vi.fn().mockRejectedValue(new Error('caddy down')),
@@ -219,7 +278,7 @@ describe('DurableStreamsService', () => {
       const svc = new DurableStreamsService(failServer, getTestDb() as any);
 
       // publish should succeed (caddy failure is best-effort)
-      const result = await svc.publish(sessionId, 'sandbox:creating', {
+      const result = await svc.publish(sandboxStreamId, 'sandbox:creating', {
         sandboxId: 'sb-1',
         codespaceId,
         image: 'node:20',
@@ -230,10 +289,11 @@ describe('DurableStreamsService', () => {
 
       const db = getTestDb();
       const events = await db.query.sessionEvents.findMany({
-        where: eq(sessionEvents.sessionId, sessionId),
+        where: eq(sessionEvents.sessionId, sandboxStreamId),
       });
       expect(events).toHaveLength(1);
       expect(events[0]?.type).toBe('sandbox:creating');
+      expect(events[0]?.streamKind).toBe('sandbox');
     });
 
     it('uses server offset when no DB is configured', async () => {
@@ -242,7 +302,7 @@ describe('DurableStreamsService', () => {
       });
       const svc = new DurableStreamsService(serverOnly); // no DB
 
-      const result = await svc.publish(sessionId, 'plan:started', {
+      const result = await svc.publish(planStreamId, 'plan:started', {
         sessionId,
         taskId: 't1',
         codespaceId: 'p1',
@@ -253,7 +313,7 @@ describe('DurableStreamsService', () => {
     });
 
     it('blocks typed stream publishes when payload metadata conflicts with the envelope gate', async () => {
-      const result = await service.publish(sessionId, 'plan:started', {
+      const result = await service.publish(planStreamId, 'plan:started', {
         sessionId,
         taskId: 'task-1',
         codespaceId,
@@ -434,19 +494,21 @@ describe('DurableStreamsService', () => {
 
   describe('channel mapping', () => {
     it('maps plan: events to plan channel', async () => {
-      await service.publish(sessionId, 'plan:completed', {
+      await service.publish(planStreamId, 'plan:completed', {
         sessionId,
       });
 
       const db = getTestDb();
       const events = await db.query.sessionEvents.findMany({
-        where: eq(sessionEvents.sessionId, sessionId),
+        where: eq(sessionEvents.sessionId, planStreamId),
       });
       expect(events[0]?.channel).toBe('plan');
+      // F05-25: streamKind populated.
+      expect(events[0]?.streamKind).toBe('plan');
     });
 
     it('maps sandbox: events to sandbox channel', async () => {
-      await service.publish(sessionId, 'sandbox:ready', {
+      await service.publish(sandboxStreamId, 'sandbox:ready', {
         sandboxId: 'sb-1',
         codespaceId,
         containerId: 'ctr-1',
@@ -454,12 +516,16 @@ describe('DurableStreamsService', () => {
 
       const db = getTestDb();
       const events = await db.query.sessionEvents.findMany({
-        where: eq(sessionEvents.sessionId, sessionId),
+        where: eq(sessionEvents.sessionId, sandboxStreamId),
       });
       expect(events[0]?.channel).toBe('sandbox');
+      expect(events[0]?.streamKind).toBe('sandbox');
     });
 
     it('maps task-creation: events to taskCreation channel', async () => {
+      // task-creation events run on session streams (per
+      // expectedStreamIdKindForEventType — anything not plan/sandbox/terraform
+      // defaults to 'session'). So a bare CUID is correct here.
       await service.publish(sessionId, 'task-creation:started', {
         sessionId,
         codespaceId,
@@ -470,9 +536,11 @@ describe('DurableStreamsService', () => {
         where: eq(sessionEvents.sessionId, sessionId),
       });
       expect(events[0]?.channel).toBe('taskCreation');
+      expect(events[0]?.streamKind).toBe('session');
     });
 
     it('maps container-agent: events to containerAgent channel', async () => {
+      // container-agent events run on session streams.
       await service.publish(sessionId, 'container-agent:started', {
         taskId: 'task-1',
         sessionId,
@@ -485,9 +553,11 @@ describe('DurableStreamsService', () => {
         where: eq(sessionEvents.sessionId, sessionId),
       });
       expect(events[0]?.channel).toBe('containerAgent');
+      expect(events[0]?.streamKind).toBe('session');
     });
 
     it('maps topology: events to topology channel', async () => {
+      // topology events run on session streams (root session aggregates).
       await service.publish(sessionId, 'topology:agent_spawned', {
         agentId: 'a-1',
         name: 'Worker 1',
@@ -500,19 +570,21 @@ describe('DurableStreamsService', () => {
         where: eq(sessionEvents.sessionId, sessionId),
       });
       expect(events[0]?.channel).toBe('topology');
+      expect(events[0]?.streamKind).toBe('session');
     });
 
     it('maps terraform: events to terraform channel', async () => {
-      await service.publish(sessionId, 'terraform:status', {
+      // Terraform streams are normally ephemeral but the channel mapping
+      // applies regardless. Use the terraform-prefixed stream ID so the
+      // kind validator accepts the publish — though no DB row will be
+      // written for ephemeral streams, the mockServer is consulted.
+      const result = await service.publish(terraformStreamId, 'terraform:status', {
         jobId: 'job-1',
         stage: 'generating' as any,
       });
-
-      const db = getTestDb();
-      const events = await db.query.sessionEvents.findMany({
-        where: eq(sessionEvents.sessionId, sessionId),
-      });
-      expect(events[0]?.channel).toBe('terraform');
+      expect(result.ok).toBe(true);
+      // Terraform is ephemeral — the publish goes straight to the server.
+      expect(mockServer.publish).toHaveBeenCalled();
     });
   });
 
@@ -524,13 +596,13 @@ describe('DurableStreamsService', () => {
     it('publishPlanStarted delegates to publish', async () => {
       const publishSpy = vi.spyOn(service, 'publish');
 
-      await service.publishPlanStarted(sessionId, {
+      await service.publishPlanStarted(planStreamId, {
         sessionId,
         taskId: 'task-1',
         codespaceId,
       });
 
-      expect(publishSpy).toHaveBeenCalledWith(sessionId, 'plan:started', {
+      expect(publishSpy).toHaveBeenCalledWith(planStreamId, 'plan:started', {
         sessionId,
         taskId: 'task-1',
         codespaceId,
@@ -540,9 +612,9 @@ describe('DurableStreamsService', () => {
     it('publishPlanCompleted delegates to publish', async () => {
       const publishSpy = vi.spyOn(service, 'publish');
 
-      await service.publishPlanCompleted(sessionId, { sessionId });
+      await service.publishPlanCompleted(planStreamId, { sessionId });
 
-      expect(publishSpy).toHaveBeenCalledWith(sessionId, 'plan:completed', {
+      expect(publishSpy).toHaveBeenCalledWith(planStreamId, 'plan:completed', {
         sessionId,
       });
     });
@@ -550,13 +622,13 @@ describe('DurableStreamsService', () => {
     it('publishPlanError delegates to publish', async () => {
       const publishSpy = vi.spyOn(service, 'publish');
 
-      await service.publishPlanError(sessionId, {
+      await service.publishPlanError(planStreamId, {
         sessionId,
         error: 'something broke',
         code: 'PLAN_FAILED',
       });
 
-      expect(publishSpy).toHaveBeenCalledWith(sessionId, 'plan:error', {
+      expect(publishSpy).toHaveBeenCalledWith(planStreamId, 'plan:error', {
         sessionId,
         error: 'something broke',
         code: 'PLAN_FAILED',
@@ -589,6 +661,40 @@ describe('DurableStreamsService', () => {
         sessionId,
         error: 'failed',
       });
+    });
+  });
+
+  // ============================================
+  // F05-20: stream ID kind mismatch enforcement on publishSessionEvent
+  // ============================================
+
+  describe('publishSessionEvent F05-20 kind enforcement', () => {
+    it('rejects session-typed event published to a plan-prefixed stream ID', async () => {
+      const result = await service.publishSessionEvent(planStreamId, {
+        id: 'evt-bad-kind',
+        type: 'chunk',
+        timestamp: Date.now(),
+        data: {
+          text: 'illegal',
+          meta: {
+            schemaVersion: 1,
+            eventId: 'evt-bad-kind',
+            streamId: planStreamId,
+            blockId: 'block-1',
+            partType: 'chunk_end',
+            durability: 'durable',
+            sequence: null,
+            createdAt: '2026-03-23T00:00:00.000Z',
+          },
+        },
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('STREAM_PROTOCOL_MISMATCH');
+        expect(result.error.message).toContain('session');
+      }
+      expect(mockServer.publish).not.toHaveBeenCalled();
     });
   });
 });

@@ -315,6 +315,9 @@ const CRITICAL_COLUMNS: Record<string, string[]> = {
   worktrees: ['id', 'project_id', 'branch', 'path', 'status', 'created_at'],
   agent_runs: ['id', 'agent_id', 'task_id', 'project_id', 'status', 'started_at'],
   audit_logs: ['id', 'tool', 'status', 'created_at'],
+  // F05-25: `stream_kind` is added via ALTER TABLE (migration 0013), not the
+  // original CREATE TABLE — it doesn't appear in extractColumnsForTable
+  // output, so we keep this list aligned with the CREATE TABLE columns.
   session_events: ['id', 'session_id', 'offset', 'type', 'channel', 'data', 'timestamp'],
   settings: ['key', 'value', 'updated_at'],
   sandbox_configs: ['id', 'name', 'type', 'created_at'],
