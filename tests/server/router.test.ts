@@ -7,7 +7,7 @@
  * error handling, auth middleware, and the notFound handler by creating a
  * real Hono app via createRouter() with stubbed service dependencies.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRouter, type RouterDependencies } from '@/server/router';
 
 // ---------------------------------------------------------------------------
@@ -179,6 +179,118 @@ describe('createRouter', () => {
     it('sets Referrer-Policy header', async () => {
       const res = await appFetch(app, '/api/healthz');
       expect(res.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
+    });
+
+    // F06-NEW-10: Production CSP must allow Shiki's WASM and GitHub avatars.
+    describe('Content-Security-Policy (production)', () => {
+      let originalEnv: string | undefined;
+      let prodApp: ReturnType<typeof createRouter>;
+
+      beforeEach(() => {
+        originalEnv = process.env.NODE_ENV;
+        // The CSP header is only emitted when NODE_ENV === 'production'.
+        process.env.NODE_ENV = 'production';
+        prodApp = createRouter(createMinimalDeps());
+      });
+
+      afterEach(() => {
+        if (originalEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = originalEnv;
+        }
+      });
+
+      it("includes 'wasm-unsafe-eval' in script-src so Shiki can compile its grammar WASM", async () => {
+        const res = await appFetch(prodApp, '/api/healthz');
+        const csp = res.headers.get('Content-Security-Policy') ?? '';
+        expect(csp).toMatch(/script-src[^;]*'wasm-unsafe-eval'/);
+      });
+
+      it('allows GitHub avatar host in img-src', async () => {
+        const res = await appFetch(prodApp, '/api/healthz');
+        const csp = res.headers.get('Content-Security-Policy') ?? '';
+        expect(csp).toMatch(/img-src[^;]*https:\/\/avatars\.githubusercontent\.com/);
+      });
+
+      it('keeps default-src self', async () => {
+        const res = await appFetch(prodApp, '/api/healthz');
+        const csp = res.headers.get('Content-Security-Policy') ?? '';
+        expect(csp).toMatch(/default-src 'self'/);
+      });
+
+      it('keeps script-src self alongside wasm-unsafe-eval (defence in depth)', async () => {
+        const res = await appFetch(prodApp, '/api/healthz');
+        const csp = res.headers.get('Content-Security-Policy') ?? '';
+        // Both directives must be present in the script-src list.
+        expect(csp).toMatch(/script-src 'self' 'wasm-unsafe-eval'/);
+      });
+
+      it('keeps img-src self and data: alongside the GitHub avatar host', async () => {
+        const res = await appFetch(prodApp, '/api/healthz');
+        const csp = res.headers.get('Content-Security-Policy') ?? '';
+        expect(csp).toMatch(/img-src 'self' data: https:\/\/avatars\.githubusercontent\.com/);
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // F06-NEW-09 — Body size limits on /api/* and /hooks/*
+  // -------------------------------------------------------------------------
+
+  describe('Body size limits', () => {
+    it('returns 413 when /api/* request exceeds 5MB Content-Length', async () => {
+      // Pick any route under /api/* — the body-limit middleware runs before
+      // auth, so the response is 413 not 401.
+      const res = await appFetch(app, '/api/codespaces', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': String(6 * 1024 * 1024), // 6MB
+        },
+        body: '{}',
+      });
+      expect(res.status).toBe(413);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+      expect(body.error.code).toBe('PAYLOAD_TOO_LARGE');
+    });
+
+    it('returns 413 when /hooks/* request exceeds 5MB Content-Length', async () => {
+      const mockProcessing = stubService({
+        processIncomingEvent: vi.fn().mockResolvedValue({ ok: true, value: {} }),
+      });
+      const appWithEvents = createRouter(
+        createMinimalDeps({ eventProcessingService: mockProcessing })
+      );
+      const res = await appFetch(appWithEvents, '/hooks/events/test-slug', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': String(6 * 1024 * 1024),
+        },
+        body: '{}',
+      });
+      expect(res.status).toBe(413);
+      const body = await res.json();
+      expect(body.error.code).toBe('PAYLOAD_TOO_LARGE');
+      // The handler must not have run — verify processIncomingEvent was not called.
+      expect(mockProcessing.processIncomingEvent).not.toHaveBeenCalled();
+    });
+
+    it('allows /api/* requests within the 5MB cap', async () => {
+      // 4MB body is under the 5MB cap. The route returns 401 (no auth) — proving
+      // the body-limit middleware passed the request through to the auth layer.
+      const res = await appFetch(app, '/api/codespaces', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': String(4 * 1024 * 1024),
+        },
+        body: JSON.stringify({ small: 'payload' }),
+      });
+      // 401 from auth — not 413 from body limit.
+      expect(res.status).toBe(401);
     });
   });
 

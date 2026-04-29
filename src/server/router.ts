@@ -48,6 +48,7 @@ import type { TerraformComposeService } from '../services/terraform-compose.serv
 import type { TerraformRegistryService } from '../services/terraform-registry.service.js';
 import type { WorkflowService } from '../services/workflow.service.js';
 import type { Database } from '../types/database.js';
+import { bodyLimit, DEFAULT_BODY_LIMIT_BYTES } from './middleware/body-limit.js';
 import { createAdminMetricsRoutes } from './routes/admin-metrics.js';
 import { createAgentsRoutes } from './routes/agents.js';
 import { createApiKeysRoutes } from './routes/api-keys.js';
@@ -175,6 +176,34 @@ export function __resetMetricsRouteCache(): void {
   observedMetricsRoutes.clear();
 }
 
+/**
+ * F06-NEW-10: production CSP. The April 29 security review (`specs/
+ * arch_review_april29/06-security.md`) tightened this from the prior
+ * `script-src 'self'` baseline to:
+ *
+ * - `'wasm-unsafe-eval'` in `script-src` — Shiki uses WebAssembly for
+ *   grammar parsing (`markdown-content.tsx`, `terraform-right-panel.tsx`).
+ *   Without this directive Chrome blocks the WASM compile and syntax
+ *   highlighting silently degrades to plain text.
+ * - `https://avatars.githubusercontent.com` in `img-src` — the team-member
+ *   list and codespace owner views render avatars from GitHub's CDN.
+ *   Without this allow-list the avatars showed as broken images in
+ *   production builds.
+ *
+ * The remaining directives stay minimal: `default-src 'self'` so anything
+ * not explicitly allowed above is denied; `style-src 'unsafe-inline'`
+ * because Tailwind injects classes (no inline styles produced by the
+ * framework, but third-party SVGs may carry inline `<style>`). `data:` is
+ * kept on `img-src` for inline icon data URIs used by Phosphor.
+ */
+const PRODUCTION_CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https://avatars.githubusercontent.com",
+  "connect-src 'self'",
+].join('; ');
+
 async function securityHeaders(c: Context, next: Next) {
   await next();
   c.header('X-Content-Type-Options', 'nosniff');
@@ -183,10 +212,7 @@ async function securityHeaders(c: Context, next: Next) {
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   if (process.env.NODE_ENV === 'production') {
     c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-    c.header(
-      'Content-Security-Policy',
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
-    );
+    c.header('Content-Security-Policy', PRODUCTION_CSP);
   }
 }
 
@@ -337,6 +363,16 @@ export function createRouter(deps: RouterDependencies) {
   app.use('*', securityHeaders);
   // F10-01: record per-request counters for /api/metrics.
   app.use('*', metricsMiddleware);
+  // F06-NEW-09: cap incoming body size on the public-facing surfaces.
+  // Default is 5MB (matches the prior cli-monitor cap). Applied early so
+  // webhook handlers that call `c.req.text()` and route handlers that call
+  // `zValidator('json', ...)` reject oversized payloads before any
+  // buffering. cli-monitor keeps its existing 5MB cap (in
+  // `src/server/routes/cli-monitor.ts`) — same value, applied at the
+  // route handler for backward compatibility with that service's own
+  // error envelope.
+  app.use('/api/*', bodyLimit({ maxBytes: DEFAULT_BODY_LIMIT_BYTES }));
+  app.use('/hooks/*', bodyLimit({ maxBytes: DEFAULT_BODY_LIMIT_BYTES }));
   // Public webhook endpoint - no auth required (signature-verified by plugin)
   if (deps.eventProcessingService) {
     // Rate-limit webhooks: 60 requests per minute per IP
