@@ -9,6 +9,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { codespaces, sessionEvents, tasks } from '../../db/schema/index.js';
+import { jsonExtractText } from '../../lib/db/dialect.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { DreamService } from '../../services/memory/dream.service.js';
 import type { MemoryService } from '../../services/memory/index.js';
@@ -312,6 +313,11 @@ export function createMemoryRoutes({
       const { page, size } = parsePagination(c);
       const offset = (page - 1) * size;
 
+      // F02-15: portable JSON-path text extraction. SQLite renders the
+      // array as `'["abc","def"]'`; Postgres `#>>` on a `jsonb` column
+      // renders `'["abc", "def"]'` (with spaces). The downstream
+      // `filtered` step does an exact array-includes check after parsing
+      // the row's JSON column, so the LIKE filter is a coarse pre-filter.
       const rows = await db
         .select({
           id: sessionEvents.id,
@@ -323,7 +329,7 @@ export function createMemoryRoutes({
         .where(
           and(
             eq(sessionEvents.type, 'memory:insights_injected'),
-            sql`json_extract(${sessionEvents.data}, '$.insightIds') LIKE ${`%${insightId}%`}`
+            sql`${jsonExtractText(sessionEvents.data, 'insightIds')} LIKE ${`%${insightId}%`}`
           )
         )
         .orderBy(sql`${sessionEvents.timestamp} DESC`)
