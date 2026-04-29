@@ -163,7 +163,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=agent-sandbox
 
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/agent-sandbox@${{ steps.push.outputs.digest }}
           format: table
@@ -228,7 +228,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=agentcore
 
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/agentpane-agentcore@${{ steps.push.outputs.digest }}
           format: table

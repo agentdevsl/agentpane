@@ -367,8 +367,9 @@ export const memoryModifySuggestionSchema = z.object({
 });
 
 /**
- * Per-skill dream config override. The `null` case (clear-override) is handled
- * outside zod because zod cannot represent JSON `null` as a top-level body.
+ * Per-skill dream config override. Both `null` (clear-override) and `undefined`
+ * (no body) are accepted; the route-level handler additionally treats `{}` as
+ * clear-override for clients that can't serialize null at the top level.
  */
 export const dreamSkillOverrideSchema = z
   .object({
@@ -377,7 +378,7 @@ export const dreamSkillOverrideSchema = z
     minRuns: z.number().int().min(1).max(1000).optional(),
   })
   .strict()
-  .optional();
+  .nullish();
 
 // ─── Task action body schemas ────────────────────────
 

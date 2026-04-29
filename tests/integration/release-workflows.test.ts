@@ -61,20 +61,20 @@ describe('F11-01: release.yml workflow', () => {
   // is safe; tags 0.0.1 - 0.34.2 are forever compromised. We pin to a SHA for defense-in-depth
   // because the safe tags themselves remain mutable in principle. Failing on `main` (which uses
   // `@0.30.0` tag — vulnerable) and passing here proves the regression test bar.
-  it('pins trivy-action to a SHA for v0.35.0+ (GHSA-69fq-xp46-6x23)', () => {
+  it('pins EVERY trivy-action ref to a SHA for v0.35.0+ (GHSA-69fq-xp46-6x23)', () => {
     const yaml = readFileSync(resolve(WORKFLOWS, 'release.yml'), 'utf8');
     // Reject any vulnerable tag form (anything ≤ 0.34.x without v-prefix; bare `@0.x.y` form).
     // The safe forms are: `@<40-char SHA>` or `@v0.35.0+` (v-prefix) or `@v0.34.x` (re-pinned).
     expect(yaml).not.toMatch(/aquasecurity\/trivy-action@0\.(?:[12]\d|3[0-4])\.\d+/);
-    // Require either a 40-char SHA pin OR an explicit v0.35.0+ tag.
-    const trivyPin = yaml.match(/aquasecurity\/trivy-action@([\w.-]+)/);
-    expect(trivyPin).toBeTruthy();
-    if (!trivyPin) return;
-    const ref = trivyPin[1];
-    // Either a full SHA (40 hex chars) or a v0.35+ tag.
-    const sha40 = /^[a-f0-9]{40}$/.test(ref);
-    const safeTag = /^v0\.(3[5-9]|[4-9]\d)\.\d+$/.test(ref) || /^v[1-9]\d*\.\d+\.\d+$/.test(ref);
-    expect(sha40 || safeTag).toBe(true);
+    // Require ALL occurrences (not just the first match) to be a 40-char SHA OR v0.35.0+ tag.
+    // Without matchAll, a single safe pin at the top of the file would mask any unsafe pins below.
+    const refs = [...yaml.matchAll(/aquasecurity\/trivy-action@([\w.-]+)/g)].map((m) => m[1]);
+    expect(refs.length).toBeGreaterThan(0);
+    for (const ref of refs) {
+      const sha40 = /^[a-f0-9]{40}$/.test(ref);
+      const safeTag = /^v0\.(3[5-9]|[4-9]\d)\.\d+$/.test(ref) || /^v[1-9]\d*\.\d+\.\d+$/.test(ref);
+      expect(sha40 || safeTag, `unsafe trivy-action ref: ${ref}`).toBe(true);
+    }
   });
 
   it('packages the Helm chart via helm package', () => {
