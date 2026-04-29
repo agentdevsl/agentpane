@@ -8,9 +8,12 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { TaskService } from '../../services/task.service.js';
 import { errorResponse, json, parseLimit, requireQueryId, validateIdParam } from '../shared.js';
 import {
+  approveTaskSchema,
   createTaskSchema,
   moveTaskSchema,
   parseJsonBody,
+  rejectPlanSchema,
+  rejectTaskSchema,
   taskColumnSchema,
   updateTaskSchema,
 } from '../validation.js';
@@ -198,6 +201,11 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
   // PATCH /api/tasks/:id/move - Move task to different column
   // When moving to in_progress, optionally auto-start an agent
+  //
+  // F07-06: when agent auto-start fails, return `ok:false` with a structured
+  // error so the UI surfaces the failure. `taskService.moveColumn()` already
+  // reverts the task to `backlog` when agent start fails, so the response
+  // also signals the new column via `details.task`.
   app.patch('/:id/move', async (c) => {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
@@ -214,13 +222,27 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
     const { task: updatedTask, agentError } = result.value;
 
-    // Return success for the move, but include agent error info if present
+    // F07-06: agent auto-start failed → propagate as `ok:false` with a 500
+    // status. The service has already reverted the column to `backlog` (or
+    // logged a fatal warning if the revert itself failed). The previous
+    // shape (`ok:true` with embedded `agentError`) hid the failure from
+    // clients that key on `result.ok`.
     if (agentError) {
       logger.error(`Failed to start agent for task ${id}`, { data: { agentError } });
-      return json({
-        ok: true,
-        data: { task: updatedTask, agentError },
-      });
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'AGENT_START_FAILED',
+            message: agentError,
+            details: {
+              taskId: id,
+              task: updatedTask,
+            },
+          },
+        },
+        500
+      );
     }
 
     return json({ ok: true, data: { task: updatedTask } });
@@ -245,16 +267,15 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    try {
-      // Parse optional rejection reason from body
-      let reason: string | undefined;
-      try {
-        const body = (await c.req.json()) as { reason?: string };
-        reason = typeof body.reason === 'string' ? body.reason : undefined;
-      } catch {
-        // No body or invalid JSON — reason is optional
-      }
+    // Body is optional — only validate when Content-Type indicates JSON.
+    let reason: string | undefined;
+    if (c.req.header('Content-Type')?.includes('application/json')) {
+      const parsed = await parseJsonBody(c, rejectPlanSchema);
+      if (!parsed.ok) return parsed.response;
+      reason = parsed.data?.reason;
+    }
 
+    try {
       const result = await taskService.rejectPlan(id, reason);
 
       if (!result.ok) {
@@ -276,24 +297,17 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    try {
-      let approvedBy: string | undefined;
-      let createMergeCommit: boolean | undefined;
-      try {
-        const body = (await c.req.json()) as {
-          approvedBy?: string;
-          createMergeCommit?: boolean;
-        };
-        approvedBy = typeof body.approvedBy === 'string' ? body.approvedBy : undefined;
-        createMergeCommit =
-          typeof body.createMergeCommit === 'boolean' ? body.createMergeCommit : undefined;
-      } catch (parseErr) {
-        // No body or invalid JSON — fields are optional, log for debugging
-        logger.debug('Approve task: body parse skipped (fields are optional)', {
-          error: parseErr,
-        });
-      }
+    // Body is optional — only validate when Content-Type indicates JSON.
+    let approvedBy: string | undefined;
+    let createMergeCommit: boolean | undefined;
+    if (c.req.header('Content-Type')?.includes('application/json')) {
+      const parsed = await parseJsonBody(c, approveTaskSchema);
+      if (!parsed.ok) return parsed.response;
+      approvedBy = parsed.data?.approvedBy;
+      createMergeCommit = parsed.data?.createMergeCommit;
+    }
 
+    try {
       const result = await taskService.approve(id, { approvedBy, createMergeCommit });
 
       if (!result.ok) {
@@ -315,32 +329,32 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    try {
-      let reason: string | undefined;
-      try {
-        const body = (await c.req.json()) as { reason?: string };
-        reason =
-          typeof body.reason === 'string' && body.reason.trim() !== '' ? body.reason : undefined;
-      } catch (parseErr) {
-        // No body or invalid JSON — reason is required but parse failed
-        logger.debug('Reject task: body parse failed (reason is required)', {
-          error: parseErr,
-        });
-      }
-
-      if (!reason) {
-        return json(
-          {
-            ok: false,
-            error: {
-              code: 'INVALID_PARAMS',
-              message: 'A non-empty "reason" field is required when rejecting a task',
-            },
+    // F07-03: reason is required and must be a non-empty trimmed string. The
+    // canonical schema rejects whitespace-only and missing values; clients
+    // that omitted the body previously got a misleading 200.
+    //
+    // No-body / no-Content-Type case: emit a clear "reason is required"
+    // message rather than the generic "invalid JSON" — the only valid
+    // request shape is `{ reason: string }`.
+    const hasJsonBody = c.req.header('Content-Type')?.includes('application/json');
+    if (!hasJsonBody) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'A non-empty "reason" field is required when rejecting a task',
           },
-          400
-        );
-      }
+        },
+        400
+      );
+    }
 
+    const parsed = await parseJsonBody(c, rejectTaskSchema);
+    if (!parsed.ok) return parsed.response;
+    const reason = parsed.data.reason;
+
+    try {
       const result = await taskService.reject(id, { reason });
 
       if (!result.ok) {

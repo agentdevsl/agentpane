@@ -169,7 +169,7 @@ describe('CLI Monitor Routes (IT-500)', () => {
       expect(response.status).toBe(400);
       const body = await response.json();
       expect(body.ok).toBe(false);
-      expect(body.error.code).toBe('INVALID_JSON');
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('IT-504: returns 400 for empty daemonId', async () => {

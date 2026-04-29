@@ -10,6 +10,7 @@ import { Hono } from 'hono';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { Database } from '../../types/database.js';
 import { json } from '../shared.js';
+import { parseJsonBody, sandboxNomadValidateSchema } from '../validation.js';
 
 const log = createLogger('SandboxNomadRoutes');
 
@@ -381,22 +382,9 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
 
   // POST /api/sandbox/nomad/validate - Validate connection
   app.post('/validate', async (c) => {
-    let body: { address: string; token?: string; namespace?: string };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
-        400
-      );
-    }
-
-    if (!body.address) {
-      return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'Nomad address is required' } },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, sandboxNomadValidateSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     // Validate address to prevent SSRF
     const addrValidation = await validateNomadAddress(body.address);

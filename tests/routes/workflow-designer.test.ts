@@ -163,7 +163,7 @@ describe('POST /api/workflow-designer/analyze - Generate workflow', () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.ok).toBe(false);
-    expect(body.error.code).toBe('INVALID_JSON');
+    expect(body.error.code).toBe('VALIDATION_ERROR');
   });
 
   it('returns 400 when no templateId or content provided', async () => {

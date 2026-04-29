@@ -117,7 +117,7 @@ describe('API Keys Routes (IT-420)', () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.ok).toBe(false);
-    expect(body.error.code).toBe('INVALID_JSON');
+    expect(body.error.code).toBe('VALIDATION_ERROR');
   });
 
   it('IT-427: POST /:service returns 400 for missing key field', async () => {

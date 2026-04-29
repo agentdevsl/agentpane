@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { MarketplaceService } from '../../services/marketplace.service.js';
 import { errorResponse, json, parseLimit, validateIdParam } from '../shared.js';
+import { createMarketplaceSchema, parseJsonBody } from '../validation.js';
 
 const logger = createLogger('routes:marketplaces');
 
@@ -52,38 +53,18 @@ export function createMarketplacesRoutes({ marketplaceService }: MarketplacesDep
 
   // POST /api/marketplaces
   app.post('/', async (c) => {
-    let body: {
-      name: string;
-      githubUrl?: string;
-      githubOwner?: string;
-      githubRepo?: string;
-      branch?: string;
-      pluginsPath?: string;
-    };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, createMarketplaceSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
-    if (!body.name) {
-      return json({ ok: false, error: { code: 'MISSING_NAME', message: 'Name is required' } }, 400);
-    }
-
-    if (!body.githubUrl && (!body.githubOwner || !body.githubRepo)) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'MISSING_REPO', message: 'GitHub URL or owner/repo required' },
-        },
-        400
-      );
-    }
-
-    const result = await marketplaceService.create(body);
+    const result = await marketplaceService.create({
+      name: body.name,
+      githubUrl: body.githubUrl,
+      githubOwner: body.githubOwner,
+      githubRepo: body.githubRepo,
+      branch: body.branch,
+      pluginsPath: body.pluginsPath,
+    });
     if (!result.ok) {
       return errorResponse(result);
     }

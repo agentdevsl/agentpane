@@ -12,6 +12,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { CliMonitorService } from '../../services/cli-monitor/cli-monitor.service.js';
 import type { CliSession } from '../../services/cli-monitor/types.js';
 import { parseLimit, parseOffset, requireQueryParam } from '../shared.js';
+import { parseJsonBody } from '../validation.js';
 
 const logger = createLogger('routes:cli-monitor');
 
@@ -183,23 +184,6 @@ const CLI_MONITOR_SSE_ROUTE = '/api/cli-monitor/stream';
 
 // ── Helpers ──
 
-function validationError(
-  c: { json: (data: unknown, status: number) => Response },
-  issues: z.ZodIssue[]
-) {
-  return c.json(
-    {
-      ok: false,
-      error: { code: 'VALIDATION_ERROR', message: issues[0]?.message ?? 'Invalid payload' },
-    },
-    400
-  );
-}
-
-function invalidJsonError(c: { json: (data: unknown, status: number) => Response }) {
-  return c.json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON body' } }, 400);
-}
-
 function checkBodySize(c: {
   req: { header: (name: string) => string | undefined };
   json: (data: unknown, status: number) => Response;
@@ -223,8 +207,10 @@ interface CliMonitorDeps {
   cliMonitorService: CliMonitorService;
 }
 
-/** Parse and validate a JSON POST body against a Zod schema.
- *  Returns the parsed data on success, or an error Response on failure. */
+/** Parse and validate a JSON POST body against a Zod schema, with cli-monitor
+ *  5MB body-size limit applied before parsing. Returns parsed data or an
+ *  error Response. Delegates JSON parse + zod validation to the canonical
+ *  `parseJsonBody` helper to ensure consistent error envelopes. */
 async function parseBody<T>(
   c: {
     req: { header: (name: string) => string | undefined; json: () => Promise<unknown> };
@@ -234,16 +220,8 @@ async function parseBody<T>(
 ): Promise<T | Response> {
   const sizeError = checkBodySize(c);
   if (sizeError) return sizeError;
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return invalidJsonError(c);
-  }
-  const parsed = schema.safeParse(body);
-  if (!parsed.success) {
-    return validationError(c, parsed.error.issues);
-  }
+  const parsed = await parseJsonBody(c, schema);
+  if (!parsed.ok) return parsed.response;
   return parsed.data;
 }
 

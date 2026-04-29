@@ -106,7 +106,9 @@ describe('API Keys Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_JSON');
+      // arch29-W2-H / F07-15: parseJsonBody emits VALIDATION_ERROR for
+      // both JSON parse failures and zod validation failures.
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when key is missing', async () => {

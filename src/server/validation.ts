@@ -92,6 +92,51 @@ export const createAgentSchema = z.object({
   config: z.record(z.string(), z.unknown()).optional(),
 });
 
+/**
+ * Schema for `PATCH /api/agents/:id` — accepts either a flat AgentConfig shape
+ * (`{ allowedTools, maxTurns, ... }`) or a wrapped variant (`{ config: {...} }`).
+ * The existing route accepts both forms; both are validated to bound string
+ * lengths, array sizes, and number ranges.
+ */
+const agentConfigFieldsSchema = z
+  .object({
+    allowedTools: z.array(z.string().max(200)).max(200).optional(),
+    maxTurns: z.number().int().min(1).max(1000).optional(),
+    model: z.string().max(200).optional(),
+    systemPrompt: z.string().max(20000).optional(),
+    temperature: z.number().min(0).max(2).optional(),
+  })
+  .partial();
+
+export const updateAgentSchema = agentConfigFieldsSchema
+  .extend({
+    config: agentConfigFieldsSchema.optional(),
+  })
+  .refine(
+    (data) => {
+      const { config, ...rest } = data;
+      return (
+        (config && Object.keys(config).length > 0) ||
+        Object.values(rest).some((v) => v !== undefined)
+      );
+    },
+    { message: 'config is required' }
+  );
+
+/** Schema for `POST /api/agents/:id/start` — only optional taskId for now. */
+export const agentStartSchema = z
+  .object({
+    taskId: idSchema.optional(),
+  })
+  .strict();
+
+/** Schema for `POST /api/agents/:id/resume` — feedback bounded to 10000 chars. */
+export const agentResumeSchema = z
+  .object({
+    feedback: z.string().max(10000).optional(),
+  })
+  .strict();
+
 // ─── Session Schemas ─────────────────────────────────
 
 export const createSessionSchema = z.object({
@@ -202,6 +247,198 @@ export const updateProfileSchema = z
   .refine((data) => Object.values(data).some((v) => v !== undefined), {
     message: 'At least one field must be provided',
   });
+
+// ─── Codespace Schemas ───────────────────────────────
+
+export const createCodespaceSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(200),
+  path: z.string().min(1, 'Path is required').max(2048),
+  description: z.string().max(2000).optional(),
+  projectFolderId: idSchema,
+});
+
+export const updateCodespaceSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().max(2000).optional(),
+    maxConcurrentAgents: z.number().int().positive().optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
+    projectFolderId: idSchema.optional(),
+    githubOwner: z.string().min(1).max(200).optional(),
+    githubRepo: z.string().min(1).max(200).optional(),
+  })
+  .refine((data) => Object.values(data).some((v) => v !== undefined), {
+    message: 'At least one field must be provided',
+  });
+
+// ─── Template Schemas ────────────────────────────────
+
+export const createTemplateSchema = z.object({
+  name: z.string().min(1, 'name is required').max(200),
+  description: z.string().max(2000).optional(),
+  scope: z.enum(['org', 'codespace'], {
+    message: 'scope must be "org" or "codespace"',
+  }),
+  githubUrl: z
+    .string({ message: 'githubUrl is required' })
+    .min(1, 'githubUrl is required')
+    .max(1000),
+  branch: z.string().max(200).optional(),
+  configPath: z.string().max(500).optional(),
+  codespaceId: idSchema.optional(),
+  codespaceIds: z.array(idSchema).max(100).optional(),
+});
+
+export const updateTemplateSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().max(2000).optional(),
+    branch: z.string().max(200).optional(),
+    configPath: z.string().max(500).optional(),
+    codespaceIds: z.array(idSchema).max(100).optional(),
+  })
+  .refine((data) => Object.values(data).some((v) => v !== undefined), {
+    message: 'At least one field must be provided',
+  });
+
+// ─── Marketplace Schemas ─────────────────────────────
+
+export const createMarketplaceSchema = z
+  .object({
+    name: z.string().min(1, 'Name is required').max(200),
+    githubUrl: z.string().max(1000).optional(),
+    githubOwner: z.string().max(200).optional(),
+    githubRepo: z.string().max(200).optional(),
+    branch: z.string().max(200).optional(),
+    pluginsPath: z.string().max(500).optional(),
+  })
+  .refine((data) => Boolean(data.githubUrl) || Boolean(data.githubOwner && data.githubRepo), {
+    message: 'GitHub URL or owner/repo required',
+  });
+
+// ─── API Key Schemas ─────────────────────────────────
+
+export const saveApiKeySchema = z.object({
+  key: z.string().min(1, 'API key is required').max(10000),
+});
+
+// ─── Settings Schemas ────────────────────────────────
+
+export const updateSettingsSchema = z.object({
+  settings: z.record(z.string(), z.unknown()),
+});
+
+// ─── Memory Schemas ──────────────────────────────────
+
+export const createMemoryInsightSchema = z.object({
+  content: z.string().min(1).max(4096),
+  source: z.enum(['manual', 'agent_derived', 'dream']).optional().default('manual'),
+  skillId: z.string().max(200).optional(),
+  tags: z.array(z.string().max(100)).max(50).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  category: z
+    .enum(['pattern', 'anti_pattern', 'decision', 'architecture', 'error_lesson'])
+    .optional(),
+});
+
+export const memorySearchSchema = z.object({
+  query: z.string().min(1).max(1024),
+  limit: z.number().min(1).max(50).optional(),
+});
+
+export const memorySuggestionActionSchema = z.object({
+  userNotes: z.string().max(10000).optional(),
+});
+
+export const memoryModifySuggestionSchema = z.object({
+  modifiedContent: z.string().min(1).max(50000),
+  userNotes: z.string().max(10000).optional(),
+});
+
+/**
+ * Per-skill dream config override. The `null` case (clear-override) is handled
+ * outside zod because zod cannot represent JSON `null` as a top-level body.
+ */
+export const dreamSkillOverrideSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    model: z.string().max(200).optional(),
+    minRuns: z.number().int().min(1).max(1000).optional(),
+  })
+  .strict()
+  .optional();
+
+// ─── Task action body schemas ────────────────────────
+
+export const rejectPlanSchema = z
+  .object({
+    reason: z.string().max(10000).optional(),
+  })
+  .strict()
+  .optional();
+
+export const approveTaskSchema = z
+  .object({
+    approvedBy: z.string().max(200).optional(),
+    createMergeCommit: z.boolean().optional(),
+  })
+  .strict()
+  .optional();
+
+export const rejectTaskSchema = z.object({
+  reason: z
+    .string()
+    .min(1, 'A non-empty "reason" field is required when rejecting a task')
+    .max(10000)
+    .refine((v) => v.trim() !== '', {
+      message: 'A non-empty "reason" field is required when rejecting a task',
+    }),
+});
+
+// ─── Terraform Schemas (validate body) ───────────────
+
+export const terraformValidateSchema = z.object({
+  code: z.string().min(1, 'code field is required').max(500_000),
+  tfvars: z.string().max(500_000).optional(),
+});
+
+// ─── Workflow update schema (PATCH) ──────────────────
+
+export const workflowStatusUpdateSchema = z.enum(['draft', 'published', 'archived']);
+
+export const updateWorkflowSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().max(2000).optional(),
+    nodes: z.array(z.unknown()).optional(),
+    edges: z.array(z.unknown()).optional(),
+    viewport: z
+      .object({
+        x: z.number(),
+        y: z.number(),
+        zoom: z.number(),
+      })
+      .optional(),
+    status: workflowStatusUpdateSchema.optional(),
+    tags: z.array(z.string().max(100)).max(50).optional(),
+    sourceTemplateId: z.string().nullable().optional(),
+    sourceTemplateName: z.string().max(200).nullable().optional(),
+    thumbnail: z.string().max(5000).nullable().optional(),
+    aiGenerated: z.boolean().optional(),
+    aiModel: z.string().max(200).nullable().optional(),
+    aiConfidence: z.number().min(0).max(100).nullable().optional(),
+  })
+  .refine((data) => Object.values(data).some((v) => v !== undefined), {
+    message: 'At least one field must be provided',
+  });
+
+// ─── Sandbox Nomad Schemas ───────────────────────────
+
+export const sandboxNomadValidateSchema = z.object({
+  address: z.string().min(1, 'Nomad address is required').max(2048),
+  token: z.string().max(2048).optional(),
+  namespace: z.string().max(200).optional(),
+});
 
 // ─── Helper ──────────────────────────────────────────
 

@@ -5,11 +5,11 @@
  */
 
 import { Hono } from 'hono';
-import { z } from 'zod';
 import { createLogger } from '../../lib/logging/logger';
 import { isDigestPinnedImage } from '../../lib/sandbox/types.js';
 import type { SettingsService } from '../../services/settings.service.js';
 import { json } from '../shared.js';
+import { parseJsonBody, updateSettingsSchema } from '../validation.js';
 
 const log = createLogger('SettingsRoutes');
 
@@ -49,11 +49,6 @@ const ALLOWED_SETTINGS_KEYS = new Set([
 const SENSITIVE_FIELDS: Record<string, { secretKey: string; flagKey: string }> = {
   'sandbox.nomad': { secretKey: 'token', flagKey: 'hasToken' },
 };
-
-// Validation schemas
-const updateSettingsSchema = z.object({
-  settings: z.record(z.string(), z.unknown()),
-});
 
 interface SettingsDeps {
   settingsService: SettingsService;
@@ -111,29 +106,8 @@ export function createSettingsRoutes({ settingsService }: SettingsDeps) {
 
   // PUT /api/settings
   app.put('/', async (c) => {
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
-    const parsed = updateSettingsSchema.safeParse(body);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues[0]?.message ?? 'settings object is required',
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, updateSettingsSchema);
+    if (!parsed.ok) return parsed.response;
 
     const settingsToUpdate = parsed.data.settings;
 
