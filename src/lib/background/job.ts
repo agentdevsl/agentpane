@@ -8,9 +8,9 @@
  *
  * Migration status: `EventCleanupService`, `SchedulerService`, and
  * `EventOutboxRelayService` are the first to adopt the interface. Other
- * timer owners (SSE pings, auth session-cleanup, agentcore-bridge
- * timeouts, cli-monitor flush) are documented in
- * `specs/arch_review_april/12-cross-cutting.md` as a follow-up.
+ * timer owners (SSE pings, auth session-cleanup, cli-monitor flush)
+ * are documented in `specs/arch_review_april/12-cross-cutting.md` as
+ * a follow-up.
  *
  * Design goals:
  *   - A failing `stop()` must not prevent other jobs from stopping. The

@@ -30,7 +30,6 @@ export class PlanApprovalService {
     private state: SandboxStateManager,
     private worktreeInit: WorktreeInitService,
     private startAgentFn: (input: StartAgentInput) => Promise<Result<void, SandboxError>>,
-    private isAgentCoreProvider: () => boolean,
     private agentReview?: AgentReviewService
   ) {}
 
@@ -56,9 +55,8 @@ export class PlanApprovalService {
       log.warn('Duplicate plan_ready event — plan already pending, ignoring', {
         data: { taskId },
       });
-      // Still clean up running agent maps (planning phase is done)
+      // Still clean up running agent map (planning phase is done)
       this.state.deleteRunningAgent(taskId);
-      this.state.deleteRunningAgentCoreAgent(taskId);
       return;
     }
 
@@ -124,7 +122,6 @@ export class PlanApprovalService {
         );
         this.state.deletePendingPlan(taskId);
         this.state.deleteRunningAgent(taskId);
-        this.state.deleteRunningAgentCoreAgent(taskId);
         return;
       }
     } catch (dbErr) {
@@ -160,15 +157,13 @@ export class PlanApprovalService {
         });
       }
 
-      // Clean up running agent (both maps)
+      // Clean up running agent
       this.state.deleteRunningAgent(taskId);
-      this.state.deleteRunningAgentCoreAgent(taskId);
       return;
     }
 
-    // Clean up running agent (planning phase completed -- both maps)
+    // Clean up running agent (planning phase completed)
     this.state.deleteRunningAgent(taskId);
-    this.state.deleteRunningAgentCoreAgent(taskId);
 
     log.info('Plan persisted and stored, waiting for approval', {
       data: {
@@ -323,69 +318,6 @@ export class PlanApprovalService {
       lastAgentStatus: 'planning',
       ...(executionSkillId ? { skillId: originalSkillId, skillName: originalSkillName } : {}),
     };
-
-    // AgentCore branch
-    if (this.isAgentCoreProvider()) {
-      log.info('Approving plan via AgentCore path', {
-        data: { taskId, sdkSessionId: planData.sdkSessionId },
-      });
-
-      try {
-        // Atomic: move to in_progress + swap skill in one CAS update
-        const [updated] = await db
-          .update(tasks)
-          .set(transitionSet)
-          .where(and(eq(tasks.id, taskId), eq(tasks.column, 'waiting_approval')))
-          .returning();
-
-        if (!updated) {
-          this.state.deletePendingPlan(taskId);
-          log.warn('Plan approval failed — task already moved from waiting_approval', {
-            data: { taskId },
-          });
-          return err(SandboxErrors.PLAN_NOT_FOUND(taskId));
-        }
-      } catch (dbErr) {
-        const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-        log.error('Failed to move task to in_progress for execution (AgentCore)', {
-          data: { taskId, error: errorMessage },
-        });
-        return err(SandboxErrors.AGENT_START_FAILED(`DB update failed: ${errorMessage}`));
-      }
-
-      const startResult = await this.startAgentFn({
-        codespaceId: planData.codespaceId,
-        taskId: planData.taskId,
-        sessionId: planData.sessionId,
-        prompt: executionPrompt,
-        phase: 'execute',
-        sdkSessionId: planData.sdkSessionId || undefined,
-      });
-
-      if (!startResult.ok) {
-        // Restore task state + original skill so user can retry approval
-        try {
-          const [restored] = await db
-            .update(tasks)
-            .set(rollbackSet)
-            .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
-            .returning({ id: tasks.id });
-          softInvariant(!!restored, 'task restore expected column in_progress', { taskId });
-        } catch (restoreErr) {
-          log.error('Failed to restore task state after agent start failure', {
-            data: {
-              taskId,
-              error: restoreErr instanceof Error ? restoreErr.message : String(restoreErr),
-            },
-          });
-        }
-        return startResult;
-      }
-
-      // Only delete plan from memory AFTER successful start
-      this.state.deletePendingPlan(taskId);
-      return ok(undefined);
-    }
 
     // Container exec branch: detect sandbox changes, start execution
     let effectiveSdkSessionId: string | undefined = planData.sdkSessionId || undefined;

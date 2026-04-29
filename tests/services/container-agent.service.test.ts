@@ -1,5 +1,5 @@
 /**
- * Comprehensive tests for ContainerAgentService — the largest service file (3076 LOC).
+ * Comprehensive tests for ContainerAgentService — the largest service file.
  *
  * Covers:
  * - Constructor and disposal
@@ -13,7 +13,6 @@
  * - Environment variable construction
  * - Sandbox mode handling (shared vs per-project)
  * - Concurrency guards (startingAgents set)
- * - AgentCore provider management
  * - cleanupExpiredPlans
  * - isAgentRunning / getRunningAgent / getRunningAgents
  * - translatePathForContainer
@@ -46,26 +45,6 @@ vi.mock('../../src/lib/agents/container-bridge.js', () => ({
       stop: mockBridgeStop,
     };
   }),
-}));
-
-// Mock the AgentCore bridge
-vi.mock('../../src/lib/agents/agentcore-bridge.js', () => ({
-  createAgentCoreBridge: vi.fn(() => ({
-    processStream: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn(),
-  })),
-}));
-
-// Mock the AgentCore provider factory
-vi.mock('../../src/lib/sandbox/providers/agentcore-sandbox-provider.js', () => ({
-  createAgentCoreProvider: vi.fn(() => ({
-    name: 'agentcore',
-    get: vi.fn(),
-    create: vi.fn(),
-    getOrCreateSession: vi.fn().mockReturnValue('runtime-session-123'),
-    removeSession: vi.fn(),
-    cleanup: vi.fn().mockResolvedValue(undefined),
-  })),
 }));
 
 // Mock git-token-resolver
@@ -1977,50 +1956,6 @@ describe('ContainerAgentService', () => {
 
       const plan = await service.getPendingPlan(task.id);
       expect(plan).toBeDefined();
-    });
-  });
-
-  // =========================================================================
-  // AgentCore provider management
-  // =========================================================================
-
-  describe('AgentCore provider management', () => {
-    it('setAgentCoreProvider configures the provider', async () => {
-      // theme-04 P1-02: AgentCore is gated on AGENTCORE_ENABLED
-      const prev = process.env.AGENTCORE_ENABLED;
-      process.env.AGENTCORE_ENABLED = 'true';
-      try {
-        await service.setAgentCoreProvider({
-          region: 'us-east-1',
-          accessKeyId: 'AKIA...',
-          secretAccessKey: 'secret',
-          runtimeArn: 'arn:aws:agentcore:...',
-        });
-        expect(service.providerName).toBe('agentcore');
-      } finally {
-        if (prev === undefined) delete process.env.AGENTCORE_ENABLED;
-        else process.env.AGENTCORE_ENABLED = prev;
-      }
-    });
-
-    it('clearAgentCoreProvider resets to container provider', async () => {
-      const prev = process.env.AGENTCORE_ENABLED;
-      process.env.AGENTCORE_ENABLED = 'true';
-      try {
-        await service.setAgentCoreProvider({
-          region: 'us-east-1',
-          accessKeyId: 'AKIA...',
-          secretAccessKey: 'secret',
-          runtimeArn: 'arn:aws:agentcore:...',
-        });
-        expect(service.providerName).toBe('agentcore');
-
-        service.clearAgentCoreProvider();
-        expect(service.providerName).toBe('docker');
-      } finally {
-        if (prev === undefined) delete process.env.AGENTCORE_ENABLED;
-        else process.env.AGENTCORE_ENABLED = prev;
-      }
     });
   });
 

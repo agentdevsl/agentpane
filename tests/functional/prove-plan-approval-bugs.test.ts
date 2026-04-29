@@ -48,7 +48,6 @@ function createPlanApprovalService(
   stateManager: SandboxStateManager,
   overrides: {
     startAgentFn?: ReturnType<typeof vi.fn>;
-    isAgentCoreProvider?: () => boolean;
     mockWorktreeInit?: ReturnType<typeof createMockWorktreeInit>;
     mockProvider?: { get: ReturnType<typeof vi.fn> };
   } = {}
@@ -62,8 +61,7 @@ function createPlanApprovalService(
     { db, streams, provider: mockProvider as any } as any,
     stateManager,
     mockWorktreeInit as any,
-    mockStartAgentFn,
-    overrides.isAgentCoreProvider ?? (() => false)
+    mockStartAgentFn
   );
 
   return { planService, mockStartAgentFn, mockWorktreeInit, mockProvider };
@@ -605,41 +603,6 @@ describe('Prove/Disprove Plan Approval Bugs', () => {
       // 2. lastAgentStatus is restored to 'planning'
       // 3. The pending plan is NOT deleted from memory (only deleted on success)
       // This allows the user to retry the approval.
-    });
-
-    it('approvePlan via AgentCore path also restores on failure', async () => {
-      const codespace = await createTestProject({ name: 'AgentCore Restore Test' });
-      const task = await createTestTask(codespace.id, {
-        column: 'in_progress',
-        title: 'Task for AgentCore restore test',
-      });
-
-      const mockStartAgentFn = vi.fn().mockResolvedValue({
-        ok: false,
-        error: { code: 'SANDBOX_AGENT_START_FAILED', message: 'AgentCore invoke failed' },
-      });
-
-      const { planService } = createPlanApprovalService(db, streams, stateManager, {
-        startAgentFn: mockStartAgentFn,
-        isAgentCoreProvider: () => true,
-      });
-
-      // Store plan
-      await planService.handlePlanReady(
-        task.id,
-        'session-ac',
-        codespace.id,
-        makePlanData({ plan: 'AgentCore plan' })
-      );
-
-      // Approve via AgentCore path
-      const approveResult = await planService.approvePlan(task.id);
-      expect(approveResult.ok).toBe(false);
-
-      // Task should be restored
-      const taskAfter = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
-      expect(taskAfter!.column).toBe('waiting_approval');
-      expect(taskAfter!.lastAgentStatus).toBe('planning');
     });
 
     it('plan remains available for retry after startAgentFn failure', async () => {

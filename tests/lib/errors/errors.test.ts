@@ -3,11 +3,6 @@
  */
 import { describe, expect, it } from 'vitest';
 import { AgentErrors } from '@/lib/errors/agent-errors';
-import {
-  AGENTCORE_ERROR_IDS,
-  AgentCoreErrors,
-  isAgentCoreError,
-} from '@/lib/errors/agentcore-errors';
 import { AppErrorClass, createError } from '@/lib/errors/base';
 import { CodespaceErrors } from '@/lib/errors/codespace-errors';
 import { ConcurrencyErrors } from '@/lib/errors/concurrency-errors';
@@ -924,66 +919,5 @@ describe('SandboxConfigErrors', () => {
   it('DEFAULT_EXISTS has status 409', () => {
     expect(SandboxConfigErrors.DEFAULT_EXISTS.code).toBe('SANDBOX_CONFIG_DEFAULT_EXISTS');
     expect(SandboxConfigErrors.DEFAULT_EXISTS.status).toBe(409);
-  });
-});
-
-// =============================================================================
-// AgentCore Errors Tests
-// =============================================================================
-
-describe('AgentCoreErrors', () => {
-  it('AWS_CREDENTIALS_INVALID returns 401 with AGENTCORE error id', () => {
-    const error = AgentCoreErrors.AWS_CREDENTIALS_INVALID('bad key');
-
-    expect(error.code).toBe(AGENTCORE_ERROR_IDS.AWS_CREDENTIALS_INVALID);
-    expect(error.status).toBe(401);
-    expect(error.message).toContain('bad key');
-    expect(error.details?.errorName).toBe('AGENTCORE_AWS_CREDENTIALS_INVALID');
-  });
-
-  it('AWS_CREDENTIALS_EXPIRED returns 401', () => {
-    const error = AgentCoreErrors.AWS_CREDENTIALS_EXPIRED();
-
-    expect(error.code).toBe(AGENTCORE_ERROR_IDS.AWS_CREDENTIALS_EXPIRED);
-    expect(error.status).toBe(401);
-  });
-
-  it('STREAMING_ERROR returns 502', () => {
-    const error = AgentCoreErrors.STREAMING_ERROR('disconnected');
-
-    expect(error.code).toBe(AGENTCORE_ERROR_IDS.STREAMING_ERROR);
-    expect(error.status).toBe(502);
-  });
-
-  it('SESSION_CREATE_FAILED returns 502', () => {
-    const error = AgentCoreErrors.SESSION_CREATE_FAILED('timeout');
-
-    expect(error.code).toBe(AGENTCORE_ERROR_IDS.SESSION_CREATE_FAILED);
-    expect(error.status).toBe(502);
-  });
-
-  it('API_ERROR uses the provided statusCode', () => {
-    const error = AgentCoreErrors.API_ERROR(503, 'service unavailable');
-
-    expect(error.status).toBe(503);
-    expect(error.code).toBe(AGENTCORE_ERROR_IDS.API_ERROR);
-  });
-
-  it('isAgentCoreError returns true for AgentCore errors', () => {
-    const error = AgentCoreErrors.INTERNAL_ERROR('test');
-
-    expect(isAgentCoreError(error)).toBe(true);
-  });
-
-  it('isAgentCoreError returns false for non-AppErrorClass errors', () => {
-    expect(isAgentCoreError(new Error('test'))).toBe(false);
-    expect(isAgentCoreError(null)).toBe(false);
-    expect(isAgentCoreError('string')).toBe(false);
-  });
-
-  it('isAgentCoreError returns false for non-AGENTCORE codes', () => {
-    const error = new AppErrorClass('OTHER_CODE', 'msg', 500);
-
-    expect(isAgentCoreError(error)).toBe(false);
   });
 });

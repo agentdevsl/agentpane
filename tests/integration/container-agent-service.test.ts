@@ -77,14 +77,14 @@ describe('ContainerAgentService — DB-level integration tests', () => {
       .where(eq(sessions.id, session1.id));
     await db
       .update(sessions)
-      .set({ sandboxProvider: 'agentcore' })
+      .set({ sandboxProvider: 'kubernetes' })
       .where(eq(sessions.id, session2.id));
 
     const dbSession1 = await db.query.sessions.findFirst({ where: eq(sessions.id, session1.id) });
     const dbSession2 = await db.query.sessions.findFirst({ where: eq(sessions.id, session2.id) });
 
     expect(dbSession1?.sandboxProvider).toBe('docker');
-    expect(dbSession2?.sandboxProvider).toBe('agentcore');
+    expect(dbSession2?.sandboxProvider).toBe('kubernetes');
   });
 
   it('IT-104: simulates agent stop — clears currentTaskId and sets status to idle', async () => {

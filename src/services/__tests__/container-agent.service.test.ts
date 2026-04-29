@@ -1,22 +1,7 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-
-// theme-04 P1-02: AgentCore provider is gated behind AGENTCORE_ENABLED.
-// Enable it for this test suite so setAgentCoreProvider actually wires up.
-const ORIGINAL_AGENTCORE_ENABLED = process.env.AGENTCORE_ENABLED;
-beforeAll(() => {
-  process.env.AGENTCORE_ENABLED = 'true';
-});
-afterAll(() => {
-  if (ORIGINAL_AGENTCORE_ENABLED === undefined) {
-    delete process.env.AGENTCORE_ENABLED;
-  } else {
-    process.env.AGENTCORE_ENABLED = ORIGINAL_AGENTCORE_ENABLED;
-  }
-});
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { err } from '../../lib/utils/result.js';
-import type { AgentCoreBridgeService } from '../container-agent/agentcore-bridge.service.js';
 import { ContainerAgentService } from '../container-agent/container-agent.service.js';
 import type { ContainerExecService } from '../container-agent/container-exec.service.js';
 import type { PlanApprovalService } from '../container-agent/plan-approval.service.js';
@@ -40,11 +25,9 @@ vi.mock('../container-agent/sandbox-state.js', () => {
   SandboxStateManager.prototype.isStarting = vi.fn().mockReturnValue(false);
   SandboxStateManager.prototype.markStarting = vi.fn();
   SandboxStateManager.prototype.clearStarting = vi.fn();
-  SandboxStateManager.prototype.getRunningAgentCoreAgent = vi.fn().mockReturnValue(undefined);
   SandboxStateManager.prototype.getRunningAgent = vi.fn().mockReturnValue(undefined);
   SandboxStateManager.prototype.getAnyRunningAgent = vi.fn().mockReturnValue(null);
   SandboxStateManager.prototype.getAllRunningAgents = vi.fn().mockReturnValue([]);
-  SandboxStateManager.prototype.getAllRunningAgentCoreAgents = vi.fn().mockReturnValue([]);
   SandboxStateManager.prototype.getPendingPlan = vi.fn().mockReturnValue(undefined);
   SandboxStateManager.prototype.setPendingPlan = vi.fn();
   SandboxStateManager.prototype.deletePendingPlan = vi.fn();
@@ -68,17 +51,6 @@ vi.mock('../container-agent/container-exec.service.js', () => {
   return { ContainerExecService };
 });
 
-vi.mock('../container-agent/agentcore-bridge.service.js', () => {
-  const AgentCoreBridgeService = vi.fn();
-  AgentCoreBridgeService.prototype.startAgentCoreAgent = vi
-    .fn()
-    .mockResolvedValue({ ok: true, value: undefined });
-  AgentCoreBridgeService.prototype.stopAgentCoreAgent = vi
-    .fn()
-    .mockResolvedValue({ ok: true, value: undefined });
-  return { AgentCoreBridgeService };
-});
-
 vi.mock('../container-agent/plan-approval.service.js', () => {
   const PlanApprovalService = vi.fn();
   PlanApprovalService.prototype.approvePlan = vi
@@ -91,13 +63,6 @@ vi.mock('../container-agent/plan-approval.service.js', () => {
   PlanApprovalService.prototype.handlePlanReady = vi.fn().mockResolvedValue(undefined);
   return { PlanApprovalService };
 });
-
-vi.mock('../../lib/sandbox/providers/agentcore-sandbox-provider.js', () => ({
-  createAgentCoreProvider: vi.fn(() => ({
-    name: 'agentcore',
-    cleanup: vi.fn().mockResolvedValue(undefined),
-  })),
-}));
 
 vi.mock('../../lib/logging/logger.js', () => ({
   createLogger: () => ({
@@ -118,7 +83,15 @@ function createMockDb() {
       codespaces: {
         findFirst: vi.fn().mockResolvedValue({ id: 'proj-1', name: 'Test', path: '/tmp' }),
       },
+      tasks: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
     },
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      }),
+    }),
   } as any;
 }
 
@@ -153,11 +126,9 @@ describe('ContainerAgentService', () => {
     const { SandboxStateManager: SM } = await import('../container-agent/sandbox-state.js');
     (SM as any).prototype.hasAnyRunningAgent.mockReturnValue(false);
     (SM as any).prototype.isStarting.mockReturnValue(false);
-    (SM as any).prototype.getRunningAgentCoreAgent.mockReturnValue(undefined);
     (SM as any).prototype.getRunningAgent.mockReturnValue(undefined);
     (SM as any).prototype.getAnyRunningAgent.mockReturnValue(null);
     (SM as any).prototype.getAllRunningAgents.mockReturnValue([]);
-    (SM as any).prototype.getAllRunningAgentCoreAgents.mockReturnValue([]);
     (SM as any).prototype.getPendingPlan.mockReturnValue(undefined);
 
     const { ContainerExecService: CES } = await import(
@@ -165,12 +136,6 @@ describe('ContainerAgentService', () => {
     );
     (CES as any).prototype.startAgent.mockResolvedValue({ ok: true, value: undefined });
     (CES as any).prototype.stopAgent.mockResolvedValue({ ok: true, value: undefined });
-
-    const { AgentCoreBridgeService: ACBS } = await import(
-      '../container-agent/agentcore-bridge.service.js'
-    );
-    (ACBS as any).prototype.startAgentCoreAgent.mockResolvedValue({ ok: true, value: undefined });
-    (ACBS as any).prototype.stopAgentCoreAgent.mockResolvedValue({ ok: true, value: undefined });
 
     const { PlanApprovalService: PAS } = await import(
       '../container-agent/plan-approval.service.js'
@@ -199,7 +164,7 @@ describe('ContainerAgentService', () => {
       prompt: 'Build feature X',
     };
 
-    it('delegates to ContainerExecService when no AgentCore provider is set', async () => {
+    it('delegates to ContainerExecService', async () => {
       const result = await service.startAgent(baseInput);
 
       expect(result.ok).toBe(true);
@@ -207,27 +172,6 @@ describe('ContainerAgentService', () => {
       // ContainerExecService.startAgent should have been called
       const containerExec = (service as any).containerExec as ContainerExecService;
       expect(containerExec.startAgent).toHaveBeenCalledWith(baseInput);
-    });
-
-    it('delegates to AgentCoreBridgeService when AgentCore provider is set', async () => {
-      // Set up AgentCore provider
-      await service.setAgentCoreProvider({
-        region: 'us-east-1',
-        accessKeyId: 'AKIA',
-        secretAccessKey: 'secret',
-        runtimeArn: 'arn:aws:agentcore:test',
-      });
-
-      const result = await service.startAgent(baseInput);
-
-      expect(result.ok).toBe(true);
-
-      // AgentCoreBridgeService.startAgentCoreAgent should have been called
-      const agentCoreBridge = (service as any).agentCoreBridge as AgentCoreBridgeService;
-      expect(agentCoreBridge.startAgentCoreAgent).toHaveBeenCalledWith(
-        baseInput,
-        expect.objectContaining({ id: 'proj-1' })
-      );
     });
 
     it('returns AGENT_ALREADY_RUNNING when agent is already running for task', async () => {
@@ -275,24 +219,6 @@ describe('ContainerAgentService', () => {
       expect(stateManager.clearStarting).toHaveBeenCalledWith('task-1');
     });
 
-    it('returns PROJECT_NOT_FOUND for AgentCore path when project missing', async () => {
-      await service.setAgentCoreProvider({
-        region: 'us-east-1',
-        accessKeyId: 'AKIA',
-        secretAccessKey: 'secret',
-        runtimeArn: 'arn:aws:agentcore:test',
-      });
-
-      db.query.codespaces.findFirst.mockResolvedValue(null);
-
-      const result = await service.startAgent(baseInput);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('SANDBOX_PROJECT_NOT_FOUND');
-      }
-    });
-
     it('defaults phase to plan when not specified', async () => {
       await service.startAgent(baseInput);
 
@@ -308,34 +234,13 @@ describe('ContainerAgentService', () => {
   // =========================================================================
 
   describe('stopAgent() delegation', () => {
-    it('delegates to ContainerExecService when no AgentCore agent is running', async () => {
+    it('delegates to ContainerExecService', async () => {
       const result = await service.stopAgent('task-1');
 
       expect(result.ok).toBe(true);
 
       const containerExec = (service as any).containerExec as ContainerExecService;
       expect(containerExec.stopAgent).toHaveBeenCalledWith('task-1');
-    });
-
-    it('delegates to AgentCoreBridgeService when AgentCore agent is running', async () => {
-      const agentCoreAgent = {
-        taskId: 'task-1',
-        sessionId: 'sess-1',
-        codespaceId: 'proj-1',
-        sandboxId: 'sb-1',
-        startedAt: new Date(),
-      };
-      const stateManager = (service as any).state as SandboxStateManager;
-      (stateManager.getRunningAgentCoreAgent as ReturnType<typeof vi.fn>).mockReturnValue(
-        agentCoreAgent
-      );
-
-      const result = await service.stopAgent('task-1');
-
-      expect(result.ok).toBe(true);
-
-      const agentCoreBridge = (service as any).agentCoreBridge as AgentCoreBridgeService;
-      expect(agentCoreBridge.stopAgentCoreAgent).toHaveBeenCalledWith(agentCoreAgent);
     });
 
     it('propagates error from ContainerExecService.stopAgent', async () => {
@@ -456,7 +361,7 @@ describe('ContainerAgentService', () => {
       expect(stateManager.getAnyRunningAgent).toHaveBeenCalledWith('task-1');
     });
 
-    it('getRunningAgents combines container and AgentCore agents', () => {
+    it('getRunningAgents returns running agents array', () => {
       const stateManager = (service as any).state as SandboxStateManager;
       const containerAgent = {
         taskId: 'task-1',
@@ -464,56 +369,23 @@ describe('ContainerAgentService', () => {
         sessionId: 'sess-1',
         startedAt: new Date(),
       };
-      const agentCoreAgent = {
-        taskId: 'task-2',
-        codespaceId: 'proj-1',
-        sessionId: 'sess-2',
-        startedAt: new Date(),
-      };
       (stateManager.getAllRunningAgents as ReturnType<typeof vi.fn>).mockReturnValue([
         containerAgent,
-      ]);
-      (stateManager.getAllRunningAgentCoreAgents as ReturnType<typeof vi.fn>).mockReturnValue([
-        agentCoreAgent,
       ]);
 
       const running = service.getRunningAgents();
 
-      expect(running).toHaveLength(2);
+      expect(running).toHaveLength(1);
       expect(running[0]?.taskId).toBe('task-1');
-      expect(running[1]?.taskId).toBe('task-2');
     });
   });
 
   // =========================================================================
-  // AgentCore provider management
+  // Provider name
   // =========================================================================
 
-  describe('AgentCore provider management', () => {
-    it('providerName returns "docker" by default', () => {
-      expect(service.providerName).toBe('docker');
-    });
-
-    it('providerName returns "agentcore" after setAgentCoreProvider', async () => {
-      await service.setAgentCoreProvider({
-        region: 'us-east-1',
-        accessKeyId: 'AKIA',
-        secretAccessKey: 'secret',
-        runtimeArn: 'arn:aws:agentcore:test',
-      });
-      expect(service.providerName).toBe('agentcore');
-    });
-
-    it('clearAgentCoreProvider reverts to container provider name', async () => {
-      await service.setAgentCoreProvider({
-        region: 'us-east-1',
-        accessKeyId: 'AKIA',
-        secretAccessKey: 'secret',
-        runtimeArn: 'arn:aws:agentcore:test',
-      });
-      expect(service.providerName).toBe('agentcore');
-
-      service.clearAgentCoreProvider();
+  describe('providerName', () => {
+    it('returns the underlying provider name', () => {
       expect(service.providerName).toBe('docker');
     });
   });
@@ -528,20 +400,6 @@ describe('ContainerAgentService', () => {
 
       const stateManager = (service as any).state as SandboxStateManager;
       expect(stateManager.dispose).toHaveBeenCalled();
-    });
-
-    it('cleans up AgentCore provider when set', async () => {
-      await service.setAgentCoreProvider({
-        region: 'us-east-1',
-        accessKeyId: 'AKIA',
-        secretAccessKey: 'secret',
-        runtimeArn: 'arn:aws:agentcore:test',
-      });
-
-      const agentCoreProvider = (service as any).agentCoreProvider;
-      service.dispose();
-
-      expect(agentCoreProvider.cleanup).toHaveBeenCalled();
     });
   });
 

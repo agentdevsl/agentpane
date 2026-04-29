@@ -3,8 +3,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { agents, sessions, tasks } from '../../src/db/schema';
 import { CONTAINER_WORKSPACE_PATH } from '../../src/lib/constants/sandbox';
-// Explicit imports for coverage gap detection (agentcore-bridge.service, container-exec.service)
-import type {} from '../../src/services/container-agent/agentcore-bridge.service';
+// Explicit imports for coverage gap detection (container-exec.service)
 import type {} from '../../src/services/container-agent/container-exec.service';
 import { SandboxStateManager } from '../../src/services/container-agent/sandbox-state';
 import {
@@ -14,11 +13,7 @@ import {
   updateTaskOnAgentComplete,
   updateTaskOnAgentError,
 } from '../../src/services/container-agent/shared-helpers';
-import type {
-  PlanData,
-  RunningAgent,
-  RunningAgentCoreAgent,
-} from '../../src/services/container-agent/types';
+import type { PlanData, RunningAgent } from '../../src/services/container-agent/types';
 import { PENDING_PLAN_TTL_MS } from '../../src/services/container-agent/types';
 import { WorktreeInitService } from '../../src/services/container-agent/worktree-init.service';
 import { createTestAgent } from '../factories/agent.factory';
@@ -477,84 +472,9 @@ describe('SandboxStateManager (IT-305)', () => {
     expect(all).toContain(agent2);
   });
 
-  // -- Running AgentCore agents --
-
-  it('IT-305e: stores and retrieves AgentCore agents by taskId', () => {
-    const acAgent: RunningAgentCoreAgent = {
-      taskId: 'ac-task-1',
-      sessionId: 'ac-session-1',
-      codespaceId: 'ac-cs-1',
-      sandboxId: 'agentcore-ac-cs-1',
-      bridge: {} as any,
-      instance: {} as any,
-      runtimeSessionId: 'runtime-1',
-      startedAt: new Date(),
-      stopRequested: false,
-      phase: 'plan',
-    };
-
-    state.setRunningAgentCoreAgent('ac-task-1', acAgent);
-
-    expect(state.hasRunningAgentCoreAgent('ac-task-1')).toBe(true);
-    expect(state.getRunningAgentCoreAgent('ac-task-1')).toBe(acAgent);
-    expect(state.runningAgentCoreAgentCount).toBe(1);
-  });
-
-  it('IT-305f: deletes AgentCore agent', () => {
-    const acAgent: RunningAgentCoreAgent = {
-      taskId: 'ac-task-2',
-      sessionId: 'ac-session-2',
-      codespaceId: 'ac-cs-2',
-      sandboxId: 'agentcore-ac-cs-2',
-      bridge: {} as any,
-      instance: {} as any,
-      runtimeSessionId: 'runtime-2',
-      startedAt: new Date(),
-      stopRequested: false,
-      phase: 'execute',
-    };
-
-    state.setRunningAgentCoreAgent('ac-task-2', acAgent);
-    expect(state.deleteRunningAgentCoreAgent('ac-task-2')).toBe(true);
-    expect(state.hasRunningAgentCoreAgent('ac-task-2')).toBe(false);
-    expect(state.runningAgentCoreAgentCount).toBe(0);
-  });
-
-  it('IT-305g: getAllRunningAgentCoreAgents returns all AgentCore entries', () => {
-    const a1: RunningAgentCoreAgent = {
-      taskId: 'act-1',
-      sessionId: 's1',
-      codespaceId: 'c1',
-      sandboxId: 'sb1',
-      bridge: {} as any,
-      instance: {} as any,
-      runtimeSessionId: 'r1',
-      startedAt: new Date(),
-      stopRequested: false,
-      phase: 'plan',
-    };
-    const a2: RunningAgentCoreAgent = {
-      taskId: 'act-2',
-      sessionId: 's2',
-      codespaceId: 'c2',
-      sandboxId: 'sb2',
-      bridge: {} as any,
-      instance: {} as any,
-      runtimeSessionId: 'r2',
-      startedAt: new Date(),
-      stopRequested: false,
-      phase: 'execute',
-    };
-
-    state.setRunningAgentCoreAgent('act-1', a1);
-    state.setRunningAgentCoreAgent('act-2', a2);
-
-    expect(state.getAllRunningAgentCoreAgents()).toHaveLength(2);
-  });
-
   // -- Combined helpers --
 
-  it('IT-305h: hasAnyRunningAgent checks both maps', () => {
+  it('IT-305h: hasAnyRunningAgent checks the running-agents map', () => {
     expect(state.hasAnyRunningAgent('x')).toBe(false);
 
     state.setRunningAgent('x', {
@@ -570,20 +490,6 @@ describe('SandboxStateManager (IT-305)', () => {
       phase: 'plan',
     });
     expect(state.hasAnyRunningAgent('x')).toBe(true);
-
-    state.setRunningAgentCoreAgent('y', {
-      taskId: 'y',
-      sessionId: 'sy',
-      codespaceId: 'cy',
-      sandboxId: 'sby',
-      bridge: {} as any,
-      instance: {} as any,
-      runtimeSessionId: 'ry',
-      startedAt: new Date(),
-      stopRequested: false,
-      phase: 'plan',
-    });
-    expect(state.hasAnyRunningAgent('y')).toBe(true);
   });
 
   it('IT-305i: getAnyRunningAgent returns info from either map', () => {
@@ -611,7 +517,7 @@ describe('SandboxStateManager (IT-305)', () => {
     });
   });
 
-  it('IT-305j: totalRunningAgentCount sums both maps', () => {
+  it('IT-305j: totalRunningAgentCount counts running agents', () => {
     expect(state.totalRunningAgentCount).toBe(0);
 
     state.setRunningAgent('a', {
@@ -626,14 +532,14 @@ describe('SandboxStateManager (IT-305)', () => {
       stopRequested: false,
       phase: 'plan',
     });
-    state.setRunningAgentCoreAgent('b', {
+    state.setRunningAgent('b', {
       taskId: 'b',
       sessionId: 'sb',
       codespaceId: 'cb',
       sandboxId: 'sbb',
       bridge: {} as any,
-      instance: {} as any,
-      runtimeSessionId: 'rb',
+      execResult: {} as any,
+      stopFilePath: '/tmp/stop-b',
       startedAt: new Date(),
       stopRequested: false,
       phase: 'plan',
@@ -1189,197 +1095,6 @@ describe('WorktreeInitService (IT-306)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AgentCoreBridgeService — DB-level integration
-// ---------------------------------------------------------------------------
-
-describe('AgentCoreBridgeService — DB-level state (IT-307)', () => {
-  beforeEach(async () => {
-    await setupTestDatabase();
-  });
-
-  afterEach(async () => {
-    await clearTestDatabase();
-  });
-
-  it('IT-307a: creates agent and session records with correct fields for agentcore', async () => {
-    const db = getTestDb();
-    const codespace = await createTestProject();
-    const task = await createTestTask(codespace.id, {
-      column: 'in_progress',
-      title: 'AgentCore Task',
-    });
-
-    const agentId = `agent-${task.id}`;
-    const sessionId = createId();
-
-    // Simulate what AgentCoreBridgeService.startAgentCoreAgent does at the DB level
-    await db
-      .insert(agents)
-      .values({
-        id: agentId,
-        codespaceId: codespace.id,
-        name: 'AgentCore Agent',
-        type: 'task',
-        status: 'starting',
-        currentTaskId: task.id,
-        currentSessionId: sessionId,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      })
-      .onConflictDoUpdate({
-        target: agents.id,
-        set: {
-          status: 'starting',
-          currentTaskId: task.id,
-          currentSessionId: sessionId,
-        },
-      });
-
-    await db.insert(sessions).values({
-      id: sessionId,
-      codespaceId: codespace.id,
-      taskId: task.id,
-      agentId,
-      title: task.title ?? `AgentCore Agent - ${task.id}`,
-      url: `/codespaces/${codespace.id}/sessions/${sessionId}`,
-      status: 'active',
-      sandboxProvider: 'agentcore',
-      sandboxContainerId: null,
-      createdAt: new Date().toISOString(),
-    });
-
-    await db.update(tasks).set({ agentId, sessionId }).where(eq(tasks.id, task.id));
-
-    // Verify all records
-    const dbAgent = await db.query.agents.findFirst({ where: eq(agents.id, agentId) });
-    expect(dbAgent?.name).toBe('AgentCore Agent');
-    expect(dbAgent?.type).toBe('task');
-    expect(dbAgent?.status).toBe('starting');
-    expect(dbAgent?.currentTaskId).toBe(task.id);
-
-    const dbSession = await db.query.sessions.findFirst({ where: eq(sessions.id, sessionId) });
-    expect(dbSession?.sandboxProvider).toBe('agentcore');
-    expect(dbSession?.sandboxContainerId).toBeNull();
-    expect(dbSession?.agentId).toBe(agentId);
-    expect(dbSession?.taskId).toBe(task.id);
-
-    const dbTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
-    expect(dbTask?.agentId).toBe(agentId);
-    expect(dbTask?.sessionId).toBe(sessionId);
-  });
-
-  it('IT-307b: agent record upsert works (onConflictDoUpdate)', async () => {
-    const db = getTestDb();
-    const codespace = await createTestProject();
-    const task1 = await createTestTask(codespace.id, { column: 'in_progress' });
-    const task2 = await createTestTask(codespace.id, { column: 'in_progress' });
-
-    const agentId = `agent-${task1.id}`;
-
-    // First insert
-    await db.insert(agents).values({
-      id: agentId,
-      codespaceId: codespace.id,
-      name: 'AgentCore Agent',
-      type: 'task',
-      status: 'starting',
-      currentTaskId: task1.id,
-      currentSessionId: 'session-1',
-    });
-
-    // Upsert with different task
-    await db
-      .insert(agents)
-      .values({
-        id: agentId,
-        codespaceId: codespace.id,
-        name: 'AgentCore Agent',
-        type: 'task',
-        status: 'starting',
-        currentTaskId: task2.id,
-        currentSessionId: 'session-2',
-      })
-      .onConflictDoUpdate({
-        target: agents.id,
-        set: {
-          status: 'starting',
-          currentTaskId: task2.id,
-          currentSessionId: 'session-2',
-        },
-      });
-
-    const dbAgent = await db.query.agents.findFirst({ where: eq(agents.id, agentId) });
-    expect(dbAgent?.currentTaskId).toBe(task2.id);
-    expect(dbAgent?.currentSessionId).toBe('session-2');
-  });
-
-  it('IT-307c: handleAgentCoreComplete flow — task moves to waiting_approval via shared helper', async () => {
-    const db = getTestDb();
-    const codespace = await createTestProject();
-    const task = await createTestTask(codespace.id, {
-      column: 'in_progress',
-      title: 'Completed task',
-    });
-
-    // Create agent record with the expected ID pattern
-    await createTestAgent(codespace.id, {
-      id: `agent-${task.id}`,
-      status: 'running',
-      currentTaskId: task.id,
-    });
-
-    // Simulate handleAgentCoreComplete calling updateTaskOnAgentComplete + updateAgentStatus
-    const taskResult = await updateTaskOnAgentComplete(db, task.id, 'completed');
-    expect(taskResult).toBe(true);
-
-    await updateAgentStatus(db, task.id, 'completed');
-
-    const dbTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
-    expect(dbTask?.column).toBe('waiting_approval');
-    expect(dbTask?.lastAgentStatus).toBe('completed');
-    expect(dbTask?.agentId).toBeNull();
-
-    const dbAgent = await db.query.agents.findFirst({
-      where: eq(agents.id, `agent-${task.id}`),
-    });
-    expect(dbAgent?.status).toBe('completed');
-    expect(dbAgent?.currentTaskId).toBeNull();
-  });
-
-  it('IT-307d: handleAgentCoreError flow — task error state + agent cleanup', async () => {
-    const db = getTestDb();
-    const codespace = await createTestProject();
-    const task = await createTestTask(codespace.id, {
-      column: 'in_progress',
-      title: 'Error task',
-    });
-
-    await createTestAgent(codespace.id, {
-      id: `agent-${task.id}`,
-      status: 'running',
-      currentTaskId: task.id,
-    });
-
-    // Simulate handleAgentCoreError calling updateTaskOnAgentError + updateAgentStatus
-    const taskResult = await updateTaskOnAgentError(db, task.id);
-    expect(taskResult).toBe(true);
-
-    await updateAgentStatus(db, task.id, 'error');
-
-    const dbTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
-    expect(dbTask?.lastAgentStatus).toBe('error');
-    expect(dbTask?.agentId).toBeNull();
-    expect(dbTask?.column).toBe('in_progress'); // stays in_progress
-
-    const dbAgent = await db.query.agents.findFirst({
-      where: eq(agents.id, `agent-${task.id}`),
-    });
-    expect(dbAgent?.status).toBe('error');
-    expect(dbAgent?.currentTaskId).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // ContainerExecService — DB-level integration
 // ---------------------------------------------------------------------------
 
@@ -1657,14 +1372,14 @@ describe('Cross-service: State Manager + DB consistency (IT-309)', () => {
       phase: 'plan',
     });
 
-    state.setRunningAgentCoreAgent(task2.id, {
+    state.setRunningAgent(task2.id, {
       taskId: task2.id,
       sessionId: 'sess-2',
       codespaceId: cs2.id,
-      sandboxId: 'agentcore-cs2',
+      sandboxId: 'sb-2',
       bridge: {} as any,
-      instance: {} as any,
-      runtimeSessionId: 'rt-2',
+      execResult: {} as any,
+      stopFilePath: '/tmp/stop-2',
       startedAt: new Date(),
       stopRequested: false,
       phase: 'execute',

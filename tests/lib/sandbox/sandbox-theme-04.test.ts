@@ -5,7 +5,6 @@
  * Groups:
  *   P0-01 image validation
  *   P1-01 provider conformance
- *   P1-02 AgentCore gating
  *   P1-03 K8s / Nomad recover()
  *   P1-05 credential injection via writeFile
  *   P1-06 network-mode default opt-in
@@ -122,48 +121,6 @@ describe('P1-01 SandboxProvider conformance', () => {
       expect(typeof provider.on).toBe('function');
       expect(typeof provider.off).toBe('function');
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// P1-02 — AgentCore gating
-// ---------------------------------------------------------------------------
-
-describe('P1-02 AgentCore gating', () => {
-  const ORIGINAL = process.env.AGENTCORE_ENABLED;
-
-  afterEach(() => {
-    if (ORIGINAL === undefined) delete process.env.AGENTCORE_ENABLED;
-    else process.env.AGENTCORE_ENABLED = ORIGINAL;
-  });
-
-  it('setAgentCoreProvider is a no-op when AGENTCORE_ENABLED is unset', async () => {
-    delete process.env.AGENTCORE_ENABLED;
-
-    // Spy on the dynamic import target — if the gate is violated, this fails.
-    // We import the service fresh with resetModules so the guard runs.
-    vi.resetModules();
-
-    // We can't easily detect a non-import, so instead verify: after calling
-    // setAgentCoreProvider with the flag off, providerName stays at the
-    // injected provider's name (not 'agentcore').
-    const { ContainerAgentService } = await import(
-      '@/services/container-agent/container-agent.service'
-    );
-    const service = new ContainerAgentService(
-      { query: { tasks: { findMany: vi.fn().mockResolvedValue([]) } } } as never,
-      { name: 'docker' } as never,
-      { publish: vi.fn() } as never,
-      { getDecryptedKey: vi.fn() } as never
-    );
-    await service.setAgentCoreProvider({
-      region: 'us-east-1',
-      accessKeyId: 'AKIA',
-      secretAccessKey: 'secret',
-      runtimeArn: 'arn:aws:agentcore:test',
-    });
-    expect(service.providerName).toBe('docker');
-    service.dispose();
   });
 });
 

@@ -22,7 +22,6 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'sandbox.provider',
   'sandbox.kubernetes',
   'sandbox.nomad',
-  'sandbox.agentcore',
   'anthropic.apiKey',
   'anthropic.model',
   'github.token',
@@ -49,7 +48,6 @@ const ALLOWED_SETTINGS_KEYS = new Set([
 
 const SENSITIVE_FIELDS: Record<string, { secretKey: string; flagKey: string }> = {
   'sandbox.nomad': { secretKey: 'token', flagKey: 'hasToken' },
-  'sandbox.agentcore': { secretKey: 'secretAccessKey', flagKey: 'hasSecretAccessKey' },
 };
 
 // Validation schemas

@@ -1,5 +1,4 @@
 export * from './agent-errors.js';
-export * from './agentcore-errors.js';
 export * from './base.js';
 export * from './codespace-errors.js';
 export * from './concurrency-errors.js';
