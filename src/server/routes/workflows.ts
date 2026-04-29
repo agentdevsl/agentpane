@@ -5,10 +5,9 @@
  */
 
 import { Hono } from 'hono';
-import { createWorkflowSchema } from '../../lib/api/schemas.js';
 import type { WorkflowService } from '../../services/workflow.service.js';
 import { json, parseLimit, parseOffset, validateIdParam } from '../shared.js';
-import { parseJsonBody, updateWorkflowSchema } from '../validation.js';
+import { createWorkflowSchema, parseJsonBody, updateWorkflowSchema } from '../validation.js';
 
 interface WorkflowsDeps {
   workflowService: WorkflowService;
@@ -37,7 +36,7 @@ export function createWorkflowsRoutes({ workflowService }: WorkflowsDeps) {
   });
 
   // POST /api/workflows
-  // AR-012: Uses Zod validation via createWorkflowSchema from schemas.ts
+  // AR-012: Uses Zod validation via createWorkflowSchema from validation.ts
   app.post('/', async (c) => {
     const parsed = await parseJsonBody(c, createWorkflowSchema);
     if (!parsed.ok) {

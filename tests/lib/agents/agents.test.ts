@@ -787,6 +787,29 @@ describe('Hooks', () => {
       expect(result.message).toContain('read_file');
       expect(result.message).toContain('glob');
     });
+
+    it('arch29-W2-P (F12-02): ALLOW_ALL_TOOLS (canonical array form) round-trips through the hook', async () => {
+      const { createToolWhitelistHook } = await import('@/lib/agents/hooks/tool-whitelist');
+      const { ALLOW_ALL_TOOLS, WILDCARD_TOOL } = await import('@/lib/constants/tools');
+
+      // Canonical sentinel: an array containing the bare wildcard.
+      expect(ALLOW_ALL_TOOLS).toEqual([WILDCARD_TOOL]);
+      expect(WILDCARD_TOOL).toBe('*');
+
+      // The hook must accept the array sentinel and allow every tool.
+      const hook = createToolWhitelistHook(ALLOW_ALL_TOOLS);
+      const result = await hook.hooks[0]({ tool_name: 'bash', tool_input: {} });
+      expect(result.decision).toBeUndefined();
+
+      // tool-whitelist.ts no longer exports its own bare-string
+      // ALLOW_ALL_TOOLS (the F12-02 collision). Importing the symbol
+      // from there must fail.
+      const whitelistModule = (await import('@/lib/agents/hooks/tool-whitelist')) as Record<
+        string,
+        unknown
+      >;
+      expect(whitelistModule.ALLOW_ALL_TOOLS).toBeUndefined();
+    });
   });
 
   describe('Streaming Hooks', () => {

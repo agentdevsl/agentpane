@@ -1,34 +1,34 @@
+import { WILDCARD_TOOL } from '../../constants/tools.js';
 import type { PreToolUseHook, PreToolUseInput, PreToolUseResult } from '../types.js';
-
-/**
- * Sentinel for "open access — every tool is permitted". Callers MUST
- * set `allowedTools: ['*']` to opt in; an empty list now fails closed
- * (F06-06).
- */
-export const ALLOW_ALL_TOOLS = '*';
 
 /**
  * Pre-tool-use hook that enforces a whitelist of tool names.
  *
- * F06-06: An empty `allowedTools` array was previously treated as
- * "allow all" (failure-open). Since the Claude Agent SDK tool surface
- * includes Bash/Write/Edit/WebFetch, any misconfiguration of this
- * hook effectively granted arbitrary code execution. The new contract
- * is:
+ * F06-06 / arch29-W2-P (F12-02): An empty `allowedTools` array was previously
+ * treated as "allow all" (failure-open). Since the Claude Agent SDK tool
+ * surface includes Bash/Write/Edit/WebFetch, any misconfiguration of this
+ * hook effectively granted arbitrary code execution. The new contract is:
  *
  *   - `[]`         → DENY every tool
- *   - `['*']`      → ALLOW every tool (sentinel)
+ *   - `['*']`      → ALLOW every tool (the WILDCARD_TOOL sentinel)
  *   - `['X','Y']`  → ALLOW only X and Y
  *
  * Callers that legitimately want an open whitelist must pass `['*']`
- * explicitly; silent defaults no longer grant permissions.
+ * explicitly (the `ALLOW_ALL_TOOLS` constant in `lib/constants/tools.ts`
+ * is exactly that array); silent defaults no longer grant permissions.
+ *
+ * Previously this file also exported `ALLOW_ALL_TOOLS = '*'` (a bare string)
+ * which collided with the array form in `lib/constants/tools.ts`. The bare
+ * sentinel is now `WILDCARD_TOOL` (also re-exported from `lib/constants/tools`)
+ * and the array form `ALLOW_ALL_TOOLS = ['*']` is the only canonical sentinel
+ * for `allowedTools` lists.
  */
 export function createToolWhitelistHook(allowedTools: string[]): PreToolUseHook {
   return {
     hooks: [
       async (input: PreToolUseInput): Promise<PreToolUseResult> => {
         // Explicit open-gate sentinel — callers must opt in.
-        if (allowedTools.includes(ALLOW_ALL_TOOLS)) {
+        if (allowedTools.includes(WILDCARD_TOOL)) {
           return {};
         }
 

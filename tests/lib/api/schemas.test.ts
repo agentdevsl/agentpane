@@ -2,110 +2,29 @@ import { createId } from '@paralleldrive/cuid2';
 import { describe, expect, it } from 'vitest';
 import {
   createAgentSchema,
-  createProjectSchema,
   createSessionSchema,
   createTaskSchema,
-  listProjectsSchema,
+  createWorkflowSchema,
   moveTaskSchema,
-} from '@/lib/api/schemas';
+} from '@/server/validation';
 
-/** Helper that generates a valid CUID for test inputs */
-const validCuid = () => createId();
+/**
+ * Schema unit tests for the canonical server validation module.
+ *
+ * arch29-W2-P (F12-01): These tests previously lived next to the deleted
+ * `src/lib/api/schemas.ts`, which redeclared 5 task/session/agent schemas
+ * with tighter limits than the canonical server schemas. The canonical
+ * versions in `src/server/validation.ts` are now the only source of truth;
+ * these tests assert the canonical limits round-trip correctly so a future
+ * refactor cannot silently re-introduce divergent limits.
+ */
+const validId = () => createId();
 
-describe('API Schemas', () => {
-  describe('createProjectSchema', () => {
-    it('accepts a valid project with required fields only', () => {
-      const result = createProjectSchema.safeParse({
-        name: 'My Project',
-        path: '/home/user/project',
-      });
-      expect(result.success).toBe(true);
-    });
-
-    it('accepts a valid project with all optional fields', () => {
-      const sandboxId = validCuid();
-      const result = createProjectSchema.safeParse({
-        name: 'My Project',
-        path: '/home/user/project',
-        description: 'A test project',
-        maxConcurrentAgents: 5,
-        githubOwner: 'acme',
-        githubRepo: 'my-repo',
-        sandboxConfigId: sandboxId,
-      });
-      expect(result.success).toBe(true);
-    });
-
-    it('rejects when name is empty', () => {
-      const result = createProjectSchema.safeParse({
-        name: '',
-        path: '/home/user/project',
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('rejects when name exceeds 100 characters', () => {
-      const result = createProjectSchema.safeParse({
-        name: 'x'.repeat(101),
-        path: '/some/path',
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('rejects when path is empty', () => {
-      const result = createProjectSchema.safeParse({
-        name: 'Valid Name',
-        path: '',
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('rejects when path is missing', () => {
-      const result = createProjectSchema.safeParse({ name: 'Valid' });
-      expect(result.success).toBe(false);
-    });
-
-    it('rejects description over 500 characters', () => {
-      const result = createProjectSchema.safeParse({
-        name: 'Valid',
-        path: '/path',
-        description: 'x'.repeat(501),
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('rejects maxConcurrentAgents above 10', () => {
-      const result = createProjectSchema.safeParse({
-        name: 'Valid',
-        path: '/path',
-        maxConcurrentAgents: 11,
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('rejects maxConcurrentAgents below 1', () => {
-      const result = createProjectSchema.safeParse({
-        name: 'Valid',
-        path: '/path',
-        maxConcurrentAgents: 0,
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('rejects invalid sandboxConfigId format', () => {
-      const result = createProjectSchema.safeParse({
-        name: 'Valid',
-        path: '/path',
-        sandboxConfigId: 'not-a-cuid',
-      });
-      expect(result.success).toBe(false);
-    });
-  });
-
+describe('Canonical API Schemas', () => {
   describe('createTaskSchema', () => {
     it('accepts a valid task with required fields', () => {
       const result = createTaskSchema.safeParse({
-        codespaceId: validCuid(),
+        codespaceId: validId(),
         title: 'Fix the login bug',
       });
       expect(result.success).toBe(true);
@@ -113,7 +32,7 @@ describe('API Schemas', () => {
 
     it('accepts a task with optional description and labels', () => {
       const result = createTaskSchema.safeParse({
-        codespaceId: validCuid(),
+        codespaceId: validId(),
         title: 'Add feature X',
         description: 'Implement the new feature',
         labels: ['feature', 'high-priority'],
@@ -126,77 +45,111 @@ describe('API Schemas', () => {
       expect(result.success).toBe(false);
     });
 
-    it('rejects invalid codespaceId format', () => {
-      const result = createTaskSchema.safeParse({
-        codespaceId: 'bad-id',
-        title: 'Some task',
-      });
-      expect(result.success).toBe(false);
-    });
-
     it('rejects empty title', () => {
       const result = createTaskSchema.safeParse({
-        codespaceId: validCuid(),
+        codespaceId: validId(),
         title: '',
       });
       expect(result.success).toBe(false);
     });
 
-    it('rejects title exceeding 200 characters', () => {
+    it('accepts title up to 500 characters (canonical limit)', () => {
       const result = createTaskSchema.safeParse({
-        codespaceId: validCuid(),
-        title: 'x'.repeat(201),
+        codespaceId: validId(),
+        title: 'x'.repeat(500),
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects title exceeding 500 characters', () => {
+      const result = createTaskSchema.safeParse({
+        codespaceId: validId(),
+        title: 'x'.repeat(501),
       });
       expect(result.success).toBe(false);
     });
 
-    it('rejects description exceeding 5000 characters', () => {
+    it('accepts description up to 10000 characters (canonical limit)', () => {
       const result = createTaskSchema.safeParse({
-        codespaceId: validCuid(),
+        codespaceId: validId(),
         title: 'Valid title',
-        description: 'x'.repeat(5001),
+        description: 'x'.repeat(10000),
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects description exceeding 10000 characters', () => {
+      const result = createTaskSchema.safeParse({
+        codespaceId: validId(),
+        title: 'Valid title',
+        description: 'x'.repeat(10001),
       });
       expect(result.success).toBe(false);
     });
 
-    it('rejects labels array exceeding 10 items', () => {
+    it('accepts up to 20 labels (canonical limit)', () => {
       const result = createTaskSchema.safeParse({
-        codespaceId: validCuid(),
+        codespaceId: validId(),
         title: 'Valid',
-        labels: Array.from({ length: 11 }, (_, i) => `label-${i}`),
+        labels: Array.from({ length: 20 }, (_, i) => `label-${i}`),
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects labels array exceeding 20 items', () => {
+      const result = createTaskSchema.safeParse({
+        codespaceId: validId(),
+        title: 'Valid',
+        labels: Array.from({ length: 21 }, (_, i) => `label-${i}`),
       });
       expect(result.success).toBe(false);
+    });
+
+    it('accepts a valid skillId', () => {
+      const result = createTaskSchema.safeParse({
+        codespaceId: validId(),
+        title: 'Valid',
+        skillId: 'review-pr',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects skillId with disallowed characters', () => {
+      const result = createTaskSchema.safeParse({
+        codespaceId: validId(),
+        title: 'Valid',
+        skillId: 'review pr', // space disallowed
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('accepts approvalMode "human" or "agent"', () => {
+      for (const approvalMode of ['human', 'agent'] as const) {
+        const result = createTaskSchema.safeParse({
+          codespaceId: validId(),
+          title: 'Valid',
+          approvalMode,
+        });
+        expect(result.success).toBe(true);
+      }
     });
   });
 
   describe('createAgentSchema', () => {
     it('accepts a valid agent with required fields', () => {
       const result = createAgentSchema.safeParse({
-        codespaceId: validCuid(),
+        codespaceId: validId(),
         name: 'Agent One',
+        type: 'task',
       });
       expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.type).toBe('task'); // default
-      }
     });
 
-    it('accepts agent with explicit type', () => {
+    it('accepts agent with config (canonical: free-form record)', () => {
       const result = createAgentSchema.safeParse({
-        codespaceId: validCuid(),
-        name: 'Chat Agent',
-        type: 'conversational',
-      });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.type).toBe('conversational');
-      }
-    });
-
-    it('accepts agent with config', () => {
-      const result = createAgentSchema.safeParse({
-        codespaceId: validCuid(),
+        codespaceId: validId(),
         name: 'Configured Agent',
+        type: 'task',
         config: {
           maxTurns: 100,
           model: 'claude-opus-4',
@@ -209,7 +162,7 @@ describe('API Schemas', () => {
 
     it('rejects invalid agent type', () => {
       const result = createAgentSchema.safeParse({
-        codespaceId: validCuid(),
+        codespaceId: validId(),
         name: 'Bad',
         type: 'nonexistent',
       });
@@ -218,79 +171,36 @@ describe('API Schemas', () => {
 
     it('rejects empty name', () => {
       const result = createAgentSchema.safeParse({
-        codespaceId: validCuid(),
+        codespaceId: validId(),
         name: '',
+        type: 'task',
       });
       expect(result.success).toBe(false);
     });
 
-    it('rejects name exceeding 100 characters', () => {
+    it('accepts name up to 200 characters (canonical limit)', () => {
       const result = createAgentSchema.safeParse({
-        codespaceId: validCuid(),
-        name: 'x'.repeat(101),
+        codespaceId: validId(),
+        name: 'x'.repeat(200),
+        type: 'task',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects name exceeding 200 characters', () => {
+      const result = createAgentSchema.safeParse({
+        codespaceId: validId(),
+        name: 'x'.repeat(201),
+        type: 'task',
       });
       expect(result.success).toBe(false);
     });
 
-    it('rejects config with maxTurns above 500', () => {
+    it('rejects when type is missing (canonical: required)', () => {
       const result = createAgentSchema.safeParse({
-        codespaceId: validCuid(),
+        codespaceId: validId(),
         name: 'Agent',
-        config: { maxTurns: 501 },
       });
-      expect(result.success).toBe(false);
-    });
-
-    it('rejects config with temperature above 1', () => {
-      const result = createAgentSchema.safeParse({
-        codespaceId: validCuid(),
-        name: 'Agent',
-        config: { temperature: 1.5 },
-      });
-      expect(result.success).toBe(false);
-    });
-  });
-
-  describe('listProjectsSchema', () => {
-    it('accepts empty query (all defaults)', () => {
-      const result = listProjectsSchema.safeParse({});
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.limit).toBe(20);
-      }
-    });
-
-    it('coerces string limit to number', () => {
-      const result = listProjectsSchema.safeParse({ limit: '50' });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.limit).toBe(50);
-      }
-    });
-
-    it('accepts optional search parameter', () => {
-      const result = listProjectsSchema.safeParse({ search: 'my-project' });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.search).toBe('my-project');
-      }
-    });
-
-    it('accepts optional cursor parameter', () => {
-      const result = listProjectsSchema.safeParse({ cursor: 'abc123' });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.cursor).toBe('abc123');
-      }
-    });
-
-    it('rejects limit below 1', () => {
-      const result = listProjectsSchema.safeParse({ limit: '0' });
-      expect(result.success).toBe(false);
-    });
-
-    it('rejects limit above 100', () => {
-      const result = listProjectsSchema.safeParse({ limit: '101' });
       expect(result.success).toBe(false);
     });
   });
@@ -301,19 +211,30 @@ describe('API Schemas', () => {
       expect(result.success).toBe(true);
     });
 
-    it('accepts all valid column values', () => {
-      const columns = ['backlog', 'in_progress', 'waiting_approval', 'verified'] as const;
+    it('accepts all canonical column values (incl. "queued")', () => {
+      const columns = ['backlog', 'queued', 'in_progress', 'waiting_approval', 'verified'] as const;
       for (const column of columns) {
         const result = moveTaskSchema.safeParse({ column });
         expect(result.success).toBe(true);
       }
     });
 
-    it('accepts optional position', () => {
-      const result = moveTaskSchema.safeParse({ column: 'backlog', position: '3' });
+    it('accepts optional position (integer)', () => {
+      const result = moveTaskSchema.safeParse({ column: 'backlog', position: 3 });
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.position).toBe(3);
+      }
+    });
+
+    it('accepts optional startAgent flag (canonical only)', () => {
+      const result = moveTaskSchema.safeParse({
+        column: 'in_progress',
+        startAgent: true,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.startAgent).toBe(true);
       }
     });
 
@@ -328,7 +249,7 @@ describe('API Schemas', () => {
     });
 
     it('rejects negative position', () => {
-      const result = moveTaskSchema.safeParse({ column: 'backlog', position: '-1' });
+      const result = moveTaskSchema.safeParse({ column: 'backlog', position: -1 });
       expect(result.success).toBe(false);
     });
   });
@@ -336,16 +257,16 @@ describe('API Schemas', () => {
   describe('createSessionSchema', () => {
     it('accepts a valid session with codespaceId only', () => {
       const result = createSessionSchema.safeParse({
-        codespaceId: validCuid(),
+        codespaceId: validId(),
       });
       expect(result.success).toBe(true);
     });
 
     it('accepts all optional fields', () => {
       const result = createSessionSchema.safeParse({
-        codespaceId: validCuid(),
-        taskId: validCuid(),
-        agentId: validCuid(),
+        codespaceId: validId(),
+        taskId: validId(),
+        agentId: validId(),
         title: 'Test Session',
       });
       expect(result.success).toBe(true);
@@ -356,27 +277,98 @@ describe('API Schemas', () => {
       expect(result.success).toBe(false);
     });
 
-    it('rejects invalid codespaceId', () => {
+    it('rejects an id with disallowed characters', () => {
       const result = createSessionSchema.safeParse({
-        codespaceId: 'not-valid',
+        codespaceId: 'NOT-A-VALID!!ID',
       });
       expect(result.success).toBe(false);
     });
 
-    it('rejects invalid taskId', () => {
+    it('accepts title up to 500 characters (canonical limit)', () => {
       const result = createSessionSchema.safeParse({
-        codespaceId: validCuid(),
-        taskId: 'NOT-A-CUID!!',
+        codespaceId: validId(),
+        title: 'x'.repeat(500),
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects title exceeding 500 characters', () => {
+      const result = createSessionSchema.safeParse({
+        codespaceId: validId(),
+        title: 'x'.repeat(501),
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('createWorkflowSchema', () => {
+    it('accepts a valid workflow with required fields', () => {
+      const result = createWorkflowSchema.safeParse({ name: 'My Workflow' });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects empty name', () => {
+      const result = createWorkflowSchema.safeParse({ name: '' });
+      expect(result.success).toBe(false);
+    });
+
+    it('accepts name up to 200 characters', () => {
+      const result = createWorkflowSchema.safeParse({ name: 'x'.repeat(200) });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects name exceeding 200 characters', () => {
+      const result = createWorkflowSchema.safeParse({ name: 'x'.repeat(201) });
+      expect(result.success).toBe(false);
+    });
+
+    it('accepts description up to 2000 characters', () => {
+      const result = createWorkflowSchema.safeParse({
+        name: 'My Workflow',
+        description: 'x'.repeat(2000),
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects description exceeding 2000 characters', () => {
+      const result = createWorkflowSchema.safeParse({
+        name: 'My Workflow',
+        description: 'x'.repeat(2001),
       });
       expect(result.success).toBe(false);
     });
 
-    it('rejects title exceeding 200 characters', () => {
-      const result = createSessionSchema.safeParse({
-        codespaceId: validCuid(),
-        title: 'x'.repeat(201),
+    it('accepts a valid status enum', () => {
+      for (const status of ['draft', 'published', 'archived'] as const) {
+        const result = createWorkflowSchema.safeParse({ name: 'wf', status });
+        expect(result.success).toBe(true);
+      }
+    });
+
+    it('rejects an invalid status', () => {
+      const result = createWorkflowSchema.safeParse({
+        name: 'wf',
+        status: 'invalid',
       });
       expect(result.success).toBe(false);
+    });
+
+    it('rejects too many tags (max 20)', () => {
+      const result = createWorkflowSchema.safeParse({
+        name: 'wf',
+        tags: Array.from({ length: 21 }, (_, i) => `tag-${i}`),
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('accepts an empty nodes array', () => {
+      const result = createWorkflowSchema.safeParse({ name: 'wf', nodes: [] });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts an empty edges array', () => {
+      const result = createWorkflowSchema.safeParse({ name: 'wf', edges: [] });
+      expect(result.success).toBe(true);
     });
   });
 });
