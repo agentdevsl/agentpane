@@ -2,8 +2,14 @@ import { createId } from '@paralleldrive/cuid2';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import type { TaskColumn } from '../../db/schema';
 import { agentRuns, agents, codespaces, sessions, tasks, worktrees } from '../../db/schema';
+import { createAgentHooks } from '../../lib/agents/hooks/index.js';
 import { handleAgentError } from '../../lib/agents/recovery.js';
 import { runAgentExecution, runAgentPlanning } from '../../lib/agents/stream-handler.js';
+import type {
+  AgentHooks,
+  PostToolUseHook as SdkPostToolUseHook,
+  PreToolUseHook as SdkPreToolUseHook,
+} from '../../lib/agents/types.js';
 import { ALLOW_ALL_TOOLS } from '../../lib/constants/tools.js';
 
 import type { AgentError } from '../../lib/errors/agent-errors.js';
@@ -586,6 +592,21 @@ export class AgentExecutionService {
       }
     }
 
+    // F03-01: Install the standard tool-use hook bundle for this agent
+    // (whitelist + audit + streaming) so the SDK pre/post-tool gates run
+    // for every tool the agent invokes. The bundle uses the same allowedTools
+    // resolution as the SDK call below so deny verdicts match SDK permission.
+    const allowedToolsForAgent = agent.config?.allowedTools ?? ALLOW_ALL_TOOLS;
+    const agentRunId = agentRun?.id ?? createId();
+    this.installAgentHooks({
+      agentId,
+      sessionId: session.value.id,
+      agentRunId,
+      taskId: task.id,
+      codespaceId: agent.codespaceId,
+      allowedTools: allowedToolsForAgent,
+    });
+
     // Start agent execution asynchronously (fire-and-forget with error handling)
     // The agent runs in the background and updates state through events
     void this.executeAgentAsync(
@@ -594,13 +615,13 @@ export class AgentExecutionService {
       taskPrompt,
       {
         // F06-06: `[]` fails closed. Fall back to ALLOW_ALL_TOOLS when no config set.
-        allowedTools: agent.config?.allowedTools ?? ALLOW_ALL_TOOLS,
+        allowedTools: allowedToolsForAgent,
         maxTurns: agent.config?.maxTurns ?? 50,
         model: resolvedModel,
         cwd: worktree.value.path,
         signal: controller.signal,
       },
-      agentRun?.id ?? createId(),
+      agentRunId,
       task.id,
       { skillId: task.skillId, skillName: task.skillName }
     );
@@ -684,6 +705,12 @@ export class AgentExecutionService {
 
     const maxRuntimeMs = await getAgentMaxRuntimeMs(this.db);
 
+    // F03-02: thread the same per-agent pre/post hook arrays into planning so
+    // tool denials, audit rows, and streaming start/result events fire during
+    // the planning phase too. Mirrors the executeAgentExecution branch.
+    const preHooks = this.preToolHooks.get(agentId);
+    const postHooks = this.postToolHooks.get(agentId);
+
     try {
       const result = await runAgentPlanning({
         agentId,
@@ -697,6 +724,27 @@ export class AgentExecutionService {
         maxRuntimeMs,
         skillId: skillContext?.skillId,
         skillName: skillContext?.skillName,
+        preToolUseHooks: preHooks && preHooks.length > 0 ? preHooks : undefined,
+        // Service-level PostToolUseHook returns Promise<void>; the stream
+        // handler only cares about fire-and-forget semantics, so adapt on
+        // the fly to StreamPostToolUseHook's tool_response shape.
+        postToolUseHooks:
+          postHooks && postHooks.length > 0
+            ? postHooks.map(
+                (hook) =>
+                  async (input: {
+                    tool_name: string;
+                    tool_input: Record<string, unknown>;
+                    tool_response: { summary: string; is_error: boolean };
+                  }) => {
+                    await hook({
+                      tool_name: input.tool_name,
+                      tool_input: input.tool_input,
+                      tool_response: input.tool_response,
+                    });
+                  }
+              )
+            : undefined,
         sessionService: this.sessionService,
         onMessage,
       });
@@ -1587,6 +1635,58 @@ export class AgentExecutionService {
   }
 
   /**
+   * F03-01: Install the standard tool-use hook bundle for an agent.
+   *
+   * `createAgentHooks` returns SDK-shaped hook bundles where each hook is an
+   * object `{hooks: [async (input) => result]}`. The service registry stores
+   * function-shaped hooks compatible with the stream-handler's
+   * `Stream{Pre,Post}ToolUseHook`. This helper bridges the two: each
+   * SDK-shape hook is wrapped in a service-shape adapter that translates
+   * `{decision:'block', message}` → `{deny:true, reason}` for pre-hooks, and
+   * forwards the full payload for post-hooks.
+   *
+   * Wraps install in a try/catch so a hook-construction failure (e.g. an
+   * unexpected DB error inside `createAuditHook` import) cannot abort agent
+   * start. The caller logs and proceeds — the agent runs without hooks
+   * rather than not at all.
+   */
+  private installAgentHooks(input: {
+    agentId: string;
+    sessionId: string;
+    agentRunId: string;
+    taskId: string | null;
+    codespaceId: string;
+    allowedTools: string[];
+  }): void {
+    let bundle: AgentHooks;
+    try {
+      bundle = createAgentHooks({
+        agentId: input.agentId,
+        sessionId: input.sessionId,
+        agentRunId: input.agentRunId,
+        taskId: input.taskId,
+        codespaceId: input.codespaceId,
+        allowedTools: input.allowedTools,
+        db: this.db,
+        sessionService: this.sessionService,
+      });
+    } catch (err) {
+      log.error('Failed to construct agent hook bundle, agent will run without hooks', {
+        error: err instanceof Error ? err.message : String(err),
+        data: { agentId: input.agentId },
+      });
+      return;
+    }
+
+    for (const sdkHook of bundle.PreToolUse) {
+      this.registerPreToolUseHook(input.agentId, adaptSdkPreHook(sdkHook));
+    }
+    for (const sdkHook of bundle.PostToolUse) {
+      this.registerPostToolUseHook(input.agentId, adaptSdkPostHook(sdkHook));
+    }
+  }
+
+  /**
    * Start the periodic sweep for orphaned agents.
    * Safe to call multiple times — only one timer will be created.
    */
@@ -1703,4 +1803,64 @@ export class AgentExecutionService {
       });
     }
   }
+}
+
+/**
+ * F03-01: adapt an SDK-shape pre-tool-use hook (returns `{decision?:'block', message?:string}`)
+ * into the service registry's function-shape `PreToolUseHook` (returns
+ * `{deny?:boolean, reason?:string}`). Iterates through every nested hook in
+ * the bundle's `hooks[]` array — the first one that blocks wins.
+ */
+function adaptSdkPreHook(sdkHook: SdkPreToolUseHook): PreToolUseHook {
+  return async (input: { tool_name: string; tool_input: Record<string, unknown> }) => {
+    for (const fn of sdkHook.hooks) {
+      const result = await fn({ tool_name: input.tool_name, tool_input: input.tool_input });
+      if (result?.decision === 'block') {
+        return { deny: true, reason: result.message ?? 'Tool blocked by hook' };
+      }
+    }
+    return {};
+  };
+}
+
+/**
+ * F03-01: adapt an SDK-shape post-tool-use hook into the service registry's
+ * function-shape `PostToolUseHook`. The SDK shape expects a richer
+ * `tool_response` (`{content:[…], is_error?:boolean}` + `duration_ms`); the
+ * service shape passes through the stream-handler's summary-style payload
+ * (`{summary, is_error}`). Translates one to the other so the audit hook can
+ * record `tool_response.is_error` and use the summary as the textual content.
+ */
+function adaptSdkPostHook(sdkHook: SdkPostToolUseHook): PostToolUseHook {
+  return async (input: {
+    tool_name: string;
+    tool_input: Record<string, unknown>;
+    tool_response: unknown;
+  }) => {
+    const streamResponse = input.tool_response as
+      | { summary?: string; is_error?: boolean }
+      | undefined;
+    const summary = streamResponse?.summary ?? '';
+    const isError = streamResponse?.is_error ?? false;
+    for (const fn of sdkHook.hooks) {
+      try {
+        await fn({
+          tool_name: input.tool_name,
+          tool_input: input.tool_input,
+          tool_response: {
+            content: [{ type: 'text', text: summary }],
+            is_error: isError,
+          },
+          duration_ms: 0,
+        });
+      } catch (err) {
+        // Hook errors are logged at the inner hook level (audit/streaming);
+        // swallow at the adapter level so a failing hook never aborts.
+        log.warn('SDK post-tool-use hook adapter caught hook error', {
+          error: err instanceof Error ? err.message : String(err),
+          data: { tool: input.tool_name },
+        });
+      }
+    }
+  };
 }
