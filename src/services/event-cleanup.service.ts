@@ -131,8 +131,7 @@ export class EventCleanupService implements BackgroundJob {
               execute: (q: ReturnType<typeof sql>) => Promise<{ count?: number; length?: number }>;
             }
           ).execute(query)) as { count?: number; length?: number };
-          batchDeleted =
-            typeof result?.count === 'number' ? result.count : (result?.length ?? 0);
+          batchDeleted = typeof result?.count === 'number' ? result.count : (result?.length ?? 0);
         } else {
           const result = (
             this.db as unknown as {

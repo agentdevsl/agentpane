@@ -732,9 +732,7 @@ export class SchedulerService implements BackgroundJob {
     const newCount = (config.consecutiveErrors ?? 0) + 1;
 
     const nowIso = new Date().toISOString();
-    const configPatch = jsonSetMany(eventSources.config, [
-      [['consecutiveErrors'], newCount],
-    ]);
+    const configPatch = jsonSetMany(eventSources.config, [[['consecutiveErrors'], newCount]]);
     await runRaw(
       this.db,
       sql`
