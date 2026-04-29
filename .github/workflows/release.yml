@@ -94,7 +94,10 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@0.30.0
+        # Pinned to commit SHA for v0.35.0 (immutable, post-supply-chain-incident, GHSA-69fq-xp46-6x23).
+        # Tag 0.35.0 published 2026-03-04 with GitHub immutable releases — see advisory at
+        # https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23.
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
           format: table
