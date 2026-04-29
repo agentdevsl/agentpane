@@ -127,7 +127,8 @@ describe('Advanced Task Lifecycle Scenarios', () => {
       { db, streams, provider: mockProvider as any },
       stateManager,
       mockWorktreeInit as any,
-      mockStartAgentFn
+      mockStartAgentFn,
+      () => false // not AgentCore -- use the container exec branch
     );
 
     // Store plan via real handlePlanReady (captures sandbox-original-123 from running agent)
@@ -196,7 +197,8 @@ describe('Advanced Task Lifecycle Scenarios', () => {
       { db, streams, provider: { get: vi.fn() } as any },
       stateManager,
       mockWorktreeInit as any,
-      mockStartAgentFn
+      mockStartAgentFn,
+      () => false
     );
 
     // Store plan via real handlePlanReady (persists to DB + in-memory)
@@ -227,7 +229,8 @@ describe('Advanced Task Lifecycle Scenarios', () => {
       { db, streams, provider: { get: vi.fn() } as any },
       freshStateManager,
       mockWorktreeInit as any,
-      mockStartAgentFn2
+      mockStartAgentFn2,
+      () => false
     );
 
     // Call approvePlan -- should recover plan from DB
@@ -274,7 +277,8 @@ describe('Advanced Task Lifecycle Scenarios', () => {
       { db, streams, provider: { get: vi.fn() } as any },
       stateManager,
       mockWorktreeInit as any,
-      mockStartAgentFn
+      mockStartAgentFn,
+      () => false
     );
 
     // Store plan via real handlePlanReady
@@ -344,7 +348,8 @@ describe('Advanced Task Lifecycle Scenarios', () => {
       { db, streams, provider: { get: vi.fn() } as any },
       stateManager,
       mockWorktreeInit as any,
-      mockStartAgentFn
+      mockStartAgentFn,
+      () => false
     );
 
     // Store plan via real handlePlanReady

@@ -34,6 +34,11 @@ const sandboxConfigBodySchema = z.object({
   nomadNamespace: z.string().max(200).optional(),
   nomadDatacenter: z.string().max(200).optional(),
   nomadRegion: z.string().max(200).optional(),
+  awsAccessKeyId: z.string().max(128).optional(),
+  awsSecretAccessKey: z.string().max(256).optional(),
+  awsRegion: z.string().max(64).optional(),
+  agentcoreRuntimeArn: z.string().max(2048).optional(),
+  ecrRepositoryUri: z.string().max(2048).optional(),
 });
 
 const sandboxConfigCreateSchema = sandboxConfigBodySchema.extend({
@@ -41,13 +46,15 @@ const sandboxConfigCreateSchema = sandboxConfigBodySchema.extend({
 });
 
 /** Strip sensitive credential fields from a config before returning it to the client. */
-function redactConfig<T extends Record<string, unknown>>(config: T): Omit<T, 'nomadToken'> {
-  const { nomadToken: _token, ...safe } = config;
+function redactConfig<T extends Record<string, unknown>>(
+  config: T
+): Omit<T, 'nomadToken' | 'awsSecretAccessKey'> {
+  const { nomadToken: _token, awsSecretAccessKey: _awsSecret, ...safe } = config;
   return safe;
 }
 
 /** Sensitive fields in sandbox configs that must be encrypted before storage. */
-const SANDBOX_CONFIG_SENSITIVE_FIELDS = ['nomadToken'] as const;
+const SANDBOX_CONFIG_SENSITIVE_FIELDS = ['nomadToken', 'awsSecretAccessKey'] as const;
 
 /** Encrypt sensitive credential fields in a sandbox config body before database storage. */
 async function encryptSensitiveFields<T extends Record<string, unknown>>(body: T): Promise<T> {

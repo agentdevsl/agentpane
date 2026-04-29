@@ -3,7 +3,9 @@
  */
 
 import type { StoredPlanOptions } from '../../db/schema';
+import type { AgentCoreBridge } from '../../lib/agents/agentcore-bridge.js';
 import type { ContainerBridge } from '../../lib/agents/container-bridge.js';
+import type { AgentCoreSandboxInstance } from '../../lib/sandbox/providers/agentcore-sandbox-instance.js';
 import type { ExecStreamResult } from '../../lib/sandbox/providers/sandbox-provider.js';
 
 /**
@@ -55,6 +57,23 @@ export interface RunningAgent {
   /** Guard flag: set to true once handleAgentComplete/handleAgentError begins processing.
    *  Prevents the processAgentOutput exit-code path from racing against the bridge callback. */
   completionHandled?: boolean;
+}
+
+/**
+ * Running agent instance for AgentCore (invoke + SSE path -- no container exec).
+ */
+export interface RunningAgentCoreAgent {
+  taskId: string;
+  sessionId: string;
+  codespaceId: string;
+  sandboxId: string;
+  bridge: AgentCoreBridge;
+  instance: AgentCoreSandboxInstance;
+  runtimeSessionId: string;
+  startedAt: Date;
+  stopRequested: boolean;
+  phase: AgentPhase;
+  timeoutHandle?: ReturnType<typeof setTimeout>;
 }
 
 /**

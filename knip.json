@@ -42,6 +42,7 @@
     "@tanstack/react-start",
     "@radix-ui/react-visually-hidden",
     "agent-browser",
+    "@aws-sdk/client-sts",
     "@radix-ui/react-popover",
     "@biomejs/biome",
     "@stryker-mutator/core"

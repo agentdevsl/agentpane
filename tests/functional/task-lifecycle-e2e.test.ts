@@ -192,7 +192,8 @@ describe('Functional E2E: Real Service Transitions', () => {
       { db, streams, provider: { get: vi.fn() } as any },
       stateManager,
       mockWorktreeInit as any,
-      mockStartAgentFn
+      mockStartAgentFn,
+      () => false // not AgentCore
     );
 
     // Process the plan_ready event through the real container bridge.
@@ -366,7 +367,8 @@ describe('Functional E2E: Real Service Transitions', () => {
       { db, streams, provider: { get: vi.fn() } as any },
       stateManager,
       mockWorktreeInit as any,
-      vi.fn().mockResolvedValue({ ok: true })
+      vi.fn().mockResolvedValue({ ok: true }),
+      () => false
     );
 
     // Store plan via real handlePlanReady
@@ -445,7 +447,8 @@ describe('Functional E2E: Real Service Transitions', () => {
       { db, streams, provider: { get: vi.fn() } as any },
       stateManager,
       mockWorktreeInit as any,
-      mockStartAgentFn
+      mockStartAgentFn,
+      () => false
     );
 
     // ── Round 1: Move → Plan → Reject ──
@@ -573,7 +576,8 @@ describe('Functional E2E: Real Service Transitions', () => {
       { db, streams, provider: { get: vi.fn() } as any },
       stateManager,
       mockWorktreeInit as any,
-      vi.fn().mockResolvedValue({ ok: true })
+      vi.fn().mockResolvedValue({ ok: true }),
+      () => false
     );
 
     await planService.handlePlanReady(taskId, 'session-bug', codespace.id, {
@@ -623,7 +627,8 @@ describe('Functional E2E: Real Service Transitions', () => {
       { db, streams, provider: { get: vi.fn() } as any },
       stateManager,
       mockWorktreeInit as any,
-      vi.fn().mockResolvedValue({ ok: true })
+      vi.fn().mockResolvedValue({ ok: true }),
+      () => false
     );
 
     await planService.handlePlanReady(taskId, 'session-bug2', codespace.id, {

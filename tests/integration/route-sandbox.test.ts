@@ -47,6 +47,11 @@ function createMockSandboxConfigService(
     nomadNamespace: null,
     nomadDatacenter: null,
     nomadRegion: null,
+    awsAccessKeyId: null,
+    awsSecretAccessKey: 'test-placeholder-key',
+    awsRegion: null,
+    agentcoreRuntimeArn: null,
+    ecrRepositoryUri: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -245,7 +250,7 @@ describe('Sandbox Routes (IT-1000)', () => {
   // =========================================================================
 
   describe('Credential redaction', () => {
-    it('IT-1020: GET list redacts nomadToken', async () => {
+    it('IT-1020: GET list redacts nomadToken and awsSecretAccessKey', async () => {
       const response = await app.request('http://localhost/api/sandbox-configs');
 
       expect(response.status).toBe(200);
@@ -254,6 +259,7 @@ describe('Sandbox Routes (IT-1000)', () => {
 
       const item = body.data.items[0];
       expect(item.nomadToken).toBeUndefined();
+      expect(item.awsSecretAccessKey).toBeUndefined();
       // Other fields should be present
       expect(item.name).toBe('Test Config');
       expect(item.type).toBe('docker');
@@ -266,6 +272,7 @@ describe('Sandbox Routes (IT-1000)', () => {
       const body = await response.json();
       expect(body.ok).toBe(true);
       expect(body.data.nomadToken).toBeUndefined();
+      expect(body.data.awsSecretAccessKey).toBeUndefined();
     });
 
     it('IT-1022: POST create redacts sensitive fields in response', async () => {
@@ -280,6 +287,7 @@ describe('Sandbox Routes (IT-1000)', () => {
       const body = await response.json();
       expect(body.ok).toBe(true);
       expect(body.data.nomadToken).toBeUndefined();
+      expect(body.data.awsSecretAccessKey).toBeUndefined();
     });
 
     it('IT-1023: PATCH update redacts sensitive fields in response', async () => {
@@ -295,6 +303,7 @@ describe('Sandbox Routes (IT-1000)', () => {
       const body = await response.json();
       expect(body.ok).toBe(true);
       expect(body.data.nomadToken).toBeUndefined();
+      expect(body.data.awsSecretAccessKey).toBeUndefined();
     });
   });
 

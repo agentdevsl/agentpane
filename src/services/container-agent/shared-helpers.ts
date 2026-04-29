@@ -1,7 +1,7 @@
 /**
  * Shared helper functions for the container-agent sub-services.
  *
- * Deduplicates common patterns used across container-exec service:
+ * Deduplicates common patterns used across container-exec and agentcore-bridge services:
  * - Task status updates on agent completion
  * - Task status updates on agent error
  * - OAuth token resolution
