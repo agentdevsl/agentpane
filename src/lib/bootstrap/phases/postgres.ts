@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import postgres from 'postgres';
+import type postgres from 'postgres';
+import { createPgClient } from '../../../db/postgres-client.js';
 import * as pgSchema from '../../../db/schema/postgres/index.js';
 import { createError } from '../../errors/base.js';
 import { errorMessage } from '../../utils/error-message';
@@ -18,7 +19,11 @@ export const initializePostgres = async (_ctx: BootstrapContext) => {
   let client: ReturnType<typeof postgres> | null = null;
 
   try {
-    client = postgres(connectionString);
+    // F02-17 (arch29-W2-R): centralised pool / timeout / SSL config via
+    // `createPgClient` so this legacy bootstrap path matches the primary
+    // path. Without this the legacy callers were stuck on postgres-js
+    // defaults (`max: 10`, no idle close, no `application_name`).
+    client = createPgClient(connectionString);
   } catch (error) {
     return err(
       createError('BOOTSTRAP_PG_INIT_FAILED', 'Failed to create PostgreSQL client', 500, {

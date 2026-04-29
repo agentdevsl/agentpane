@@ -2,9 +2,10 @@ import * as fs from 'node:fs';
 import Database, { type Database as SQLiteDatabase } from 'better-sqlite3';
 import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3';
 import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
+import type postgres from 'postgres';
 import { MIGRATIONS } from '../lib/bootstrap/migrations/index';
 import { runMigrations } from '../lib/bootstrap/migrations/runner';
+import { createPgClient } from './postgres-client';
 import * as pgSchema from './schema/postgres';
 import * as sqliteSchema from './schema/sqlite';
 
@@ -85,13 +86,18 @@ const createSqliteDatabase = (): SQLiteDatabase | null => {
 
 let pgClientInstance: ReturnType<typeof postgres> | null = null;
 
-// Create PostgreSQL database connection
+// Create PostgreSQL database connection.
+// F02-17 (arch29-W2-R): use the shared `createPgClient` helper so this path
+// gets the same pool / timeout / SSL configuration as the primary bootstrap
+// path (`src/server/bootstrap/phases/database.ts`). Without this, the
+// worker/CLI invocations of `db` would silently use the postgres-js default
+// `max: 10` with no idle close, no `application_name`, and no SSL toggle.
 const createPostgresDatabase = () => {
   const connectionString = typeof process !== 'undefined' ? process.env?.DATABASE_URL : undefined;
   if (!connectionString) {
     throw new Error('DATABASE_URL is required when DB_MODE=postgres');
   }
-  pgClientInstance = postgres(connectionString);
+  pgClientInstance = createPgClient(connectionString);
   return drizzlePg(pgClientInstance, { schema: pgSchema });
 };
 

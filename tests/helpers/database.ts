@@ -211,7 +211,11 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     }
   }
 
-  // F05-05: event_outbox (migration 0018)
+  // F05-05: event_outbox (migration 0018), F02-18 epoch-ms shape (migration v36).
+  // The test harness skips the legacy TEXT-timestamp shape and creates the
+  // table directly with INTEGER epoch-ms columns to match the current Drizzle
+  // schema. Production databases run the v32 → v36 migration chain to convert
+  // existing rows; the harness has no rows to convert so it can skip ahead.
   try {
     testSqlite.exec(`
 CREATE TABLE IF NOT EXISTS event_outbox (
@@ -221,10 +225,10 @@ CREATE TABLE IF NOT EXISTS event_outbox (
   payload TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   attempts INTEGER NOT NULL DEFAULT 0,
-  next_attempt_at TEXT NOT NULL DEFAULT (datetime('now')),
+  next_attempt_at INTEGER NOT NULL,
   last_error TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  published_at TEXT
+  created_at INTEGER NOT NULL,
+  published_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS event_outbox_status_idx ON event_outbox(status);
 CREATE INDEX IF NOT EXISTS event_outbox_next_attempt_at_idx ON event_outbox(next_attempt_at);
