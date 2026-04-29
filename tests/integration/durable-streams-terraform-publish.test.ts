@@ -112,7 +112,9 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     });
 
     expect(result.ok).toBe(true);
-    expect(publishSpy).toHaveBeenCalledOnce();
+    // F05-19: server.publish is called by the relay, not directly from
+    // publish() for non-ephemeral streams.
+    expect(publishSpy).not.toHaveBeenCalled();
 
     // Plan events should be persisted to DB (durable, not ephemeral)
     const events = await db
@@ -136,7 +138,8 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     });
 
     expect(result.ok).toBe(true);
-    expect(publishSpy).toHaveBeenCalledOnce();
+    // F05-19: outbox-relay path. publish() does not call server.publish.
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 
   it('publishes plan:token via Caddy without FK error', async () => {
@@ -150,7 +153,7 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     });
 
     expect(result.ok).toBe(true);
-    expect(publishSpy).toHaveBeenCalledOnce();
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 
   it('publishes plan:completed via Caddy without FK error', async () => {
@@ -165,7 +168,7 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     });
 
     expect(result.ok).toBe(true);
-    expect(publishSpy).toHaveBeenCalledOnce();
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 
   it('publishes plan:error via Caddy without FK error', async () => {
@@ -180,7 +183,7 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     });
 
     expect(result.ok).toBe(true);
-    expect(publishSpy).toHaveBeenCalledOnce();
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 
   it('publishes and persists sandbox:creating to DB (durable)', async () => {
@@ -203,7 +206,8 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
       .where(eq(sessionEvents.sessionId, streamId));
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('sandbox:creating');
-    expect(publishSpy).toHaveBeenCalledOnce();
+    // F05-19: relay handles delivery, not publish().
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 
   it('publishes sandbox:ready via Caddy without FK error', async () => {
@@ -218,7 +222,7 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     });
 
     expect(result.ok).toBe(true);
-    expect(publishSpy).toHaveBeenCalledOnce();
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 
   it('publishes sandbox:error via Caddy without FK error', async () => {
@@ -234,7 +238,7 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     });
 
     expect(result.ok).toBe(true);
-    expect(publishSpy).toHaveBeenCalledOnce();
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 
   it('publishes sandbox:stopped via Caddy without FK error', async () => {
@@ -248,7 +252,7 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     });
 
     expect(result.ok).toBe(true);
-    expect(publishSpy).toHaveBeenCalledOnce();
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 
   it('publishes multiple sandbox lifecycle events in sequence', async () => {
@@ -278,7 +282,9 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
       codespaceId,
     });
 
-    expect(publishSpy).toHaveBeenCalledTimes(4);
+    // F05-19: 4 outbox rows, but server.publish is not called from
+    // publish() — the relay delivers each row asynchronously.
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 
   it('publishes multiple terraform events with correct ordering', async () => {

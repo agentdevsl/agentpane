@@ -140,7 +140,7 @@ describe('DurableStreamsService', () => {
   // ============================================
 
   describe('publish', () => {
-    it('publishes to server and persists to database', async () => {
+    it('persists to session_events and enqueues to event_outbox (F05-19)', async () => {
       const data = {
         sessionId,
         taskId: 'task-1',
@@ -150,23 +150,10 @@ describe('DurableStreamsService', () => {
       const result = await service.publish(sessionId, 'plan:started', data);
       expect(result.ok).toBe(true);
 
-      // Server should be called
-      expect(mockServer.publish).toHaveBeenCalledWith(
-        sessionId,
-        'plan:started',
-        expect.objectContaining({
-          sessionId,
-          taskId: 'task-1',
-          codespaceId,
-          meta: expect.objectContaining({
-            schemaVersion: 1,
-            streamId: sessionId,
-            partType: 'lifecycle',
-          }),
-        })
-      );
+      // F05-19: server.publish is called by the relay, not from publish().
+      expect(mockServer.publish).not.toHaveBeenCalled();
 
-      // Should persist to DB
+      // Should persist to session_events (durable replay).
       const db = getTestDb();
       const events = await db.query.sessionEvents.findMany({
         where: eq(sessionEvents.sessionId, sessionId),
@@ -176,6 +163,16 @@ describe('DurableStreamsService', () => {
       expect(events[0]?.channel).toBe('plan');
       expect(events[0]?.offset).toBe(0);
       if (result.ok) expect(result.value).toBe(0);
+
+      // Should also enqueue an outbox row for the relay to drain.
+      const { eventOutbox } = await import('../../src/db/schema/sqlite/event-outbox.js');
+      const outboxRows = await db
+        .select()
+        .from(eventOutbox)
+        .where(eq(eventOutbox.streamId, sessionId));
+      expect(outboxRows).toHaveLength(1);
+      expect(outboxRows[0]?.type).toBe('plan:started');
+      expect(outboxRows[0]?.status).toBe('pending');
     });
 
     it('increments offsets for successive events', async () => {
