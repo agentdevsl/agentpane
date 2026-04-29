@@ -22,6 +22,7 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { sql } from 'drizzle-orm';
 import type { BackgroundJob, BackgroundJobSnapshot } from '../lib/background/job.js';
+import { getDbDialect } from '../lib/db/dialect.js';
 import { createLogger } from '../lib/logging/logger.js';
 import type { Database } from '../types/database.js';
 import type { SettingsService } from './settings.service.js';
@@ -102,19 +103,44 @@ export class EventCleanupService implements BackgroundJob {
   /**
    * Batch-delete old rows from a table using a parameterized query.
    * Deletes in BATCH_SIZE chunks to avoid long-held locks.
+   *
+   * F02-15: portable across SQLite and Postgres. The original implementation
+   * used `WHERE rowid IN (SELECT rowid FROM ...)` which is SQLite-specific
+   * (Postgres uses `ctid`). Both tables have a stable text `id` primary key,
+   * so we use `WHERE id IN (SELECT id FROM ... LIMIT N)` which works on
+   * both. Postgres also supports the same subquery shape.
+   *
+   * The dispatch on `db.run` vs `db.execute` is handled by reading
+   * `getDbDialect()`; both branches return a `{ changes: number }` shape.
    */
-  private batchDelete(
+  private async batchDelete(
     buildQuery: (cutoff: string) => ReturnType<typeof sql>,
     table: string,
     cutoff: string
-  ): number {
+  ): Promise<number> {
     let totalDeleted = 0;
     let batchDeleted = BATCH_SIZE;
+    const dialect = getDbDialect();
 
     while (batchDeleted >= BATCH_SIZE) {
       try {
-        const result = this.db.run(buildQuery(cutoff));
-        batchDeleted = result.changes;
+        const query = buildQuery(cutoff);
+        if (dialect === 'postgres') {
+          const result = (await (
+            this.db as unknown as {
+              execute: (q: ReturnType<typeof sql>) => Promise<{ count?: number; length?: number }>;
+            }
+          ).execute(query)) as { count?: number; length?: number };
+          batchDeleted =
+            typeof result?.count === 'number' ? result.count : (result?.length ?? 0);
+        } else {
+          const result = (
+            this.db as unknown as {
+              run: (q: ReturnType<typeof sql>) => { changes: number };
+            }
+          ).run(query);
+          batchDeleted = result.changes;
+        }
         totalDeleted += batchDeleted;
       } catch (err) {
         log.error(`Batch delete failed for ${table}`, {
@@ -163,6 +189,19 @@ export class EventCleanupService implements BackgroundJob {
    * 6. Clean up old backups beyond maxBackups
    */
   async runBackup(): Promise<BackupResult> {
+    // F02-15: SQLite file-copy backups are only meaningful for the SQLite
+    // backend. On Postgres the operator runs `pg_dump` out-of-process, so
+    // the in-process backup loop is a no-op. Guarding here also prevents
+    // the SQLite-only `PRAGMA integrity_check` / `PRAGMA wal_checkpoint`
+    // calls below from raising on a PG connection.
+    if (getDbDialect() === 'postgres') {
+      return {
+        performed: false,
+        skipped: true,
+        reason: 'Backup skipped: SQLite-only feature (use pg_dump for Postgres)',
+      };
+    }
+
     const enabled = await this.getBackupSetting('backup.enabled', DEFAULT_BACKUP_ENABLED);
     if (!enabled) {
       return { performed: false, skipped: true, reason: 'Backup disabled via settings' };
@@ -327,15 +366,18 @@ export class EventCleanupService implements BackgroundJob {
       return d.toISOString();
     }
 
-    const sessionEventsDeleted = this.batchDelete(
+    const sessionEventsDeleted = await this.batchDelete(
       (cutoff) =>
-        sql`DELETE FROM session_events WHERE rowid IN (SELECT rowid FROM session_events WHERE created_at < ${cutoff} LIMIT ${BATCH_SIZE})`,
+        // F02-15: portable across SQLite and Postgres — both treat the
+        // text `id` PK identically; SQLite's `rowid` is not available on
+        // Postgres so we cannot reuse it.
+        sql`DELETE FROM session_events WHERE id IN (SELECT id FROM session_events WHERE created_at < ${cutoff} LIMIT ${BATCH_SIZE})`,
       'session_events',
       cutoffIso(sessionEventsDays)
     );
-    const eventLogDeleted = this.batchDelete(
+    const eventLogDeleted = await this.batchDelete(
       (cutoff) =>
-        sql`DELETE FROM event_log WHERE rowid IN (SELECT rowid FROM event_log WHERE received_at < ${cutoff} LIMIT ${BATCH_SIZE})`,
+        sql`DELETE FROM event_log WHERE id IN (SELECT id FROM event_log WHERE received_at < ${cutoff} LIMIT ${BATCH_SIZE})`,
       'event_log',
       cutoffIso(eventLogDays)
     );
