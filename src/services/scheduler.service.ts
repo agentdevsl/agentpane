@@ -1,11 +1,12 @@
 import { createId } from '@paralleldrive/cuid2';
 import { CronExpressionParser } from 'cron-parser';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, lte, sql } from 'drizzle-orm';
 import type { EventSource } from '../db/schema/index.js';
 import { eventSources } from '../db/schema/index.js';
 import type { CronEventSourceConfig } from '../db/schema/shared/cron-config.js';
 import { scheduleExecutions } from '../db/schema/sqlite/schedule-executions.js';
 import type { BackgroundJob, BackgroundJobSnapshot } from '../lib/background/job.js';
+import { jsonExtractText, jsonSetMany, runRaw } from '../lib/db/dialect.js';
 import type { AppError } from '../lib/errors/base.js';
 import { ScheduleErrors } from '../lib/errors/event-errors.js';
 import { ServiceErrors } from '../lib/errors/service-errors.js';
@@ -150,7 +151,9 @@ export class SchedulerService implements BackgroundJob {
             eq(eventSources.type, 'cron'),
             eq(eventSources.status, 'active'),
             eq(eventSources.isEnabled, true),
-            sql`json_extract(${eventSources.config}, '$.nextRunAt') <= ${now}`
+            // F02-15: portable JSON-path extract + comparison; works on
+            // SQLite (`json_extract`) and Postgres (`#>>` text accessor).
+            lte(jsonExtractText(eventSources.config, 'nextRunAt'), now)
           )
         );
     } catch (queryError) {
@@ -236,16 +239,23 @@ export class SchedulerService implements BackgroundJob {
           return { outcome: 'skipped_lock', executionId, tasksCreated: [] };
         }
       } else {
-        // Manual trigger: update nextRunAt and lastRunAt outside of CAS lock
-        await this.db.run(sql`
-          UPDATE event_sources
-          SET config = json_set(
-                json_set(config, '$.nextRunAt', ${newNextRunAt}),
-                '$.lastRunAt', ${new Date().toISOString()}
-              ),
-              updated_at = datetime('now')
-          WHERE id = ${source.id}
-        `);
+        // F02-15: portable update path — jsonSetMany dispatches to SQLite
+        // `json_set` or Postgres `jsonb_set`; updated_at uses an ISO 8601
+        // string captured in JS so the value round-trips identically.
+        const nowIso = new Date().toISOString();
+        const configPatch = jsonSetMany(eventSources.config, [
+          [['nextRunAt'], newNextRunAt],
+          [['lastRunAt'], nowIso],
+        ]);
+        await runRaw(
+          this.db,
+          sql`
+            UPDATE event_sources
+            SET config = ${configPatch},
+                updated_at = ${nowIso}
+            WHERE id = ${source.id}
+          `
+        );
       }
 
       // Check budget
@@ -387,16 +397,24 @@ export class SchedulerService implements BackgroundJob {
     expectedNextRunAt: string,
     newNextRunAt: string
   ): Promise<boolean> {
-    const result = await this.db.run(sql`
-      UPDATE event_sources
-      SET config = json_set(
-            json_set(config, '$.nextRunAt', ${newNextRunAt}),
-            '$.lastRunAt', ${new Date().toISOString()}
-          ),
-          updated_at = datetime('now')
-      WHERE id = ${sourceId}
-        AND json_extract(config, '$.nextRunAt') = ${expectedNextRunAt}
-    `);
+    // F02-15: CAS lock — read+update in one statement using portable JSON
+    // helpers so the same query runs on SQLite and Postgres.
+    const nowIso = new Date().toISOString();
+    const configPatch = jsonSetMany(eventSources.config, [
+      [['nextRunAt'], newNextRunAt],
+      [['lastRunAt'], nowIso],
+    ]);
+    const expectedRef = jsonExtractText(eventSources.config, 'nextRunAt');
+    const result = await runRaw(
+      this.db,
+      sql`
+        UPDATE event_sources
+        SET config = ${configPatch},
+            updated_at = ${nowIso}
+        WHERE id = ${sourceId}
+          AND ${expectedRef} = ${expectedNextRunAt}
+      `
+    );
 
     return result.changes > 0;
   }
@@ -653,12 +671,17 @@ export class SchedulerService implements BackgroundJob {
   }
 
   private async updateNextRunAt(sourceId: string, nextRunAt: string): Promise<void> {
-    await this.db.run(sql`
-      UPDATE event_sources
-      SET config = json_set(config, '$.nextRunAt', ${nextRunAt}),
-          updated_at = datetime('now')
-      WHERE id = ${sourceId}
-    `);
+    const nowIso = new Date().toISOString();
+    const configPatch = jsonSetMany(eventSources.config, [[['nextRunAt'], nextRunAt]]);
+    await runRaw(
+      this.db,
+      sql`
+        UPDATE event_sources
+        SET config = ${configPatch},
+            updated_at = ${nowIso}
+        WHERE id = ${sourceId}
+      `
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -708,12 +731,17 @@ export class SchedulerService implements BackgroundJob {
   ): Promise<void> {
     const newCount = (config.consecutiveErrors ?? 0) + 1;
 
-    await this.db.run(sql`
-      UPDATE event_sources
-      SET config = json_set(config, '$.consecutiveErrors', ${newCount}),
-          updated_at = datetime('now')
-      WHERE id = ${sourceId}
-    `);
+    const nowIso = new Date().toISOString();
+    const configPatch = jsonSetMany(eventSources.config, [[['consecutiveErrors'], newCount]]);
+    await runRaw(
+      this.db,
+      sql`
+        UPDATE event_sources
+        SET config = ${configPatch},
+            updated_at = ${nowIso}
+        WHERE id = ${sourceId}
+      `
+    );
 
     if (newCount >= SchedulerService.MAX_CONSECUTIVE_ERRORS) {
       log.warn('Source exceeded consecutive error threshold, setting error status', {
@@ -733,12 +761,17 @@ export class SchedulerService implements BackgroundJob {
   }
 
   private async resetConsecutiveErrors(sourceId: string): Promise<void> {
-    await this.db.run(sql`
-      UPDATE event_sources
-      SET config = json_set(config, '$.consecutiveErrors', 0),
-          updated_at = datetime('now')
-      WHERE id = ${sourceId}
-    `);
+    const nowIso = new Date().toISOString();
+    const configPatch = jsonSetMany(eventSources.config, [[['consecutiveErrors'], 0]]);
+    await runRaw(
+      this.db,
+      sql`
+        UPDATE event_sources
+        SET config = ${configPatch},
+            updated_at = ${nowIso}
+        WHERE id = ${sourceId}
+      `
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -805,13 +838,17 @@ export class SchedulerService implements BackgroundJob {
 
     const pausedAt = new Date().toISOString();
 
-    await this.db.run(sql`
-      UPDATE event_sources
-      SET status = 'disabled',
-          config = json_set(config, '$.pausedAt', ${pausedAt}),
-          updated_at = datetime('now')
-      WHERE id = ${sourceId}
-    `);
+    const configPatch = jsonSetMany(eventSources.config, [[['pausedAt'], pausedAt]]);
+    await runRaw(
+      this.db,
+      sql`
+        UPDATE event_sources
+        SET status = 'disabled',
+            config = ${configPatch},
+            updated_at = ${pausedAt}
+        WHERE id = ${sourceId}
+      `
+    );
 
     publishEventToStream({
       type: 'schedule:paused',
@@ -845,20 +882,27 @@ export class SchedulerService implements BackgroundJob {
 
     const resumedAt = new Date().toISOString();
 
-    await this.db.run(sql`
-      UPDATE event_sources
-      SET status = 'active',
-          is_enabled = 1,
-          config = json_set(
-            json_set(
-              json_set(config, '$.nextRunAt', ${newNextRunAt}),
-              '$.consecutiveErrors', 0
-            ),
-            '$.pausedAt', null
-          ),
-          updated_at = datetime('now')
-      WHERE id = ${sourceId}
-    `);
+    // F02-15: portable update — reuses jsonSetMany (which dispatches
+    // json_set / jsonb_set per dialect) and a portable boolean literal.
+    // Passing a JS boolean through Drizzle's parameterised template lets
+    // the driver encode it correctly for each dialect (1/0 in SQLite,
+    // TRUE/FALSE in Postgres).
+    const configPatch = jsonSetMany(eventSources.config, [
+      [['nextRunAt'], newNextRunAt],
+      [['consecutiveErrors'], 0],
+      [['pausedAt'], null],
+    ]);
+    await runRaw(
+      this.db,
+      sql`
+        UPDATE event_sources
+        SET status = 'active',
+            is_enabled = ${true},
+            config = ${configPatch},
+            updated_at = ${resumedAt}
+        WHERE id = ${sourceId}
+      `
+    );
 
     publishEventToStream({
       type: 'schedule:resumed',
