@@ -1,0 +1,61 @@
+rules:
+  # arch29-W2-S / F09-23 + F09-32 — test-discipline rules.
+  #
+  # The authoritative gate for these rules is `scripts/check-test-discipline.sh`
+  # (run from `lint-and-typecheck` in `ci.yml`). The bash script implements the
+  # "preceded by `// TEST-SETUP:` justification" exemption, which Semgrep's
+  # AST-based matcher cannot express directly. The rules below provide
+  # IDE-time hints (and a secondary signal in the non-blocking Semgrep WARNING
+  # job) so authors see the issue locally before pushing.
+  #
+  # See `specs/arch_review_april29/09-testing.md` (F09-23, F09-32).
+
+  - id: agentpane.test-discipline.vi-mock-data-layer
+    severity: ERROR
+    message: >
+      `vi.mock('drizzle-orm' | 'better-sqlite3' | 'postgres' | '@/db/client')`
+      in functional/integration tests bypasses the data layer and defeats the
+      schema-drift suite. Per CLAUDE.md §"Functional Tests: Real Service
+      Transitions", only Claude SDK / sandbox / git / DurableStreams may be
+      mocked. If absolutely required (e.g. for a pure-parser unit test in the
+      wrong project), add `// TEST-DISCIPLINE-EXEMPT: <reason>` within the 10
+      lines above and move the file to `tests/lib/` if it's truly unit-only.
+    languages: [typescript]
+    pattern-either:
+      - pattern: vi.mock("drizzle-orm", ...)
+      - pattern: vi.mock('drizzle-orm', ...)
+      - pattern: vi.mock("better-sqlite3", ...)
+      - pattern: vi.mock('better-sqlite3', ...)
+      - pattern: vi.mock("postgres", ...)
+      - pattern: vi.mock('postgres', ...)
+    paths:
+      include:
+        - "**/tests/functional/**"
+        - "**/tests/integration/**"
+        - "**/tests/services/**"
+    metadata:
+      category: correctness
+      confidence: HIGH
+
+  - id: agentpane.test-discipline.raw-db-write-on-tasks
+    severity: WARNING
+    message: >
+      Raw `db.update(tasks)` / `db.insert(tasks)` / `db.delete(tasks)` in
+      `tests/functional/`. Functional tests must drive state transitions
+      through real services (TaskService, PlanApprovalService,
+      updateTaskOnAgentComplete). If this is fixture setup that no service
+      method can produce (e.g. a guard test), add a `// TEST-SETUP: <reason>`
+      comment within the 10 lines preceding the call. The authoritative gate
+      lives in `scripts/check-test-discipline.sh`; this rule provides a
+      secondary IDE-time hint.
+    languages: [typescript]
+    pattern-either:
+      - pattern: db.update(tasks)
+      - pattern: db.insert(tasks)
+      - pattern: db.delete(tasks)
+    paths:
+      include:
+        - "**/tests/functional/**"
+    metadata:
+      category: correctness
+      confidence: MEDIUM

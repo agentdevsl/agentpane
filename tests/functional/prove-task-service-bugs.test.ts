@@ -442,6 +442,11 @@ describe('Bug-Proving Tests: TaskService', () => {
     const task = await createTestTask(codespace.id, {
       column: 'waiting_approval',
     });
+    // TEST-SETUP: targets reject() behaviour for a task in waiting_approval
+    // with `lastAgentStatus='planning'`. Driving this combo through
+    // PlanApprovalService.handlePlanReady() requires a full agent + sandbox
+    // harness; direct write is the minimal-surface precondition for the
+    // reject() assertion (the bug claim under test).
     await db
       .update(tasks)
       .set({ lastAgentStatus: 'planning', plan: 'Some plan text' })
