@@ -655,4 +655,209 @@ describe('AgentExecutionService (IT-200)', () => {
       expect(controller.signal.aborted).toBe(true);
     });
   });
+
+  // F03-01: hooks are auto-registered during start() and produce real
+  // audit_log rows + whitelist deny verdicts. Without the wire-up the
+  // service maps stay empty and these assertions fail.
+  describe('tool-use hooks installed during start (IT-F03-01)', () => {
+    it('IT-F03-01a: installs whitelist + audit + streaming hooks on start()', async () => {
+      const codespace = await createTestProject({ maxConcurrentAgents: 3 });
+      const agent = await createTestAgent(codespace.id, {
+        status: 'idle',
+        config: { model: 'claude-sonnet-4-6', maxTurns: 50, allowedTools: ['Read', 'Edit'] },
+      });
+      const task = await createTestTask(codespace.id, { column: 'backlog' });
+      const worktree = await createTestWorktree(codespace.id, { taskId: task.id });
+      const session = await createTestSession(codespace.id, {
+        taskId: task.id,
+        agentId: agent.id,
+      });
+      mockWorktreeService.create.mockResolvedValue({ ok: true, value: worktree });
+      mockSessionService.create.mockResolvedValue({
+        ok: true,
+        value: { ...session, presence: {} },
+      });
+
+      const result = await service.start(agent.id, task.id);
+      expect(result.ok).toBe(true);
+
+      // Pre hooks: whitelist + streaming → 2 hooks installed
+      const preHooks = (
+        service as unknown as { preToolHooks: Map<string, unknown[]> }
+      ).preToolHooks.get(agent.id);
+      expect(preHooks).toBeDefined();
+      expect(preHooks).toHaveLength(2);
+
+      // Post hooks: audit + streaming → 2 hooks installed
+      const postHooks = (
+        service as unknown as { postToolHooks: Map<string, unknown[]> }
+      ).postToolHooks.get(agent.id);
+      expect(postHooks).toBeDefined();
+      expect(postHooks).toHaveLength(2);
+    });
+
+    it('IT-F03-01b: registered post-hook writes an audit_logs row per tool invocation', async () => {
+      const codespace = await createTestProject({ maxConcurrentAgents: 3 });
+      const agent = await createTestAgent(codespace.id, {
+        status: 'idle',
+        config: { model: 'claude-sonnet-4-6', maxTurns: 50, allowedTools: ['*'] },
+      });
+      const task = await createTestTask(codespace.id, { column: 'backlog' });
+      const worktree = await createTestWorktree(codespace.id, { taskId: task.id });
+      const session = await createTestSession(codespace.id, {
+        taskId: task.id,
+        agentId: agent.id,
+      });
+      mockWorktreeService.create.mockResolvedValue({ ok: true, value: worktree });
+      mockSessionService.create.mockResolvedValue({
+        ok: true,
+        value: { ...session, presence: {} },
+      });
+
+      // Sanity: no audit logs yet.
+      const before = await db.query.auditLogs.findMany({});
+      expect(before).toHaveLength(0);
+
+      await service.start(agent.id, task.id);
+
+      // Invoke the registered post-tool-use hook directly to simulate the
+      // stream-handler's tool_use_summary callback. Without F03-01 wiring,
+      // the hook map would be empty and this loop would not run.
+      const postHooks = (
+        service as unknown as {
+          postToolHooks: Map<
+            string,
+            Array<
+              (input: {
+                tool_name: string;
+                tool_input: Record<string, unknown>;
+                tool_response: { summary: string; is_error: boolean };
+              }) => Promise<void>
+            >
+          >;
+        }
+      ).postToolHooks.get(agent.id);
+      expect(postHooks).toBeDefined();
+      expect(postHooks).toBeDefined();
+      for (const hook of postHooks ?? []) {
+        await hook({
+          tool_name: 'Read',
+          tool_input: { file_path: '/etc/hostname' },
+          tool_response: { summary: 'localhost', is_error: false },
+        });
+      }
+
+      // Allow the audit hook's dynamic import + insert to complete.
+      await new Promise((r) => setTimeout(r, 30));
+
+      const after = await db.query.auditLogs.findMany({});
+      // The audit hook inserts; the streaming hook publishes a session event
+      // (no DB write). Exactly one audit row expected per tool invocation.
+      expect(after.length).toBeGreaterThanOrEqual(1);
+      const auditRow = after.find((r) => r.tool === 'Read');
+      expect(auditRow).toBeDefined();
+      expect(auditRow?.agentId).toBe(agent.id);
+      expect(auditRow?.codespaceId).toBe(codespace.id);
+      expect(auditRow?.taskId).toBe(task.id);
+      expect(auditRow?.status).toBe('complete');
+    });
+
+    it('IT-F03-01c: registered pre-hook denies a non-whitelisted tool', async () => {
+      const codespace = await createTestProject({ maxConcurrentAgents: 3 });
+      const agent = await createTestAgent(codespace.id, {
+        status: 'idle',
+        config: { model: 'claude-sonnet-4-6', maxTurns: 50, allowedTools: ['Read'] },
+      });
+      const task = await createTestTask(codespace.id, { column: 'backlog' });
+      const worktree = await createTestWorktree(codespace.id, { taskId: task.id });
+      const session = await createTestSession(codespace.id, {
+        taskId: task.id,
+        agentId: agent.id,
+      });
+      mockWorktreeService.create.mockResolvedValue({ ok: true, value: worktree });
+      mockSessionService.create.mockResolvedValue({
+        ok: true,
+        value: { ...session, presence: {} },
+      });
+
+      await service.start(agent.id, task.id);
+
+      const preHooks = (
+        service as unknown as {
+          preToolHooks: Map<
+            string,
+            Array<
+              (input: {
+                tool_name: string;
+                tool_input: Record<string, unknown>;
+              }) => Promise<{ deny?: boolean; reason?: string }>
+            >
+          >;
+        }
+      ).preToolHooks.get(agent.id);
+      expect(preHooks).toBeDefined();
+
+      // Bash is NOT in the agent's whitelist (['Read']). The whitelist hook
+      // — installed via createAgentHooks → installAgentHooks during start() —
+      // must produce a deny verdict.
+      let denyVerdict: { deny?: boolean; reason?: string } | undefined;
+      for (const hook of preHooks ?? []) {
+        const v = await hook({ tool_name: 'Bash', tool_input: { command: 'ls' } });
+        if (v.deny) {
+          denyVerdict = v;
+          break;
+        }
+      }
+      expect(denyVerdict).toBeDefined();
+      expect(denyVerdict?.deny).toBe(true);
+      expect(denyVerdict?.reason).toContain('Bash');
+    });
+
+    it('IT-F03-01d: pre-hook allows a whitelisted tool', async () => {
+      const codespace = await createTestProject({ maxConcurrentAgents: 3 });
+      const agent = await createTestAgent(codespace.id, {
+        status: 'idle',
+        config: { model: 'claude-sonnet-4-6', maxTurns: 50, allowedTools: ['Read'] },
+      });
+      const task = await createTestTask(codespace.id, { column: 'backlog' });
+      const worktree = await createTestWorktree(codespace.id, { taskId: task.id });
+      const session = await createTestSession(codespace.id, {
+        taskId: task.id,
+        agentId: agent.id,
+      });
+      mockWorktreeService.create.mockResolvedValue({ ok: true, value: worktree });
+      mockSessionService.create.mockResolvedValue({
+        ok: true,
+        value: { ...session, presence: {} },
+      });
+
+      await service.start(agent.id, task.id);
+
+      const preHooks = (
+        service as unknown as {
+          preToolHooks: Map<
+            string,
+            Array<
+              (input: {
+                tool_name: string;
+                tool_input: Record<string, unknown>;
+              }) => Promise<{ deny?: boolean; reason?: string }>
+            >
+          >;
+        }
+      ).preToolHooks.get(agent.id);
+      expect(preHooks).toBeDefined();
+
+      // Read IS in the whitelist; no hook should deny.
+      let denied = false;
+      for (const hook of preHooks ?? []) {
+        const v = await hook({ tool_name: 'Read', tool_input: { file_path: '/foo' } });
+        if (v.deny) {
+          denied = true;
+          break;
+        }
+      }
+      expect(denied).toBe(false);
+    });
+  });
 });

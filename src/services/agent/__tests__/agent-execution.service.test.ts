@@ -483,5 +483,121 @@ describe('AgentExecutionService', () => {
       const postToolHooks = (service as any).postToolHooks as Map<string, unknown[]>;
       expect(postToolHooks.get('agent-1')).toHaveLength(1);
     });
+
+    // F03-01: verify the standard hook bundle is installed during start()
+    it('F03-01: installs whitelist + audit + streaming hooks during start()', async () => {
+      // Override the runAgentPlanning mock to never resolve so the cleanup
+      // path doesn't run during the test (the planning resolution clears
+      // preToolHooks/postToolHooks after success). We inspect the maps
+      // after the synchronous part of start() returns but before the
+      // background runAgentPlanning resolves.
+      const { runAgentPlanning } = await import('../../../lib/agents/stream-handler.js');
+      (runAgentPlanning as any).mockReturnValueOnce(new Promise(() => {}));
+
+      const idleAgent = {
+        id: 'a1',
+        codespaceId: 'p1',
+        status: 'idle',
+        currentTaskId: null,
+        config: { model: 'claude-sonnet-4-6', maxTurns: 50, allowedTools: ['*'] },
+      };
+      const queuedTask = {
+        id: 'task-1',
+        codespaceId: 'p1',
+        column: 'queued',
+        title: 'Build feature X',
+        description: 'Implement the feature',
+      };
+
+      db.query.agents.findFirst
+        .mockResolvedValueOnce(idleAgent) // initial lookup
+        .mockResolvedValueOnce({ ...idleAgent, status: 'planning' }); // post-start lookup
+      db.query.tasks.findFirst
+        .mockResolvedValueOnce(queuedTask) // initial task lookup
+        .mockResolvedValueOnce({ ...queuedTask, column: 'in_progress' }); // post-start lookup
+      db.query.codespaces.findFirst.mockResolvedValue({
+        id: 'p1',
+        config: {},
+        maxConcurrentAgents: 3,
+      });
+      db.query.sessions.findFirst.mockResolvedValue({
+        id: 'sess-1',
+        codespaceId: 'p1',
+      });
+      db.query.worktrees.findFirst.mockResolvedValue({
+        id: 'wt-1',
+        path: '/tmp/wt',
+        branch: 'agent/task-1',
+      });
+
+      const result = await service.start('a1', 'task-1');
+
+      expect(result.ok).toBe(true);
+
+      // Whitelist + streaming.PreToolUse → 2 pre hooks installed
+      const preToolHooks = (service as any).preToolHooks as Map<string, unknown[]>;
+      expect(preToolHooks.get('a1')).toBeDefined();
+      expect(preToolHooks.get('a1')).toHaveLength(2);
+
+      // Audit + streaming.PostToolUse → 2 post hooks installed
+      const postToolHooks = (service as any).postToolHooks as Map<string, unknown[]>;
+      expect(postToolHooks.get('a1')).toBeDefined();
+      expect(postToolHooks.get('a1')).toHaveLength(2);
+    });
+
+    // F03-01: verify hooks are threaded into runAgentPlanning so denials and
+    // audit logging fire during the planning phase too (F03-02 surface).
+    it('F03-01/F03-02: threads pre/post hooks into runAgentPlanning', async () => {
+      const { runAgentPlanning } = await import('../../../lib/agents/stream-handler.js');
+      // Hold the planning mock indefinitely so runAgentPlanning's call args
+      // remain inspectable (cleanup empties preToolHooks once it resolves).
+      (runAgentPlanning as any).mockReturnValueOnce(new Promise(() => {}));
+
+      const idleAgent = {
+        id: 'a1',
+        codespaceId: 'p1',
+        status: 'idle',
+        currentTaskId: null,
+        config: { model: 'claude-sonnet-4-6', maxTurns: 50, allowedTools: ['Read'] },
+      };
+      const queuedTask = {
+        id: 'task-1',
+        codespaceId: 'p1',
+        column: 'queued',
+        title: 'Build feature X',
+        description: 'Implement the feature',
+      };
+
+      db.query.agents.findFirst
+        .mockResolvedValueOnce(idleAgent)
+        .mockResolvedValueOnce({ ...idleAgent, status: 'planning' });
+      db.query.tasks.findFirst
+        .mockResolvedValueOnce(queuedTask)
+        .mockResolvedValueOnce({ ...queuedTask, column: 'in_progress' });
+      db.query.codespaces.findFirst.mockResolvedValue({
+        id: 'p1',
+        config: {},
+        maxConcurrentAgents: 3,
+      });
+      db.query.sessions.findFirst.mockResolvedValue({ id: 'sess-1', codespaceId: 'p1' });
+      db.query.worktrees.findFirst.mockResolvedValue({
+        id: 'wt-1',
+        path: '/tmp/wt',
+        branch: 'agent/task-1',
+      });
+
+      await service.start('a1', 'task-1');
+
+      // Wait for the fire-and-forget executeAgentAsync to call runAgentPlanning.
+      // It is invoked synchronously (not awaited), so a microtask flush is enough.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(runAgentPlanning).toHaveBeenCalled();
+      const callArgs = (runAgentPlanning as any).mock.calls[0][0];
+      expect(callArgs.preToolUseHooks).toBeDefined();
+      expect(callArgs.preToolUseHooks).toHaveLength(2);
+      expect(callArgs.postToolUseHooks).toBeDefined();
+      expect(callArgs.postToolUseHooks).toHaveLength(2);
+    });
   });
 });

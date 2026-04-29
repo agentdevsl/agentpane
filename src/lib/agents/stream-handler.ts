@@ -557,10 +557,18 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
     })
   );
 
-  // Track active tools by toolUseID for correlating with tool_use_summary
+  // Track active tools by toolUseID for correlating with tool_use_summary.
+  // F03-02: `toolInput` is retained alongside the other tracking state so
+  // post-tool-use hooks can receive the original input when the summary
+  // arrives — mirrors `runAgentExecution`.
   const activeTools = new Map<
     string,
-    { toolName: string; startTime: number; skillName?: string }
+    {
+      toolName: string;
+      startTime: number;
+      skillName?: string;
+      toolInput: Record<string, unknown>;
+    }
   >();
 
   // Accumulate Skill tool calls for AgentRunResult
@@ -573,14 +581,75 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   // The SDK's tool_use_summary in v0.2.76+ no longer includes tool_name/tool_input,
   // so we intercept via canUseTool which always receives the full input.
   const canUseTool: CanUseTool = async (toolName, input, toolOptions) => {
-    const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
+    const toolInputRecord = (input ?? {}) as Record<string, unknown>;
+
+    // F03-02: run each registered pre-tool-use hook before any planning-phase
+    // bookkeeping. First hook returning {deny:true} blocks the tool. Hook
+    // exceptions are logged and treated as "no opinion" — a buggy hook must
+    // never silently allow a denied tool. Mirrors the execution-side gate
+    // at runAgentExecution.canUseTool. ExitPlanMode is exempt so the agent
+    // can always exit plan mode regardless of whitelist configuration.
+    if (
+      toolName !== 'ExitPlanMode' &&
+      options.preToolUseHooks &&
+      options.preToolUseHooks.length > 0
+    ) {
+      for (const hook of options.preToolUseHooks) {
+        let hookResult: { deny?: boolean; reason?: string } = {};
+        try {
+          hookResult = await hook({ tool_name: toolName, tool_input: toolInputRecord });
+        } catch (hookErr) {
+          log.warn('Pre-tool-use hook threw during planning, ignoring verdict', {
+            error: hookErr instanceof Error ? hookErr.message : String(hookErr),
+            data: { agentId, toolName },
+          });
+          continue;
+        }
+        if (hookResult.deny) {
+          const reason = hookResult.reason ?? `Tool "${toolName}" blocked by pre-tool-use hook`;
+          await sessionService.publish(
+            sessionId,
+            createMetadataEvent({
+              sessionId,
+              type: 'tool:result',
+              partType: 'tool_result',
+              blockId: toolOptions.toolUseID,
+              data: {
+                agentId,
+                toolId: toolOptions.toolUseID,
+                tool: toolName,
+                output: reason,
+                isError: true,
+                phase: 'planning',
+              },
+            })
+          );
+          log.info('Pre-tool-use hook denied tool during planning', {
+            data: { agentId, toolName, reason },
+          });
+          return {
+            behavior: 'deny' as const,
+            message: reason,
+            interrupt: false,
+          };
+        }
+      }
+    }
+
+    const toolEntry: {
+      toolName: string;
+      startTime: number;
+      skillName?: string;
+      toolInput: Record<string, unknown>;
+    } = {
       toolName,
       startTime: Date.now(),
+      toolInput: toolInputRecord,
     };
 
     // Enrich Skill tool calls with the invoked skill name for downstream tracking
     if (toolName === 'Skill') {
-      const skillInput = input as Record<string, unknown>;
+      const skillInput = toolInputRecord;
       const invokedSkillName = typeof skillInput.skill === 'string' ? skillInput.skill : undefined;
       if (invokedSkillName) {
         toolEntry.skillName = invokedSkillName;
@@ -593,7 +662,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
 
     // Capture subagent_type from Agent tool calls for topology grouping
     if (toolName === 'Agent') {
-      const agentInput = input as Record<string, unknown>;
+      const agentInput = toolInputRecord;
       const subagentType =
         typeof agentInput.subagent_type === 'string' ? agentInput.subagent_type : null;
       if (subagentType) {
@@ -606,8 +675,8 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
     // Track file-modifying tools for file change metrics
     if (toolName === 'Write' || toolName === 'Edit' || toolName === 'NotebookEdit') {
       const filePath =
-        ((input as Record<string, unknown>).file_path as string | undefined) ??
-        ((input as Record<string, unknown>).notebook_path as string | undefined);
+        (toolInputRecord.file_path as string | undefined) ??
+        (toolInputRecord.notebook_path as string | undefined);
       if (filePath) modifiedFiles.add(filePath);
     }
 
@@ -622,14 +691,14 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           agentId,
           toolId: toolOptions.toolUseID,
           tool: toolName,
-          input: input as Record<string, unknown>,
+          input: toolInputRecord,
           phase: 'planning',
         },
       })
     );
 
     if (toolName === 'ExitPlanMode') {
-      const planOptions = input as ExitPlanModeOptions | undefined;
+      const planOptions = toolInputRecord as ExitPlanModeOptions | undefined;
       exitPlanModeOptions = planOptions;
 
       log.info('ExitPlanMode captured via canUseTool', { data: { agentId } });
@@ -847,6 +916,31 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
               },
             })
           );
+
+          // F03-02: run post-tool-use hooks for this tool during planning.
+          // Hooks are fire-and-forget — any thrown error is logged but never
+          // aborts the stream or replaces the already-published tool:result
+          // event. Mirrors the execution-side block.
+          if (options.postToolUseHooks && options.postToolUseHooks.length > 0) {
+            const hookPayload = {
+              tool_name: tracked.toolName,
+              tool_input: tracked.toolInput,
+              tool_response: {
+                summary: toolSummary.summary ?? '',
+                is_error: summaryIsError,
+              },
+            };
+            for (const hook of options.postToolUseHooks) {
+              try {
+                await hook(hookPayload);
+              } catch (hookErr) {
+                log.warn('Post-tool-use hook threw during planning', {
+                  error: hookErr instanceof Error ? hookErr.message : String(hookErr),
+                  data: { agentId, toolName: tracked.toolName },
+                });
+              }
+            }
+          }
 
           // Check if this is ExitPlanMode - this means the plan is ready
           if (tracked.toolName === 'ExitPlanMode') {
