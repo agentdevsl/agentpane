@@ -1447,11 +1447,11 @@ export function NewProjectDialog({
         {/* Submit error display */}
         {submitError && (
           <div
-            className="mt-4 flex items-start gap-2 rounded-[var(--radius)] border border-warning/40 bg-warning-muted p-3"
+            className="mt-4 flex items-start gap-2 rounded-[var(--radius)] border border-attention/40 bg-attention-muted p-3"
             data-testid="submit-error"
           >
-            <WarningCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" weight="fill" />
-            <div className="text-sm text-warning">{submitError}</div>
+            <WarningCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-attention" weight="fill" />
+            <div className="text-sm text-attention">{submitError}</div>
           </div>
         )}
 

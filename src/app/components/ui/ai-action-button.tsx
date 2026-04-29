@@ -59,28 +59,31 @@ export const AIActionButton = forwardRef<HTMLButtonElement, AIActionButtonProps>
             aria-hidden="true"
             className="w-full h-full overflow-visible"
           >
-            {/* Body */}
+            {/* Body — uses Claude brand orange via the design-system token */}
             <g className="origin-center group-hover:animate-[bob_0.2s_ease-in-out_infinite]">
-              <rect x="3" y="0" width="14" height="9" fill="#D97757" />
+              <rect x="3" y="0" width="14" height="9" fill="var(--claude)" />
               {/* Side nubs */}
-              <rect x="0" y="4" width="3" height="3" fill="#D97757" />
-              <rect x="17" y="4" width="3" height="3" fill="#D97757" />
-              {/* Eyes */}
+              <rect x="0" y="4" width="3" height="3" fill="var(--claude)" />
+              <rect x="17" y="4" width="3" height="3" fill="var(--claude)" />
+              {/*
+                Eyes — intentionally fixed dark-grey to preserve mascot
+                identity on the orange body across themes. allowlisted.
+              */}
               <rect x="6" y="3" width="2" height="2" fill="#1a1a1a" />
               <rect x="12" y="3" width="2" height="2" fill="#1a1a1a" />
             </g>
             {/* 4 short legs */}
             <g className="origin-[5px_9px] group-hover:animate-[step-l_0.2s_ease-in-out_infinite]">
-              <rect x="4" y="9" width="3" height="4" fill="#D97757" />
+              <rect x="4" y="9" width="3" height="4" fill="var(--claude)" />
             </g>
             <g className="origin-[8px_9px] group-hover:animate-[step-r_0.2s_ease-in-out_infinite]">
-              <rect x="7" y="9" width="3" height="4" fill="#D97757" />
+              <rect x="7" y="9" width="3" height="4" fill="var(--claude)" />
             </g>
             <g className="origin-[12px_9px] group-hover:animate-[step-l_0.2s_ease-in-out_infinite]">
-              <rect x="10" y="9" width="3" height="4" fill="#D97757" />
+              <rect x="10" y="9" width="3" height="4" fill="var(--claude)" />
             </g>
             <g className="origin-[15px_9px] group-hover:animate-[step-r_0.2s_ease-in-out_infinite]">
-              <rect x="13" y="9" width="3" height="4" fill="#D97757" />
+              <rect x="13" y="9" width="3" height="4" fill="var(--claude)" />
             </g>
           </svg>
         </span>

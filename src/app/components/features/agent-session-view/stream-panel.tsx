@@ -36,8 +36,8 @@ export function StreamPanel({
         : connectionState === 'reconnecting'
           ? {
               label: 'Reconnecting',
-              textClass: 'text-warning',
-              dotClass: 'bg-warning animate-pulse',
+              textClass: 'text-attention',
+              dotClass: 'bg-attention animate-pulse',
             }
           : {
               label: 'Disconnected',

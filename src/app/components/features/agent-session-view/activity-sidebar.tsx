@@ -52,7 +52,7 @@ const activityIconVariants = cva(
         leave: 'bg-surface-subtle text-fg-muted',
         watch: 'bg-done/15 text-done',
         start: 'bg-accent/15 text-accent',
-        pause: 'bg-warning/15 text-warning',
+        pause: 'bg-attention/15 text-attention',
         resume: 'bg-success/15 text-success',
         complete: 'bg-success/15 text-success',
         error: 'bg-danger/15 text-danger',

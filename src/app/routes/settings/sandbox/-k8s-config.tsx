@@ -332,7 +332,7 @@ export function K8sConfig({
                   {k8sStatus.namespaceExists ? (
                     <span className="ml-1 text-success">(exists)</span>
                   ) : (
-                    <span className="ml-1 text-warning">(will be created)</span>
+                    <span className="ml-1 text-attention">(will be created)</span>
                   )}
                 </p>
               </div>
