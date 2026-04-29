@@ -14,9 +14,28 @@
  * the review's F05-07 for Caddy-side quota work.
  */
 
+import { getMetricsService } from '../../services/metrics.service.js';
 import { createLogger } from '../logging/logger.js';
 
 const log = createLogger('EventRouter');
+
+/**
+ * F10-14: Best-effort metrics call. Wrapped to ensure that an instrumentation
+ * failure can never break SSE acquire/release. Failures are logged but
+ * swallowed so the router's behaviour is unchanged.
+ */
+function recordMetric(direction: 'inc' | 'dec'): void {
+  try {
+    const metrics = getMetricsService();
+    if (direction === 'inc') metrics.incSse();
+    else metrics.decSse();
+  } catch (metricsErr) {
+    log.warn('SSE metrics recording failed', {
+      error: metricsErr instanceof Error ? metricsErr.message : String(metricsErr),
+      data: { direction },
+    });
+  }
+}
 
 /** Global cap across all in-process SSE routes. */
 export const EVENT_ROUTER_GLOBAL_CAP = 200;
@@ -95,6 +114,9 @@ export function acquireSseSlot(route: string, userId?: string | null): AcquireRe
   counters.total += 1;
   counters.byUser.set(user, perUser + 1);
   counters.byRoute.set(route, (counters.byRoute.get(route) ?? 0) + 1);
+  // F10-14: shadow the EventRouter total in MetricsService so /api/metrics
+  // surfaces the same active-SSE count without consulting two sources.
+  recordMetric('inc');
   return { ok: true, total: counters.total, perUser: perUser + 1 };
 }
 
@@ -136,6 +158,11 @@ export function releaseSseSlot(route: string, userId?: string | null): void {
   } else {
     counters.byRoute.set(route, prevRoute - 1);
   }
+
+  // F10-14: mirror the decrement to MetricsService so /api/metrics matches
+  // EventRouter's view. Only fires when we actually decremented above (the
+  // `prevUser <= 0 || prevRoute <= 0` guard returns early without calling).
+  recordMetric('dec');
 }
 
 /** Snapshot for admin metrics. */
