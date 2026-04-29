@@ -380,6 +380,17 @@ export const dreamSkillOverrideSchema = z
   .strict()
   .nullish();
 
+/**
+ * `POST /api/keys/:service` body. The optional `refreshToken` (F03-09 / W2-C)
+ * is the OAuth refresh token issued alongside an `sk-ant-oat*` access token.
+ * It is encrypted with AES-GCM and stored in `api_keys.encrypted_refresh_token`
+ * so the agent-runner can rotate the access token mid-run.
+ */
+export const saveKeySchema = z.object({
+  key: z.string().min(1, 'API key is required').max(8192),
+  refreshToken: z.string().min(1).max(8192).optional(),
+});
+
 // ─── Task action body schemas ────────────────────────
 
 export const rejectPlanSchema = z
