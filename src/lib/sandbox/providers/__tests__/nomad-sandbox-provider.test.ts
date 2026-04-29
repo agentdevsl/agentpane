@@ -137,7 +137,8 @@ describe('NomadSandboxProvider', () => {
   const sampleConfig: SandboxConfig = {
     codespaceId: 'proj-123',
     codespacePath: '/home/user/project',
-    image: 'srlynch1/agent-sandbox:latest',
+    image:
+      'docker.io/srlynch1/agent-sandbox@sha256:9b04cfd8f030360efb7fbd1023ce79b228b61edf82dbc0d82c38c867633d4126',
     memoryMb: 4096,
     cpuCores: 2,
     idleTimeoutMinutes: 30,

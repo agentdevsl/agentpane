@@ -330,3 +330,140 @@ describe('PUT /api/settings', () => {
     expect(body.error.code).toBe('INTERNAL_ERROR');
   });
 });
+
+// --- arch29-W1-C / F04-02 — sandbox.defaults.image digest validation ---
+
+describe('PUT /api/settings — sandbox.defaults.image (arch29-W1-C / F04-02)', () => {
+  let mockService: MockSettingsService;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockService = createMockSettingsService();
+  });
+
+  it('rejects sandbox.defaults.image with a tag-only ref (returns 400 IMAGE_TAG_REQUIRED_DIGEST)', async () => {
+    mockService.setMany.mockResolvedValue({ ok: true, value: undefined });
+
+    const app = createApp(mockService);
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          'sandbox.defaults': { image: 'foo:latest' },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe('IMAGE_TAG_REQUIRED_DIGEST');
+    expect(body.error.details?.image).toBe('foo:latest');
+    // The setting must NOT have been persisted.
+    expect(mockService.setMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects sandbox.defaults.image with srlynch1/agent-sandbox:latest', async () => {
+    mockService.setMany.mockResolvedValue({ ok: true, value: undefined });
+
+    const app = createApp(mockService);
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          'sandbox.defaults': { image: 'srlynch1/agent-sandbox:latest' },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('IMAGE_TAG_REQUIRED_DIGEST');
+    expect(mockService.setMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects sandbox.defaults.image with bare image reference (no tag, no digest)', async () => {
+    const app = createApp(mockService);
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          'sandbox.defaults': { image: 'agent-sandbox' },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('IMAGE_TAG_REQUIRED_DIGEST');
+  });
+
+  it('accepts sandbox.defaults.image with a digest-pinned ref', async () => {
+    mockService.setMany.mockResolvedValue({ ok: true, value: undefined });
+
+    const app = createApp(mockService);
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          'sandbox.defaults': {
+            image:
+              'docker.io/srlynch1/agent-sandbox@sha256:9b04cfd8f030360efb7fbd1023ce79b228b61edf82dbc0d82c38c867633d4126',
+          },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(mockService.setMany).toHaveBeenCalledWith({
+      'sandbox.defaults': {
+        image:
+          'docker.io/srlynch1/agent-sandbox@sha256:9b04cfd8f030360efb7fbd1023ce79b228b61edf82dbc0d82c38c867633d4126',
+      },
+    });
+  });
+
+  it('accepts sandbox.defaults without an image field (image is optional)', async () => {
+    mockService.setMany.mockResolvedValue({ ok: true, value: undefined });
+
+    const app = createApp(mockService);
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          'sandbox.defaults': { memoryMb: 4096, cpuCores: 2 },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+  });
+
+  it('accepts sandbox.defaults with an empty image string (treated as "use default")', async () => {
+    mockService.setMany.mockResolvedValue({ ok: true, value: undefined });
+
+    const app = createApp(mockService);
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          'sandbox.defaults': { image: '' },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+  });
+});

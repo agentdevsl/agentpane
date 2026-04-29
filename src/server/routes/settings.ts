@@ -7,6 +7,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { createLogger } from '../../lib/logging/logger';
+import { isDigestPinnedImage } from '../../lib/sandbox/types.js';
 import type { SettingsService } from '../../services/settings.service.js';
 import { json } from '../shared.js';
 
@@ -144,6 +145,32 @@ export function createSettingsRoutes({ settingsService }: SettingsDeps) {
     for (const [key, value] of Object.entries(settingsToUpdate)) {
       if (!ALLOWED_SETTINGS_KEYS.has(key)) {
         continue; // Silently skip unknown keys
+      }
+
+      // arch29-W1-C / F04-02 — validate `sandbox.defaults.image` is digest-pinned.
+      // The previous schema accepted `z.unknown()` which let an admin override
+      // `sandbox.defaults.image` to a tag-only ref like `evil/repo:latest` via
+      // the UI, bypassing `validateImage()` on the codespace CRUD path. Reject
+      // tag-only refs at the boundary so the value can never reach
+      // `loadSandboxDefaultsFromDb()` → `provider.create()`.
+      if (key === 'sandbox.defaults' && typeof value === 'object' && value !== null) {
+        const obj = value as Record<string, unknown>;
+        if (typeof obj.image === 'string' && obj.image.length > 0) {
+          if (!isDigestPinnedImage(obj.image)) {
+            return json(
+              {
+                ok: false,
+                error: {
+                  code: 'IMAGE_TAG_REQUIRED_DIGEST',
+                  message:
+                    "sandbox.defaults.image must be digest-pinned ('<image>@sha256:<64 hex>'). Tag-only references (e.g. ':latest') are rejected for supply-chain safety.",
+                  details: { image: obj.image },
+                },
+              },
+              400
+            );
+          }
+        }
       }
 
       let dbValue = value;

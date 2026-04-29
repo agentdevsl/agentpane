@@ -60,6 +60,9 @@ jobs:
       - name: Schema drift check
         run: bun run scripts/check-schema-drift.ts
 
+      - name: Supply-chain check (arch29-W1-C / F04-01, F04-02, F04-11)
+        run: bash scripts/check-supply-chain.sh
+
       - name: Type check
         run: bun run typecheck
 

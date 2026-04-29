@@ -104,20 +104,24 @@ export function getDefaultSandboxNetworkMode(): 'bridge' | 'none' {
 /**
  * Default sandbox image.
  *
- * theme-04 P0-01: The default image MUST be digest-pinned (`...@sha256:...`) to
- * prevent supply-chain attacks via mutable `:latest` tags. The digest below is
- * a placeholder that needs to be replaced with the real GHCR digest once the
- * image-publish workflow lands (tracked in theme 11). Tenants who override
- * `image` in their sandbox config are validated by `SandboxConfigService`
- * which rejects tag-only references.
+ * theme-04 P0-01 / arch29-W1-C: The default image MUST be digest-pinned
+ * (`...@sha256:...`) to prevent supply-chain attacks via mutable `:latest`
+ * tags. The digest below is the multi-arch OCI index digest of
+ * `srlynch1/agent-sandbox:latest` resolved via `docker manifest inspect`.
+ * Tenants who override `image` in their sandbox config are validated by
+ * `SandboxConfigService` which rejects tag-only references; the same
+ * validation is applied to the `sandbox.defaults.image` setting in
+ * `PUT /api/settings` so an admin cannot bypass via the UI.
  *
- * Placeholder digest: all zeros. This forces CI to fail fast in any
- * environment that actually tries to pull the image before the real digest
- * is published — making the required follow-up visible.
+ * To rotate this digest:
+ *   docker manifest inspect srlynch1/agent-sandbox:latest -v | jq -r '.[0].Descriptor.digest'
+ *   # or: docker buildx imagetools inspect srlynch1/agent-sandbox:latest
+ * Then update this constant and the matching K8s manifest at
+ * `k8s/manifests/agentpane-sandbox-template.yaml`.
  */
 export const SANDBOX_DEFAULTS = {
   image:
-    'ghcr.io/agentdevsl/agent-sandbox@sha256:0000000000000000000000000000000000000000000000000000000000000000',
+    'docker.io/srlynch1/agent-sandbox@sha256:9b04cfd8f030360efb7fbd1023ce79b228b61edf82dbc0d82c38c867633d4126',
   memoryMb: 8192,
   cpuCores: 4,
   idleTimeoutMinutes: 30,
