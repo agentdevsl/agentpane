@@ -150,8 +150,13 @@ export class AgentSandboxInstance implements Sandbox {
         // Already wrapped in shell -- inject env before `exec` so they scope to the
         // exec'd command. Placing them before `cd` only scopes them to `cd` itself.
         // Pattern: sh -c 'cd /cwd && VAR=val exec cmd args'
+        //
+        // arch29-W2-J / F04-03: use `lastIndexOf` (matching Nomad) so a `cwd`
+        // that contains the substring `'exec '` (e.g. `/opt/foo-exec test/bar`)
+        // does not anchor the env-injection point on the embedded `exec ` rather
+        // than the trailing `&& exec <cmd>` keyword.
         const shBody = fullCmd[2] ?? '';
-        const execIdx = shBody.indexOf('exec ');
+        const execIdx = shBody.lastIndexOf('exec ');
         if (execIdx !== -1) {
           fullCmd = [
             'sh',

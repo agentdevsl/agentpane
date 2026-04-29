@@ -252,6 +252,13 @@ export async function initK8sProvider(
     let health = await k8sProvider.healthCheck();
 
     if (health.healthy) {
+      // arch29-W2-J / F04-09: when SANDBOX_DEFAULT_NETWORK_MODE=none, verify
+      // the cluster supports networking.k8s.io/v1 NetworkPolicy resources
+      // before declaring the provider healthy. We fail-closed at boot so the
+      // operator notices the gap rather than silently shipping sandboxes
+      // with bridge-level network access.
+      await k8sProvider.assertNetworkIsolationSupport();
+
       sandboxState.k8sProvider = k8sProvider;
       log.info('Kubernetes CRD sandbox provider initialized', {
         data: {
@@ -318,6 +325,14 @@ export async function initK8sProvider(
 
     return null;
   } catch (error) {
+    // arch29-W2-J / F04-09: if the operator explicitly requested
+    // SANDBOX_DEFAULT_NETWORK_MODE=none and the cluster doesn't support
+    // NetworkPolicy enforcement, re-throw so bootstrap fails loudly rather
+    // than silently falling back to a no-network-isolation Docker provider.
+    // This is intentionally fail-closed.
+    if ((error as { code?: string }).code === 'K8S_NETWORK_ISOLATION_UNSUPPORTED') {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     if (k8sFallbackToDocker) {
       log.warn(

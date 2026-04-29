@@ -490,3 +490,385 @@ describe('P1-06 network-mode default', () => {
     expect(getDefaultSandboxNetworkMode()).toBe('bridge');
   });
 });
+
+// ---------------------------------------------------------------------------
+// arch29-W2-J / F04-03 — K8s execStream env-injection uses lastIndexOf
+// ---------------------------------------------------------------------------
+//
+// Repro of the K8s indexOf('exec ') bug: when `cwd` contains the literal
+// substring `'exec '` (e.g. a path that includes the word 'execute' or a
+// directory named with `exec ` in it via shell-escaping artifacts), the env
+// prefix gets injected into the wrong place — *before* the `cd` rather than
+// before the trailing `&& exec`. This means env vars never reach the spawned
+// command.
+//
+// Nomad uses `lastIndexOf` for exactly this reason; F04-03 closes the
+// asymmetry.
+
+describe('arch29-W2-J / F04-03 K8s execStream env injection (lastIndexOf parity)', () => {
+  it("injects env at the trailing exec keyword when cwd contains 'exec '", async () => {
+    vi.resetModules();
+
+    // Capture the command argv that the SDK sees. We can then assert on the
+    // exact shell body to verify env-injection placement.
+    const capturedExecStreamArgs: Array<{ command: string[] }> = [];
+    const sdkExecStream = vi.fn(async (opts: { command: string[] }) => {
+      capturedExecStreamArgs.push({ command: opts.command });
+      return {
+        stdout: { pipe: vi.fn() } as unknown,
+        stderr: { pipe: vi.fn() } as unknown,
+        wait: async () => ({ exitCode: 0 }),
+        kill: async () => {},
+      };
+    });
+
+    vi.doMock('@agentpane/agent-sandbox-sdk', () => ({
+      AgentSandboxClient: class {
+        execStream = sdkExecStream;
+      },
+      NotFoundError: class extends Error {},
+    }));
+
+    const { AgentSandboxInstance } = await import('@/lib/sandbox/providers/agent-sandbox-instance');
+
+    const client = {
+      exec: vi.fn(),
+      execStream: sdkExecStream,
+      getSandbox: vi.fn(),
+    } as unknown;
+
+    const instance = new AgentSandboxInstance(
+      'sb-1',
+      'agentpane-cs-1-aaa',
+      'cs-1',
+      'agentpane-sandboxes',
+      client as never
+    );
+
+    await instance.execStream({
+      cmd: 'node',
+      args: ['app.js'],
+      env: { TOKEN: 'abc123' },
+      // The repro: a cwd containing the substring `exec ` (with trailing space).
+      // With the bug (indexOf), env-injection lands at this leading occurrence,
+      // *before* the `cd` keyword — so env vars never reach the exec'd cmd.
+      // With the fix (lastIndexOf), env-injection lands at the trailing
+      // `exec node app.js`, scoping env vars to the spawned process.
+      cwd: '/opt/foo-exec test/bar',
+    });
+
+    expect(capturedExecStreamArgs.length).toBe(1);
+    const captured = capturedExecStreamArgs[0]!;
+    // Shape: ['sh', '-c', '<body>']
+    expect(captured.command[0]).toBe('sh');
+    expect(captured.command[1]).toBe('-c');
+    const body = captured.command[2] ?? '';
+
+    // The cwd must remain intact: the literal substring `'/opt/foo-exec test/bar'`
+    // must be present unbroken in the resulting body. With the bug
+    // (indexOf), the env prefix gets injected at the leading `exec ` *inside*
+    // the cwd, splitting the path:
+    //   cd '/opt/foo-TOKEN='abc123' exec test/bar' && exec 'node' 'app.js'
+    // …which is broken syntactically and semantically.
+    //
+    // With the fix (lastIndexOf), the env prefix lands before the trailing
+    // `exec` keyword:
+    //   cd '/opt/foo-exec test/bar' && TOKEN='abc123' exec 'node' 'app.js'
+    expect(body).toContain("cd '/opt/foo-exec test/bar' &&");
+    expect(body).toContain("TOKEN='abc123' exec 'node' 'app.js'");
+    // Must NOT contain the broken-cwd shape that the indexOf bug produces.
+    expect(body).not.toContain('foo-TOKEN=');
+  });
+
+  it('still injects env correctly when cwd is innocuous (no embedded exec)', async () => {
+    vi.resetModules();
+
+    const captured: Array<{ command: string[] }> = [];
+    const sdkExecStream = vi.fn(async (opts: { command: string[] }) => {
+      captured.push({ command: opts.command });
+      return {
+        stdout: { pipe: vi.fn() } as unknown,
+        stderr: { pipe: vi.fn() } as unknown,
+        wait: async () => ({ exitCode: 0 }),
+        kill: async () => {},
+      };
+    });
+
+    vi.doMock('@agentpane/agent-sandbox-sdk', () => ({
+      AgentSandboxClient: class {
+        execStream = sdkExecStream;
+      },
+      NotFoundError: class extends Error {},
+    }));
+
+    const { AgentSandboxInstance } = await import('@/lib/sandbox/providers/agent-sandbox-instance');
+    const client = { execStream: sdkExecStream, getSandbox: vi.fn() } as unknown;
+    const instance = new AgentSandboxInstance('sb-2', 'sb-name', 'cs-2', 'ns', client as never);
+
+    await instance.execStream({
+      cmd: 'node',
+      args: ['app.js'],
+      env: { TOKEN: 'abc123' },
+      cwd: '/workspace',
+    });
+
+    expect(captured.length).toBe(1);
+    const body = captured[0]?.command[2] ?? '';
+    expect(body).toMatch(/cd '\/workspace' && TOKEN='abc123' exec 'node' 'app\.js'/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// arch29-W2-J / F04-09 — K8s NetworkPolicy emission + boot guard
+// ---------------------------------------------------------------------------
+
+describe('arch29-W2-J / F04-09 K8s assertNetworkIsolationSupport', () => {
+  const ORIGINAL = process.env.SANDBOX_DEFAULT_NETWORK_MODE;
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.SANDBOX_DEFAULT_NETWORK_MODE;
+    else process.env.SANDBOX_DEFAULT_NETWORK_MODE = ORIGINAL;
+  });
+
+  it('is a no-op when SANDBOX_DEFAULT_NETWORK_MODE is unset', async () => {
+    delete process.env.SANDBOX_DEFAULT_NETWORK_MODE;
+    vi.resetModules();
+    vi.doMock('@agentpane/agent-sandbox-sdk', () => ({
+      AgentSandboxClient: vi.fn(),
+      SandboxBuilder: vi.fn(),
+      AlreadyExistsError: class extends Error {},
+      NotFoundError: class extends Error {},
+    }));
+    vi.doMock('@kubernetes/client-node', () => ({
+      ApisApi: class {},
+      NetworkingV1Api: class {},
+    }));
+
+    const { AgentSandboxProvider } = await import('@/lib/sandbox/providers/agent-sandbox-provider');
+    // Empty client — assertion should not even reach the SDK in no-op mode.
+    const provider = new AgentSandboxProvider({ client: {} as never });
+    await expect(provider.assertNetworkIsolationSupport()).resolves.toBeUndefined();
+  });
+
+  it('throws NETWORK_ISOLATION_UNSUPPORTED when networking.k8s.io is missing', async () => {
+    process.env.SANDBOX_DEFAULT_NETWORK_MODE = 'none';
+    vi.resetModules();
+
+    // Mock @kubernetes/client-node to return a fake ApisApi that lists
+    // available API groups WITHOUT `networking.k8s.io`. This simulates a
+    // cluster that doesn't support NetworkPolicy.
+    const getAPIVersions = vi.fn().mockResolvedValue({
+      groups: [{ name: 'apps' }, { name: 'batch' }],
+    });
+    vi.doMock('@kubernetes/client-node', () => ({
+      ApisApi: class {},
+      NetworkingV1Api: class {},
+    }));
+
+    vi.doMock('@agentpane/agent-sandbox-sdk', () => ({
+      AgentSandboxClient: vi.fn(),
+      SandboxBuilder: vi.fn(),
+      AlreadyExistsError: class extends Error {},
+      NotFoundError: class extends Error {},
+    }));
+
+    const { AgentSandboxProvider } = await import('@/lib/sandbox/providers/agent-sandbox-provider');
+    const provider = new AgentSandboxProvider({
+      client: {
+        kubeConfig: {
+          makeApiClient: vi.fn(() => ({ getAPIVersions })),
+        },
+      } as never,
+    });
+
+    await expect(provider.assertNetworkIsolationSupport()).rejects.toMatchObject({
+      code: 'K8S_NETWORK_ISOLATION_UNSUPPORTED',
+    });
+    expect(getAPIVersions).toHaveBeenCalled();
+  });
+
+  it('passes when networking.k8s.io is exposed', async () => {
+    process.env.SANDBOX_DEFAULT_NETWORK_MODE = 'none';
+    vi.resetModules();
+
+    const getAPIVersions = vi.fn().mockResolvedValue({
+      groups: [{ name: 'apps' }, { name: 'networking.k8s.io' }, { name: 'batch' }],
+    });
+    vi.doMock('@kubernetes/client-node', () => ({
+      ApisApi: class {},
+      NetworkingV1Api: class {},
+    }));
+
+    vi.doMock('@agentpane/agent-sandbox-sdk', () => ({
+      AgentSandboxClient: vi.fn(),
+      SandboxBuilder: vi.fn(),
+      AlreadyExistsError: class extends Error {},
+      NotFoundError: class extends Error {},
+    }));
+
+    const { AgentSandboxProvider } = await import('@/lib/sandbox/providers/agent-sandbox-provider');
+    const provider = new AgentSandboxProvider({
+      client: {
+        kubeConfig: {
+          makeApiClient: vi.fn(() => ({ getAPIVersions })),
+        },
+      } as never,
+    });
+
+    await expect(provider.assertNetworkIsolationSupport()).resolves.toBeUndefined();
+  });
+
+  it('throws NETWORK_ISOLATION_UNSUPPORTED when discovery itself fails', async () => {
+    process.env.SANDBOX_DEFAULT_NETWORK_MODE = 'none';
+    vi.resetModules();
+
+    const getAPIVersions = vi.fn().mockRejectedValue(new Error('connection refused'));
+    vi.doMock('@kubernetes/client-node', () => ({
+      ApisApi: class {},
+      NetworkingV1Api: class {},
+    }));
+    vi.doMock('@agentpane/agent-sandbox-sdk', () => ({
+      AgentSandboxClient: vi.fn(),
+      SandboxBuilder: vi.fn(),
+      AlreadyExistsError: class extends Error {},
+      NotFoundError: class extends Error {},
+    }));
+
+    const { AgentSandboxProvider } = await import('@/lib/sandbox/providers/agent-sandbox-provider');
+    const provider = new AgentSandboxProvider({
+      client: {
+        kubeConfig: {
+          makeApiClient: vi.fn(() => ({ getAPIVersions })),
+        },
+      } as never,
+    });
+
+    await expect(provider.assertNetworkIsolationSupport()).rejects.toMatchObject({
+      code: 'K8S_NETWORK_ISOLATION_UNSUPPORTED',
+    });
+  });
+});
+
+describe('arch29-W2-J / F04-09 Nomad assertNetworkIsolationSupport', () => {
+  const ORIGINAL = process.env.SANDBOX_DEFAULT_NETWORK_MODE;
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.SANDBOX_DEFAULT_NETWORK_MODE;
+    else process.env.SANDBOX_DEFAULT_NETWORK_MODE = ORIGINAL;
+  });
+
+  it('is a no-op when SANDBOX_DEFAULT_NETWORK_MODE is unset', async () => {
+    delete process.env.SANDBOX_DEFAULT_NETWORK_MODE;
+    vi.resetModules();
+    vi.doMock('@agentpane/nomad-sandbox-sdk', () => ({
+      NomadSandboxClient: vi.fn(),
+      NomadJobBuilder: vi.fn(),
+      ConnectionError: class extends Error {},
+      NomadApiError: class extends Error {},
+      NotFoundError: class extends Error {},
+      TimeoutError: class extends Error {},
+      NOMAD_JOB_PREFIX: 'agentpane-',
+      NOMAD_META: { SANDBOX_ID: 'sandbox_id', PROJECT_ID: 'project_id' },
+    }));
+
+    const { NomadSandboxProvider } = await import('@/lib/sandbox/providers/nomad-sandbox-provider');
+    const provider = new NomadSandboxProvider({ client: {} as never });
+    await expect(provider.assertNetworkIsolationSupport()).resolves.toBeUndefined();
+  });
+
+  it('throws when Nomad version is older than 0.10', async () => {
+    process.env.SANDBOX_DEFAULT_NETWORK_MODE = 'none';
+    vi.resetModules();
+
+    const healthCheck = vi.fn().mockResolvedValue({
+      healthy: true,
+      leader: '127.0.0.1',
+      version: '0.9.7',
+      namespaceExists: true,
+      datacenter: 'dc1',
+    });
+
+    vi.doMock('@agentpane/nomad-sandbox-sdk', () => ({
+      NomadSandboxClient: vi.fn(),
+      NomadJobBuilder: vi.fn(),
+      ConnectionError: class extends Error {},
+      NomadApiError: class extends Error {},
+      NotFoundError: class extends Error {},
+      TimeoutError: class extends Error {},
+      NOMAD_JOB_PREFIX: 'agentpane-',
+      NOMAD_META: { SANDBOX_ID: 'sandbox_id', PROJECT_ID: 'project_id' },
+    }));
+
+    const { NomadSandboxProvider } = await import('@/lib/sandbox/providers/nomad-sandbox-provider');
+    const provider = new NomadSandboxProvider({
+      client: { healthCheck } as never,
+    });
+
+    await expect(provider.assertNetworkIsolationSupport()).rejects.toMatchObject({
+      code: 'NOMAD-800',
+    });
+  });
+
+  it('throws when Nomad cluster is unhealthy', async () => {
+    process.env.SANDBOX_DEFAULT_NETWORK_MODE = 'none';
+    vi.resetModules();
+
+    const healthCheck = vi.fn().mockResolvedValue({
+      healthy: false,
+      leader: null,
+      version: null,
+      namespaceExists: false,
+      datacenter: null,
+      error: 'no leader',
+    });
+
+    vi.doMock('@agentpane/nomad-sandbox-sdk', () => ({
+      NomadSandboxClient: vi.fn(),
+      NomadJobBuilder: vi.fn(),
+      ConnectionError: class extends Error {},
+      NomadApiError: class extends Error {},
+      NotFoundError: class extends Error {},
+      TimeoutError: class extends Error {},
+      NOMAD_JOB_PREFIX: 'agentpane-',
+      NOMAD_META: { SANDBOX_ID: 'sandbox_id', PROJECT_ID: 'project_id' },
+    }));
+
+    const { NomadSandboxProvider } = await import('@/lib/sandbox/providers/nomad-sandbox-provider');
+    const provider = new NomadSandboxProvider({
+      client: { healthCheck } as never,
+    });
+
+    await expect(provider.assertNetworkIsolationSupport()).rejects.toMatchObject({
+      code: 'NOMAD-800',
+    });
+  });
+
+  it('passes when Nomad version is 1.x and healthy', async () => {
+    process.env.SANDBOX_DEFAULT_NETWORK_MODE = 'none';
+    vi.resetModules();
+
+    const healthCheck = vi.fn().mockResolvedValue({
+      healthy: true,
+      leader: '127.0.0.1',
+      version: '1.7.2',
+      namespaceExists: true,
+      datacenter: 'dc1',
+    });
+
+    vi.doMock('@agentpane/nomad-sandbox-sdk', () => ({
+      NomadSandboxClient: vi.fn(),
+      NomadJobBuilder: vi.fn(),
+      ConnectionError: class extends Error {},
+      NomadApiError: class extends Error {},
+      NotFoundError: class extends Error {},
+      TimeoutError: class extends Error {},
+      NOMAD_JOB_PREFIX: 'agentpane-',
+      NOMAD_META: { SANDBOX_ID: 'sandbox_id', PROJECT_ID: 'project_id' },
+    }));
+
+    const { NomadSandboxProvider } = await import('@/lib/sandbox/providers/nomad-sandbox-provider');
+    const provider = new NomadSandboxProvider({
+      client: { healthCheck } as never,
+    });
+
+    await expect(provider.assertNetworkIsolationSupport()).resolves.toBeUndefined();
+  });
+});

@@ -42,6 +42,9 @@ export const NOMAD_ERROR_IDS = {
   // API (700-799)
   API_ERROR: 'NOMAD-700',
   INTERNAL_ERROR: 'NOMAD-701',
+
+  // Network isolation (800-899)
+  NETWORK_ISOLATION_UNSUPPORTED: 'NOMAD-800',
 } as const;
 
 export type NomadErrorId = (typeof NOMAD_ERROR_IDS)[keyof typeof NOMAD_ERROR_IDS];
@@ -216,6 +219,21 @@ export const NomadErrors = {
     createError(NOMAD_ERROR_IDS.INTERNAL_ERROR, reason, 500, {
       errorName: 'NOMAD_INTERNAL_ERROR',
     }),
+
+  /**
+   * arch29-W2-J / F04-09: Surfaced when `SANDBOX_DEFAULT_NETWORK_MODE=none` is
+   * requested but the Nomad cluster cannot enforce a `network { mode = "none" }`
+   * stanza (e.g. older Nomad versions, missing CNI plugins, or the operator
+   * has opted out). We fail-closed at boot so the operator notices the gap
+   * rather than silently shipping sandboxes with the cluster default network.
+   */
+  NETWORK_ISOLATION_UNSUPPORTED: (reason: string) =>
+    createError(
+      NOMAD_ERROR_IDS.NETWORK_ISOLATION_UNSUPPORTED,
+      `Network isolation requested (SANDBOX_DEFAULT_NETWORK_MODE=none) but Nomad cannot enforce it: ${reason}`,
+      500,
+      { reason, errorName: 'NOMAD_NETWORK_ISOLATION_UNSUPPORTED' }
+    ),
 };
 
 // Type-level check: ensure NOMAD_ERROR_IDS and NomadErrors have matching keys

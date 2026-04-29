@@ -132,6 +132,13 @@ export async function initNomadProvider(
 
     const health = await nomadProvider.healthCheck();
     if (health.healthy) {
+      // arch29-W2-J / F04-09: when SANDBOX_DEFAULT_NETWORK_MODE=none, verify
+      // the Nomad cluster supports the `network { mode = "none" }` stanza
+      // before declaring the provider healthy. Fail-closed at boot so the
+      // operator notices the gap rather than silently shipping sandboxes
+      // with the cluster default network.
+      await nomadProvider.assertNetworkIsolationSupport();
+
       sandboxState.nomadProvider = nomadProvider;
       log.info('Nomad sandbox provider initialized', {
         data: {
@@ -165,6 +172,15 @@ export async function initNomadProvider(
     await persistNomadLastError(db, diagnosis);
     return null;
   } catch (error) {
+    // arch29-W2-J / F04-09: if the operator explicitly requested
+    // SANDBOX_DEFAULT_NETWORK_MODE=none and Nomad cannot enforce a
+    // network-mode-none stanza, re-throw so bootstrap fails loudly rather
+    // than silently falling back to a no-isolation Docker provider. This is
+    // intentionally fail-closed.
+    if ((error as { code?: string }).code === 'NOMAD-800') {
+      throw error;
+    }
+
     const message = error instanceof Error ? error.message : String(error);
     const willFallback = nomadFallbackToDocker;
 
