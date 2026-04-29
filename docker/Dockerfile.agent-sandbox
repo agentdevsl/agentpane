@@ -1,11 +1,12 @@
 # Agent Sandbox Dockerfile
 # Extends the terraform-ai-tools base image with the Claude Agent Runner
 #
-# theme-04 P0-01: Runtime references to this image MUST be digest-pinned
-# (`<image>@sha256:<digest>`). Tag-only references (`:latest`, etc.) are
-# rejected by SandboxConfigService. The default image reference lives in
-# `src/lib/sandbox/types.ts` (`SANDBOX_DEFAULTS.image`) and is currently a
-# placeholder digest pending the GHCR publish workflow in theme 11.
+# theme-04 P0-01 / arch29-W1-C: Runtime references to this image MUST be
+# digest-pinned (`<image>@sha256:<digest>`). Tag-only references (`:latest`,
+# etc.) are rejected by SandboxConfigService AND by the settings PUT endpoint.
+# The default image reference lives in `src/lib/sandbox/types.ts`
+# (`SANDBOX_DEFAULTS.image`) and is pinned to the multi-arch OCI index digest
+# of the upstream image; this Dockerfile's BASE_IMAGE is pinned the same way.
 #
 # Usage (build for publishing):
 #   docker build -f docker/Dockerfile.agent-sandbox -t ghcr.io/agentdevsl/agent-sandbox:<version> .
@@ -18,9 +19,11 @@
 # - Claude Agent Runner for SDK execution
 # - ripgrep, fd-find, tree for file operations
 
-# BASE_IMAGE should also be digest-pinned in production builds.
-# Tag-only default is kept here for developer builds where pinning is painful.
-ARG BASE_IMAGE=srlynch1/terraform-ai-tools:latest
+# BASE_IMAGE is digest-pinned to prevent supply-chain attacks via mutable tags.
+# This is the multi-arch OCI index digest of `srlynch1/terraform-ai-tools:latest`
+# resolved via `docker manifest inspect`. To rotate, see SANDBOX_DEFAULTS.image
+# in src/lib/sandbox/types.ts for the rotation procedure.
+ARG BASE_IMAGE=docker.io/srlynch1/terraform-ai-tools@sha256:c8bb7d79efeebabd9dd91c95a406c204c6ad6e1d8c15359f778929152ef2a974
 
 FROM ${BASE_IMAGE}
 
@@ -100,4 +103,4 @@ CMD ["/bin/bash"]
 # Labels
 LABEL org.opencontainers.image.title="Agent Sandbox"
 LABEL org.opencontainers.image.description="Docker sandbox with Claude Agent Runner, based on terraform-ai-tools"
-LABEL org.opencontainers.image.base.name="srlynch1/terraform-ai-tools:latest"
+LABEL org.opencontainers.image.base.name="docker.io/srlynch1/terraform-ai-tools@sha256:c8bb7d79efeebabd9dd91c95a406c204c6ad6e1d8c15359f778929152ef2a974"

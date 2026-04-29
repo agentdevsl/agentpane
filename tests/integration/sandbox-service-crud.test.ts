@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sandboxInstances, sandboxTmuxSessions } from '../../src/db/schema';
 import { SandboxService } from '../../src/services/sandbox.service';
 import { createTestProject } from '../factories/project.factory';
+import { TEST_AGENT_SANDBOX_IMAGE } from '../fixtures/sandbox-image';
 import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
 import {
   createMockDurableStreamsService,
@@ -141,7 +142,7 @@ describe('SandboxService (IT-1550)', () => {
       const result = await service.create({
         codespaceId: 'proj-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -163,14 +164,14 @@ describe('SandboxService (IT-1550)', () => {
       await service.create({
         codespaceId: 'proj-pull-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
         volumeMounts: [],
       });
 
-      expect(mockProvider.pullImage).toHaveBeenCalledWith('srlynch1/agent-sandbox:latest');
+      expect(mockProvider.pullImage).toHaveBeenCalledWith(TEST_AGENT_SANDBOX_IMAGE);
     });
 
     it('IT-1552c: skips image pull if already available', async () => {
@@ -179,7 +180,7 @@ describe('SandboxService (IT-1550)', () => {
       await service.create({
         codespaceId: 'proj-nopull-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -193,7 +194,7 @@ describe('SandboxService (IT-1550)', () => {
       const result = await service.create({
         codespaceId: 'proj-db-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -209,7 +210,7 @@ describe('SandboxService (IT-1550)', () => {
       expect(dbSandbox).toBeDefined();
       expect(dbSandbox?.codespaceId).toBe('proj-db-1');
       expect(dbSandbox?.status).toBe('running');
-      expect(dbSandbox?.image).toBe('srlynch1/agent-sandbox:latest');
+      expect(dbSandbox?.image).toBe(TEST_AGENT_SANDBOX_IMAGE);
       expect(dbSandbox?.memoryMb).toBe(4096);
       expect(dbSandbox?.cpuCores).toBe(2);
     });
@@ -218,7 +219,7 @@ describe('SandboxService (IT-1550)', () => {
       await service.create({
         codespaceId: 'proj-events-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -256,7 +257,7 @@ describe('SandboxService (IT-1550)', () => {
       const result = await service.create({
         codespaceId: 'proj-cred-fail-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -279,7 +280,7 @@ describe('SandboxService (IT-1550)', () => {
       await service.create({
         codespaceId: 'proj-id-pass-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -299,7 +300,7 @@ describe('SandboxService (IT-1550)', () => {
       const result = await service.create({
         codespaceId: 'proj-create-fail-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -330,7 +331,7 @@ describe('SandboxService (IT-1550)', () => {
         codespaceId: project.id,
         containerId: 'container-existing-1',
         status: 'running',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -396,7 +397,7 @@ describe('SandboxService (IT-1550)', () => {
         codespaceId: 'proj-stop-1',
         containerId: 'container-stop-1',
         status: 'running',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -431,7 +432,7 @@ describe('SandboxService (IT-1550)', () => {
         codespaceId: 'proj-stop-2',
         containerId: 'container-stop-2',
         status: 'running',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -450,7 +451,7 @@ describe('SandboxService (IT-1550)', () => {
         codespaceId: 'proj-stop-fail',
         containerId: 'container-stop-fail',
         status: 'running',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -491,7 +492,7 @@ describe('SandboxService (IT-1550)', () => {
         codespaceId: 'proj-tmux-1',
         containerId: 'container-tmux-1',
         status: 'running',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -583,7 +584,7 @@ describe('SandboxService (IT-1550)', () => {
         codespaceId: 'proj-getbyid-1',
         containerId: 'container-getbyid-1',
         status: 'running',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 2048,
         cpuCores: 1,
         idleTimeoutMinutes: 15,

@@ -618,18 +618,35 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       // Step 4: Apply LimitRange
       await applyManifest('limit-range.yaml', 'LimitRange');
 
-      // Step 5: Try to install the external CRD controller
+      // Step 5: Try to install the external CRD controller from vendored
+      // manifest (arch29-W1-C / F04-11 — supply-chain hardening). Replaces
+      // the previous live `kubectl apply -f <github releases/latest URL>`
+      // which was a cluster-takeover supply-chain vector.
       try {
-        const CRD_INSTALL_URL =
-          'https://github.com/kubernetes-sigs/agent-sandbox/releases/latest/download/install.yaml';
-        const { stdout, stderr } = await execAsync(`kubectl apply -f "${CRD_INSTALL_URL}"`, {
-          timeout: 60_000,
-        });
-        results.push({
-          step: 'CRD Controller',
-          success: true,
-          message: (stdout || stderr).trim().split('\n').pop() ?? 'Controller installed',
-        });
+        const { VENDORED_AGENT_SANDBOX_MANIFEST, VENDORED_AGENT_SANDBOX_SHA256 } = await import(
+          '../bootstrap/sandbox/k8s-init.js'
+        );
+        const { createHash } = await import('node:crypto');
+        const { readFile } = await import('node:fs/promises');
+        const manifestPath = path.join(process.cwd(), VENDORED_AGENT_SANDBOX_MANIFEST);
+        const manifestBytes = await readFile(manifestPath);
+        const actualSha = createHash('sha256').update(manifestBytes).digest('hex');
+        if (actualSha !== VENDORED_AGENT_SANDBOX_SHA256) {
+          results.push({
+            step: 'CRD Controller',
+            success: false,
+            message: `Vendored manifest SHA-256 mismatch: expected ${VENDORED_AGENT_SANDBOX_SHA256}, got ${actualSha}`,
+          });
+        } else {
+          const { stdout, stderr } = await execAsync(`kubectl apply -f "${manifestPath}"`, {
+            timeout: 60_000,
+          });
+          results.push({
+            step: 'CRD Controller',
+            success: true,
+            message: (stdout || stderr).trim().split('\n').pop() ?? 'Controller installed',
+          });
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         results.push({

@@ -8,7 +8,7 @@ import { eq } from 'drizzle-orm';
 import * as sqliteSchema from '../../../db/schema/sqlite/index.js';
 import { createLogger } from '../../../lib/logging/logger.js';
 import type { SandboxConfig } from '../../../lib/sandbox/types.js';
-import { SANDBOX_DEFAULTS } from '../../../lib/sandbox/types.js';
+import { isDigestPinnedImage, SANDBOX_DEFAULTS } from '../../../lib/sandbox/types.js';
 import type { Database } from '../../../types/database.js';
 
 const log = createLogger('SandboxHelpers');
@@ -29,12 +29,28 @@ export async function loadSandboxDefaultsFromDb(db: Database): Promise<{
       where: eq(schemaTables.settings.key, 'sandbox.defaults'),
     });
     if (globalDefaults?.value) {
-      return JSON.parse(globalDefaults.value) as {
+      const parsed = JSON.parse(globalDefaults.value) as {
         image?: string;
         memoryMb?: number;
         cpuCores?: number;
         idleTimeoutMinutes?: number;
       };
+      // arch29-W1-C / F04-02 defense-in-depth: if a non-digest-pinned image
+      // somehow lands in the DB (older row written before validation existed,
+      // direct DB write, etc.) drop the field so we fall back to the pinned
+      // SANDBOX_DEFAULTS.image rather than pulling a mutable tag.
+      if (
+        typeof parsed.image === 'string' &&
+        parsed.image.length > 0 &&
+        !isDigestPinnedImage(parsed.image)
+      ) {
+        log.error(
+          'sandbox.defaults.image in DB is not digest-pinned — ignoring and falling back to SANDBOX_DEFAULTS',
+          { data: { image: parsed.image } }
+        );
+        parsed.image = undefined;
+      }
+      return parsed;
     }
   } catch (settingsErr) {
     log.warn('Failed to load sandbox settings (using defaults)', {

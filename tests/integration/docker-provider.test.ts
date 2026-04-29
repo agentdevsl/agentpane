@@ -15,6 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DockerProvider } from '../../src/lib/sandbox/providers/docker-provider';
 import type { SandboxProviderEvent } from '../../src/lib/sandbox/providers/sandbox-provider';
+import { TEST_AGENT_SANDBOX_IMAGE } from '../fixtures/sandbox-image';
 
 // Create a mock Docker class with all needed methods
 function createMockDocker() {
@@ -88,7 +89,7 @@ describe('DockerProvider (IT-1450)', () => {
       const sandbox = await provider.create({
         codespaceId: 'proj-test-1',
         codespacePath: '/home/user/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -115,7 +116,7 @@ describe('DockerProvider (IT-1450)', () => {
       await provider.create({
         codespaceId: 'proj-vol-1',
         codespacePath: '/home/user/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 2048,
         cpuCores: 1,
         idleTimeoutMinutes: 15,
@@ -137,7 +138,7 @@ describe('DockerProvider (IT-1450)', () => {
       await provider.create({
         codespaceId: 'proj-limits-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 2048,
         cpuCores: 4,
         idleTimeoutMinutes: 30,
@@ -156,7 +157,7 @@ describe('DockerProvider (IT-1450)', () => {
       await provider.create({
         codespaceId: 'proj-events-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -204,7 +205,7 @@ describe('DockerProvider (IT-1450)', () => {
         id: 'my-custom-sandbox-id',
         codespaceId: 'proj-custom-id',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -218,7 +219,7 @@ describe('DockerProvider (IT-1450)', () => {
       await provider.create({
         codespaceId: 'proj-network-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -234,7 +235,7 @@ describe('DockerProvider (IT-1450)', () => {
       await provider.create({
         codespaceId: 'proj-dup-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -246,7 +247,7 @@ describe('DockerProvider (IT-1450)', () => {
         provider.create({
           codespaceId: 'proj-dup-1',
           codespacePath: '/project',
-          image: 'srlynch1/agent-sandbox:latest',
+          image: TEST_AGENT_SANDBOX_IMAGE,
           memoryMb: 4096,
           cpuCores: 2,
           idleTimeoutMinutes: 30,
@@ -318,7 +319,7 @@ describe('DockerProvider (IT-1450)', () => {
       await provider.create({
         codespaceId: 'proj4',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -346,7 +347,7 @@ describe('DockerProvider (IT-1450)', () => {
       await provider.create({
         codespaceId: 'proj-validate-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -494,7 +495,7 @@ describe('DockerProvider (IT-1450)', () => {
       const sandbox = await provider.create({
         codespaceId: 'proj-cleanup-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -514,7 +515,7 @@ describe('DockerProvider (IT-1450)', () => {
       await provider.create({
         codespaceId: 'proj-cleanup-2',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -556,7 +557,7 @@ describe('DockerProvider (IT-1450)', () => {
       await provider.create({
         codespaceId: 'proj-list-1',
         codespacePath: '/project1',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -566,7 +567,7 @@ describe('DockerProvider (IT-1450)', () => {
       await provider.create({
         codespaceId: 'proj-list-2',
         codespacePath: '/project2',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -592,7 +593,7 @@ describe('DockerProvider (IT-1450)', () => {
       await provider.create({
         codespaceId: 'proj-get-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -614,7 +615,7 @@ describe('DockerProvider (IT-1450)', () => {
         id: 'custom-sb-id',
         codespaceId: 'proj-getbyid-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -635,7 +636,7 @@ describe('DockerProvider (IT-1450)', () => {
       await provider.create({
         codespaceId: 'proj-listener-1',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
@@ -654,7 +655,7 @@ describe('DockerProvider (IT-1450)', () => {
       await provider.create({
         codespaceId: 'proj-listener-2',
         codespacePath: '/project',
-        image: 'srlynch1/agent-sandbox:latest',
+        image: TEST_AGENT_SANDBOX_IMAGE,
         memoryMb: 4096,
         cpuCores: 2,
         idleTimeoutMinutes: 30,
