@@ -4,6 +4,7 @@
 
 import { sql } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { withDbLatency } from '../../lib/db/with-latency.js';
 import type { GitHubTokenService } from '../../services/github-token.service.js';
 import type { Database, PostgresDatabase, SqliteDatabase } from '../../types/database.js';
 import { json } from '../shared.js';
@@ -295,7 +296,9 @@ export function createHealthRoutes({
   app.get('/readiness', async (_c) => {
     try {
       const dbStart = Date.now();
-      await db.query.codespaces.findFirst();
+      // F10-14: instrument the readiness DB probe so /api/metrics gets a
+      // steady stream of select_codespace samples (one per readiness poll).
+      await withDbLatency('readiness_probe', () => db.query.codespaces.findFirst());
       return json({
         ok: true,
         status: 'ready',

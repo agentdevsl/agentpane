@@ -11,6 +11,7 @@ import type {
   PreToolUseHook as SdkPreToolUseHook,
 } from '../../lib/agents/types.js';
 import { ALLOW_ALL_TOOLS } from '../../lib/constants/tools.js';
+import { withDbLatency } from '../../lib/db/with-latency.js';
 
 import type { AgentError } from '../../lib/errors/agent-errors.js';
 import { AgentErrors } from '../../lib/errors/agent-errors.js';
@@ -27,6 +28,7 @@ import { err, ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
 import type { MemoryService, MemorySessionRef, TaskOutcome } from '../memory/index.js';
 import type { SkillTrackingService } from '../memory/skill-tracking.service.js';
+import { getMetricsService } from '../metrics.service.js';
 import { createSessionEventWithMetadata } from '../session/event-metadata.js';
 import {
   DEFAULT_AGENT_MAX_RUNTIME_MS,
@@ -176,6 +178,57 @@ export class AgentExecutionService {
         data: { agentId },
       });
     });
+  }
+
+  /**
+   * F10-14: refresh the agent running/idle gauges in MetricsService.
+   *
+   * `running` is taken from the in-memory AbortController map (the
+   * authoritative process-local view), and `idle` is queried from the DB so
+   * the snapshot covers cross-process state too. Any failure is logged and
+   * swallowed — gauge instrumentation must never break a transition.
+   */
+  private async refreshAgentGauges(): Promise<void> {
+    try {
+      const metrics = getMetricsService();
+      const running = this.runningAgents.size;
+      // Best-effort idle count across all codespaces. Cardinality stays low.
+      let idle = 0;
+      try {
+        const [row] = await this.db
+          .select({ value: count() })
+          .from(agents)
+          .where(eq(agents.status, 'idle'));
+        idle = row?.value ?? 0;
+      } catch (countErr) {
+        log.warn('refreshAgentGauges: idle count query failed', {
+          error: countErr instanceof Error ? countErr.message : String(countErr),
+        });
+      }
+      metrics.setAgentGauge(running, idle);
+    } catch (gaugeErr) {
+      log.warn('refreshAgentGauges: setAgentGauge failed', {
+        error: gaugeErr instanceof Error ? gaugeErr.message : String(gaugeErr),
+      });
+    }
+  }
+
+  /**
+   * F10-14: bump a single agent lifecycle counter (started/completed/errored).
+   * Wrapped so an instrumentation failure cannot break a transition.
+   */
+  private incAgentMetric(kind: 'started' | 'completed' | 'errored'): void {
+    try {
+      const metrics = getMetricsService();
+      if (kind === 'started') metrics.incAgentStarted();
+      else if (kind === 'completed') metrics.incAgentCompleted();
+      else metrics.incAgentErrored();
+    } catch (metricsErr) {
+      log.warn('incAgentMetric failed', {
+        error: metricsErr instanceof Error ? metricsErr.message : String(metricsErr),
+        data: { kind },
+      });
+    }
   }
 
   /**
@@ -362,9 +415,12 @@ export class AgentExecutionService {
     agentId: string,
     taskId?: string
   ): Promise<Result<AgentStartResult, AgentError | ConcurrencyError>> {
-    const agent = await this.db.query.agents.findFirst({
-      where: eq(agents.id, agentId),
-    });
+    // F10-14: hot path — every drag-to-in_progress hits this lookup.
+    const agent = await withDbLatency('select_agent', () =>
+      this.db.query.agents.findFirst({
+        where: eq(agents.id, agentId),
+      })
+    );
 
     if (!agent) {
       return err(AgentErrors.NOT_FOUND);
@@ -375,21 +431,26 @@ export class AgentExecutionService {
       return err(AgentErrors.ALREADY_RUNNING(agent.currentTaskId ?? undefined));
     }
 
+    // F10-14: hot read on the task table during start().
     let task = taskId
-      ? await this.db.query.tasks.findFirst({
-          where: eq(tasks.id, taskId),
-        })
+      ? await withDbLatency('select_task', () =>
+          this.db.query.tasks.findFirst({
+            where: eq(tasks.id, taskId),
+          })
+        )
       : null;
 
     if (!task) {
       // Look for queued tasks first (FIFO), then backlog
-      task = await this.db.query.tasks.findFirst({
-        where: and(
-          eq(tasks.codespaceId, agent.codespaceId),
-          inArray(tasks.column, ['queued', 'backlog'])
-        ),
-        orderBy: asc(tasks.updatedAt),
-      });
+      task = await withDbLatency('select_next_task', () =>
+        this.db.query.tasks.findFirst({
+          where: and(
+            eq(tasks.codespaceId, agent.codespaceId),
+            inArray(tasks.column, ['queued', 'backlog'])
+          ),
+          orderBy: asc(tasks.updatedAt),
+        })
+      );
     }
 
     if (!task) {
@@ -519,6 +580,11 @@ export class AgentExecutionService {
     const controller = new AbortController();
     this.runningAgents.set(agentId, controller);
     this.agentStartTimes.set(agentId, Date.now());
+
+    // F10-14: bump the agent_started counter and refresh the gauges. The
+    // gauge refresh is async but fire-and-forget — it must not delay start().
+    this.incAgentMetric('started');
+    void this.refreshAgentGauges();
 
     // Get codespace for model configuration
     const codespace = await this.db.query.codespaces.findFirst({
@@ -820,6 +886,10 @@ export class AgentExecutionService {
             completedAt: new Date().toISOString(),
           })
           .where(eq(tasks.id, taskId));
+
+        // F10-14: planning completed without needing user approval is rare but
+        // does happen (e.g. trivial task) — count it as a completed run.
+        this.incAgentMetric('completed');
       } else if (result.status === 'turn_limit' || result.status === 'paused') {
         await this.db
           .update(agents)
@@ -844,6 +914,9 @@ export class AgentExecutionService {
             currentTurn: result.turnCount,
           })
           .where(eq(agents.id, agentId));
+
+        // F10-14: planning-phase error counted as an errored run.
+        this.incAgentMetric('errored');
       }
 
       // Read insight IDs before cleanup deletes them (fire-and-forget race fix)
@@ -872,6 +945,9 @@ export class AgentExecutionService {
       this.preToolHooks.delete(agentId);
       this.postToolHooks.delete(agentId);
 
+      // F10-14: refresh running/idle gauges after the runningAgents map shrinks.
+      void this.refreshAgentGauges();
+
       // Auto-dequeue: when an agent completes, check if there's a queued task to pick up
       if (result.status === 'completed' && this.queueService) {
         this.tryDequeueAndStart(agentId).catch((dequeueErr) => {
@@ -891,6 +967,8 @@ export class AgentExecutionService {
         taskId,
         sessionId,
       });
+      // F10-14: planning-phase throw counts as an errored run.
+      this.incAgentMetric('errored');
       this.finalizeMemorySession(memoryRef, agentId, 'planning error', { status: 'failed' });
 
       const errMsg = errorMessage(error);
@@ -977,6 +1055,9 @@ export class AgentExecutionService {
       this.agentStartTimes.delete(agentId);
       this.preToolHooks.delete(agentId);
       this.postToolHooks.delete(agentId);
+
+      // F10-14: refresh running/idle gauges after the planning-phase failure.
+      void this.refreshAgentGauges();
     }
   }
 
@@ -1018,6 +1099,9 @@ export class AgentExecutionService {
         updatedAt: new Date().toISOString(),
       })
       .where(eq(agents.id, agentId));
+
+    // F10-14: agent moved to idle — refresh the gauges.
+    void this.refreshAgentGauges();
 
     return ok(undefined);
   }
@@ -1108,6 +1192,9 @@ export class AgentExecutionService {
         this.agentStartTimes.delete(agentId);
         this.preToolHooks.delete(agentId);
         this.postToolHooks.delete(agentId);
+        // F10-14: errored at resume-execution boundary.
+        this.incAgentMetric('errored');
+        void this.refreshAgentGauges();
       });
 
       return ok({
@@ -1223,6 +1310,9 @@ export class AgentExecutionService {
         this.agentStartTimes.delete(agentId);
         this.preToolHooks.delete(agentId);
         this.postToolHooks.delete(agentId);
+        // F10-14: missing-agent during execution counts as an errored run.
+        this.incAgentMetric('errored');
+        void this.refreshAgentGauges();
         return;
       }
 
@@ -1389,6 +1479,9 @@ export class AgentExecutionService {
             completedAt: new Date().toISOString(),
           })
           .where(eq(tasks.id, task.id));
+
+        // F10-14: execution completed → bump completed counter.
+        this.incAgentMetric('completed');
       } else if (result.status === 'turn_limit' || result.status === 'paused') {
         await this.db
           .update(agents)
@@ -1412,6 +1505,9 @@ export class AgentExecutionService {
             currentTurn: result.turnCount,
           })
           .where(eq(agents.id, agentId));
+
+        // F10-14: execution-phase error counter.
+        this.incAgentMetric('errored');
       }
 
       // Read insight IDs before cleanup deletes them (fire-and-forget race fix)
@@ -1441,6 +1537,9 @@ export class AgentExecutionService {
       this.preToolHooks.delete(agentId);
       this.postToolHooks.delete(agentId);
 
+      // F10-14: refresh running/idle gauges after the runningAgents map shrinks.
+      void this.refreshAgentGauges();
+
       // Auto-dequeue: when agent completes execution, check for queued tasks
       if (result.status === 'completed' && this.queueService) {
         this.tryDequeueAndStart(agentId).catch((dequeueErr) => {
@@ -1460,6 +1559,8 @@ export class AgentExecutionService {
         taskId: task.id,
         sessionId,
       });
+      // F10-14: execution-phase throw counts as an errored run.
+      this.incAgentMetric('errored');
       this.finalizeMemorySession(memoryRef, agentId, 'execution error', {
         status: 'failed',
       });
@@ -1545,6 +1646,9 @@ export class AgentExecutionService {
       this.agentStartTimes.delete(agentId);
       this.preToolHooks.delete(agentId);
       this.postToolHooks.delete(agentId);
+
+      // F10-14: refresh running/idle gauges after execution-phase failure.
+      void this.refreshAgentGauges();
     }
   }
 
@@ -1641,6 +1745,8 @@ export class AgentExecutionService {
           data: { agentId, taskId },
         });
       }
+      // F10-14: agent stopped via plan rejection — refresh gauges.
+      void this.refreshAgentGauges();
     }
 
     // CAS-move: only reject if the task is still in the `planning` status.
@@ -1801,6 +1907,7 @@ export class AgentExecutionService {
       });
 
     const now = Date.now();
+    let sweptAny = false;
     for (const [agentId, startTime] of this.agentStartTimes) {
       if (now - startTime > this.maxAgentRuntimeMs) {
         log.warn('Sweeping orphaned agent', {
@@ -1826,8 +1933,14 @@ export class AgentExecutionService {
               data: { agentId },
             });
           });
+
+        // F10-14: orphaned agent counts as an errored run.
+        this.incAgentMetric('errored');
+        sweptAny = true;
       }
     }
+    // F10-14: only refresh gauges when at least one agent was swept.
+    if (sweptAny) void this.refreshAgentGauges();
   }
 
   /**
@@ -1845,6 +1958,16 @@ export class AgentExecutionService {
       controller.abort();
     }
     this.runningAgents.clear();
+    // F10-14: reset gauges when shutting down. Idle count is best-effort 0;
+    // the next periodic gauge refresh from any subsequent transition will
+    // reconcile against the DB.
+    try {
+      getMetricsService().setAgentGauge(0, 0);
+    } catch (gaugeErr) {
+      log.warn('stopAll: setAgentGauge failed', {
+        error: gaugeErr instanceof Error ? gaugeErr.message : String(gaugeErr),
+      });
+    }
     this.agentStartTimes.clear();
     this.preToolHooks.clear();
     this.postToolHooks.clear();
