@@ -1,0 +1,362 @@
+/**
+ * Functional Test: Host-Mode Agent Error Recovery (arch29-W2-B / F03-06)
+ *
+ * Verifies that when the host-mode agent execution path throws mid-run, the
+ * task does not stay stuck in `in_progress`. Per the regression in F03-06, the
+ * existing catch block at `executeAgentExecution`/`executeAgentAsync` updates
+ * `agentRuns` and `agents` rows but never moved the task column, leaving the
+ * kanban board showing ghost tasks until the next server restart fired
+ * `recoverOrphanedTasks`.
+ *
+ * Real-service rule (per CLAUDE.md "Functional Tests: Real Service Transitions"):
+ * - Real `AgentExecutionService` exercised end-to-end via `start()`, which
+ *   wires real `WorktreeService`/`SessionService` boundary mocks plus the real
+ *   db row transitions.
+ * - Only the Claude Agent SDK boundary (`runAgentPlanning` /
+ *   `runAgentExecution`) is mocked — those mocks throw to simulate the
+ *   regression's underlying conditions (SDK 401, network, codespace-lookup
+ *   throw, etc.).
+ *
+ * Run separately: npx vitest run --project functional
+ */
+import { eq } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { agentRuns, agents, tasks } from '../../src/db/schema';
+import { AgentExecutionService } from '../../src/services/agent/agent-execution.service';
+import { createTestAgent } from '../factories/agent.factory';
+import { createTestProject } from '../factories/project.factory';
+import { createTestSession } from '../factories/session.factory';
+import { createTestTask } from '../factories/task.factory';
+import { createTestWorktree } from '../factories/worktree.factory';
+import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
+
+// ---------- mocks ----------
+//
+// Only the SDK boundary is mocked (CLAUDE.md "external I/O boundaries").
+// Each mock is per-test reassignable so each scenario can throw or resolve
+// at a different point in the lifecycle.
+
+const mockRunAgentPlanning = vi.fn();
+const mockRunAgentExecution = vi.fn();
+const mockHandleAgentError = vi.fn().mockReturnValue({ action: 'fail', reason: 'sdk_error' });
+
+vi.mock('../../src/lib/agents/stream-handler.js', () => ({
+  runAgentPlanning: (...args: unknown[]) => mockRunAgentPlanning(...args),
+  runAgentExecution: (...args: unknown[]) => mockRunAgentExecution(...args),
+}));
+
+vi.mock('../../src/lib/agents/recovery.js', () => ({
+  handleAgentError: (...args: unknown[]) => mockHandleAgentError(...args),
+}));
+
+vi.mock('../../src/services/settings.service.js', () => ({
+  getGlobalDefaultModel: vi.fn().mockResolvedValue('claude-sonnet-4-6'),
+  getAgentMaxRuntimeMs: vi.fn().mockResolvedValue(4 * 60 * 60 * 1000),
+  DEFAULT_AGENT_MAX_RUNTIME_MS: 4 * 60 * 60 * 1000,
+}));
+
+// ---------- service wiring (boundary mocks per CLAUDE.md) ----------
+
+function createMockWorktreeService(worktreeId: string, branch: string, path: string) {
+  return {
+    create: vi.fn().mockResolvedValue({
+      ok: true,
+      value: { id: worktreeId, branch, path },
+    }),
+    remove: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+  };
+}
+
+function createMockSessionService(sessionId: string) {
+  return {
+    create: vi.fn().mockResolvedValue({
+      ok: true,
+      value: { id: sessionId },
+    }),
+    delete: vi.fn().mockResolvedValue({ ok: true, value: { deleted: true } }),
+    publish: vi.fn().mockResolvedValue({ ok: true, value: { offset: 0 } }),
+  };
+}
+
+const mockTaskService = {
+  moveColumn: vi.fn().mockResolvedValue({ ok: true }),
+};
+
+// ---------- test suite ----------
+
+describe('Host-Mode Agent Error Recovery (arch29-W2-B / F03-06)', () => {
+  let db: ReturnType<typeof getTestDb>;
+  let service: AgentExecutionService;
+  let mockWorktreeService: ReturnType<typeof createMockWorktreeService>;
+  let mockSessionService: ReturnType<typeof createMockSessionService>;
+
+  beforeEach(async () => {
+    await setupTestDatabase();
+    db = getTestDb();
+
+    vi.clearAllMocks();
+    mockHandleAgentError.mockReturnValue({ action: 'fail', reason: 'sdk_error' });
+
+    // Each test creates its own worktree/session ahead of time and wires the
+    // service to return them — no real git or stream IO.
+  });
+
+  afterEach(async () => {
+    if (service) {
+      service.stopAll();
+    }
+    // Allow pending async operations to settle after abort
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await clearTestDatabase();
+  });
+
+  /**
+   * Helper: create the standard fixtures and an AgentExecutionService wired to
+   * boundary mocks. Returns the entity IDs and the service instance.
+   */
+  async function setupHostMode(
+    opts: { worktreeId?: string; sessionId?: string; branch?: string; path?: string } = {}
+  ) {
+    const worktreeId = opts.worktreeId ?? 'wt-host-error';
+    const sessionId = opts.sessionId ?? 'sess-host-error';
+    const branch = opts.branch ?? 'agent/host-error/task';
+    const path = opts.path ?? '/tmp/worktrees/host-error';
+
+    const codespace = await createTestProject({ id: 'cs-host-error' });
+    const agent = await createTestAgent(codespace.id, {
+      id: 'agent-host-error',
+      status: 'idle',
+    });
+    const task = await createTestTask(codespace.id, {
+      id: 'task-host-error',
+      column: 'backlog',
+      title: 'Host-mode error recovery task',
+      skillId: 'test-skill',
+      skillName: 'Test Skill',
+    });
+
+    // Pre-create the worktree + session rows so the service's `start()` flow
+    // can update FK refs (worktreeId, sessionId) without us needing to run a
+    // real WorktreeService/SessionService.
+    await createTestWorktree(codespace.id, {
+      id: worktreeId,
+      taskId: task.id,
+      branch,
+      path,
+      status: 'active',
+    });
+    await createTestSession(codespace.id, {
+      id: sessionId,
+      taskId: task.id,
+      agentId: agent.id,
+    });
+
+    mockWorktreeService = createMockWorktreeService(worktreeId, branch, path);
+    mockSessionService = createMockSessionService(sessionId);
+
+    service = new AgentExecutionService(
+      db as never,
+      mockWorktreeService as never,
+      mockTaskService as never,
+      mockSessionService as never
+    );
+
+    return { codespace, agent, task, worktreeId, sessionId };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // F03-06 regression: planning-phase throw must revert task to backlog
+  // ═══════════════════════════════════════════════════════════════════════
+
+  it('planning-phase SDK throw reverts task from in_progress to backlog with lastAgentStatus=error', async () => {
+    // Arrange — host-mode agent enters planning, SDK throws (simulating 401,
+    // network failure, codespace-lookup throw mid-flight, etc.).
+    mockRunAgentPlanning.mockRejectedValue(new Error('SDK 401: invalid api key'));
+
+    const { agent, task } = await setupHostMode();
+
+    // Act — real service.start() transitions task to in_progress, then fires
+    // executeAgentAsync() in the background; the mocked SDK throw triggers the
+    // catch path that we are asserting on.
+    const startResult = await service.start(agent.id, task.id);
+    expect(startResult.ok).toBe(true);
+
+    // Wait for the catch path to update the task.
+    await vi.waitFor(
+      async () => {
+        const updated = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+        // Without the fix: column stays 'in_progress' forever (ghost task).
+        // With the fix: catch reverts column to 'backlog' so the task is
+        // immediately retryable.
+        expect(updated?.column).toBe('backlog');
+      },
+      { timeout: 5000 }
+    );
+
+    // Assert — full revert of side-effects and lastAgentStatus is 'error'.
+    const final = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+    expect(final?.column).toBe('backlog');
+    expect(final?.lastAgentStatus).toBe('error');
+    expect(final?.agentId).toBeNull();
+    expect(final?.sessionId).toBeNull();
+    expect(final?.worktreeId).toBeNull();
+    expect(final?.branch).toBeNull();
+    expect(final?.plan).toBeNull();
+    expect(final?.planOptions).toBeNull();
+
+    // Agent status set to 'error' (recovery.action === 'fail').
+    const finalAgent = await db.query.agents.findFirst({ where: eq(agents.id, agent.id) });
+    expect(finalAgent?.status).toBe('error');
+
+    // agentRuns row recorded with status='error' and the original error message.
+    const runs = await db.query.agentRuns.findMany({ where: eq(agentRuns.taskId, task.id) });
+    expect(runs.length).toBeGreaterThan(0);
+    const lastRun = runs[runs.length - 1];
+    expect(lastRun?.status).toBe('error');
+    expect(lastRun?.errorMessage).toContain('SDK 401');
+    expect(lastRun?.completedAt).toBeTruthy();
+
+    // agent:error event was published to the session stream.
+    expect(mockSessionService.publish).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        type: 'agent:error',
+        data: expect.objectContaining({
+          agentId: agent.id,
+          error: expect.stringContaining('SDK 401'),
+        }),
+      })
+    );
+
+    // In-memory state cleared so the agent is re-startable.
+    expect(service.isRunning(agent.id)).toBe(false);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // F03-06 regression: execution-phase throw must revert task to backlog
+  // ═══════════════════════════════════════════════════════════════════════
+
+  it('execution-phase SDK throw reverts task from in_progress to backlog with lastAgentStatus=error', async () => {
+    // Arrange — planning succeeds, then resume() fires execution, which throws.
+    // This tests the executeAgentExecution() catch path specifically.
+    mockRunAgentPlanning.mockResolvedValue({
+      status: 'planning',
+      turnCount: 5,
+      plan: 'Approved plan content',
+      planOptions: { sdkSessionId: 'sdk-resume' },
+      sdkSessionId: 'sdk-resume',
+    });
+    mockRunAgentExecution.mockRejectedValue(new Error('Worktree resolution failed mid-execution'));
+
+    const { agent, task, worktreeId, sessionId } = await setupHostMode();
+
+    // Phase 1 — start kicks off planning, which (mocked) succeeds, leaving
+    // task in waiting_approval and agent.status='planning'.
+    const startResult = await service.start(agent.id, task.id);
+    expect(startResult.ok).toBe(true);
+
+    await vi.waitFor(async () => {
+      const a = await db.query.agents.findFirst({ where: eq(agents.id, agent.id) });
+      expect(a?.status).toBe('planning');
+    });
+
+    // Mid-flow setup: planning persists 'waiting_approval' on the task. To
+    // exercise the execution-phase catch we need the task back in 'in_progress'
+    // (which is what PlanApprovalService.approvePlan / TaskService.approve do
+    // before resume() runs). For this functional test we use the real resume()
+    // path — it sets agent.status='running' and fires executeAgentExecution()
+    // in the background.
+    await db
+      .update(tasks)
+      .set({
+        column: 'in_progress',
+        worktreeId,
+        sessionId,
+        agentId: agent.id,
+        plan: 'Approved plan content',
+        planOptions: { sdkSessionId: 'sdk-resume' },
+      })
+      .where(eq(tasks.id, task.id));
+
+    // Phase 2 — resume() triggers executeAgentExecution(), which (mocked) throws.
+    const resumeResult = await service.resume(agent.id);
+    expect(resumeResult.ok).toBe(true);
+
+    // Wait for the execution-phase catch path to update the task.
+    await vi.waitFor(
+      async () => {
+        const updated = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+        // Without the fix: column stays 'in_progress' forever.
+        expect(updated?.column).toBe('backlog');
+      },
+      { timeout: 5000 }
+    );
+
+    // Assert — task reverted to backlog with lastAgentStatus='error'.
+    const final = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+    expect(final?.column).toBe('backlog');
+    expect(final?.lastAgentStatus).toBe('error');
+    expect(final?.agentId).toBeNull();
+    expect(final?.sessionId).toBeNull();
+    expect(final?.worktreeId).toBeNull();
+    expect(final?.branch).toBeNull();
+
+    const runs = await db.query.agentRuns.findMany({ where: eq(agentRuns.taskId, task.id) });
+    const lastRun = runs[runs.length - 1];
+    expect(lastRun?.status).toBe('error');
+    expect(lastRun?.errorMessage).toContain('Worktree resolution failed');
+
+    // agent:error event was published.
+    expect(mockSessionService.publish).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        type: 'agent:error',
+        data: expect.objectContaining({ agentId: agent.id }),
+      })
+    );
+
+    expect(service.isRunning(agent.id)).toBe(false);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // CAS guard: do not clobber a user-driven move
+  // ═══════════════════════════════════════════════════════════════════════
+
+  it('catch does not overwrite task column when user has already moved it elsewhere', async () => {
+    // Arrange — planning will throw, but mid-flight we simulate a user
+    // dragging the task to a different column. The CAS guard
+    // `where column='in_progress'` must prevent the catch from clobbering it.
+    let planningRejected = false;
+    mockRunAgentPlanning.mockImplementation(async () => {
+      // Wait briefly so the user-move below races with the catch.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      planningRejected = true;
+      throw new Error('SDK boom');
+    });
+
+    const { agent, task } = await setupHostMode();
+
+    const startResult = await service.start(agent.id, task.id);
+    expect(startResult.ok).toBe(true);
+
+    // Race: user moves task to waiting_approval before catch fires.
+    // (TEST-SETUP: manual move simulating PlanApprovalService.handlePlanReady
+    //  racing the SDK throw — direct DB write here is intentional to model the
+    //  race precisely; CAS in production is the same shape we assert.)
+    await db.update(tasks).set({ column: 'waiting_approval' }).where(eq(tasks.id, task.id));
+
+    // Wait for the catch to fire.
+    await vi.waitFor(() => expect(planningRejected).toBe(true), { timeout: 5000 });
+    // Plus a small grace for the catch's task update.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // Assert — column was NOT overwritten by the catch (CAS prevented it).
+    const final = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+    expect(final?.column).toBe('waiting_approval');
+
+    // Agent and run state still cleaned up.
+    const finalAgent = await db.query.agents.findFirst({ where: eq(agents.id, agent.id) });
+    expect(finalAgent?.status).toBe('error');
+    expect(service.isRunning(agent.id)).toBe(false);
+  });
+});

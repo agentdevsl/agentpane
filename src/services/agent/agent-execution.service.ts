@@ -870,6 +870,36 @@ export class AgentExecutionService {
         })
         .where(eq(agents.id, agentId));
 
+      // arch29-W2-B / F03-06: revert task to `backlog` so it does not stay stuck
+      // in `in_progress` after a planning-phase throw. Mirror PlanApprovalService
+      // .rejectPlan's CAS shape — clear plan/planOptions and worktree references
+      // so the task is cleanly re-assignable. Without this, planning-phase
+      // failures (codespace lookup throws, SDK 401, settings reads) leave the
+      // kanban showing in_progress with stale agentId/sessionId until orphan
+      // sweep runs at the next 10-minute boundary. CAS-guarded on
+      // `column='in_progress'` to avoid clobbering a user-driven move (e.g. the
+      // user dragged the task elsewhere mid-planning).
+      try {
+        await this.db
+          .update(tasks)
+          .set({
+            column: 'backlog' as TaskColumn,
+            agentId: null,
+            sessionId: null,
+            worktreeId: null,
+            branch: null,
+            plan: null,
+            planOptions: null,
+            lastAgentStatus: 'error',
+          })
+          .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')));
+      } catch (taskErr) {
+        log.error('Failed to revert task column on planning error (continuing)', {
+          error: taskErr instanceof Error ? taskErr.message : String(taskErr),
+          data: { taskId, agentId },
+        });
+      }
+
       this.recordSkillExecutionForTask({
         taskId,
         agentRunId: runId,
@@ -1110,6 +1140,27 @@ export class AgentExecutionService {
           .update(agents)
           .set({ status: 'error', updatedAt: new Date().toISOString() })
           .where(eq(agents.id, agentId));
+        // arch29-W2-B / F03-06: revert task to `backlog` so it does not stay
+        // stuck in `in_progress` when the agent record disappears mid-execution
+        // (e.g. concurrent delete). CAS-guarded on `column='in_progress'`.
+        try {
+          await this.db
+            .update(tasks)
+            .set({
+              column: 'backlog' as TaskColumn,
+              agentId: null,
+              sessionId: null,
+              worktreeId: null,
+              branch: null,
+              lastAgentStatus: 'error',
+            })
+            .where(and(eq(tasks.id, task.id), eq(tasks.column, 'in_progress')));
+        } catch (taskErr) {
+          log.error('Failed to revert task column on missing-agent (continuing)', {
+            error: taskErr instanceof Error ? taskErr.message : String(taskErr),
+            data: { taskId: task.id, agentId },
+          });
+        }
         await this.sessionService.publish(
           sessionId,
           createSessionEventWithMetadata({
@@ -1390,6 +1441,31 @@ export class AgentExecutionService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(agents.id, agentId));
+
+      // arch29-W2-B / F03-06: revert task to `backlog` so it does not stay stuck
+      // in `in_progress` after an execution-phase throw (codespace lookup,
+      // worktree resolution, SDK 401, etc.). Clear stale agent/session/worktree
+      // refs so the task is cleanly re-assignable. Plan content is preserved so
+      // a follow-up run can resume from it. CAS-guarded on `column='in_progress'`
+      // to avoid clobbering user-driven moves mid-execution.
+      try {
+        await this.db
+          .update(tasks)
+          .set({
+            column: 'backlog' as TaskColumn,
+            agentId: null,
+            sessionId: null,
+            worktreeId: null,
+            branch: null,
+            lastAgentStatus: 'error',
+          })
+          .where(and(eq(tasks.id, task.id), eq(tasks.column, 'in_progress')));
+      } catch (taskErr) {
+        log.error('Failed to revert task column on execution error (continuing)', {
+          error: taskErr instanceof Error ? taskErr.message : String(taskErr),
+          data: { taskId: task.id, agentId },
+        });
+      }
 
       this.recordSkillExecutionForTask({
         taskId: task.id,
