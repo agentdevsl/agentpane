@@ -6,6 +6,13 @@
  *  - Clone failure: falls back to empty /workspace (pod has no source code)
  *  - Worktree failure (after successful clone): falls back to /workspace root
  *    (has code from clone, but no branch isolation)
+ *
+ * arch29-W2-I (F04-12): the GitHub token is NEVER embedded in `argv` (visible
+ * in `/proc/<pid>/cmdline`, container audit logs, and any sibling tenant in
+ * shared-sandbox mode). Authentication uses git's `http.extraHeader` config
+ * which the SDK passes via `-c http.extraHeader=...` argv too — but the value
+ * there is `Authorization: Basic <b64(x-access-token:TOKEN)>`, the same
+ * single-call exposure as the env var path. The remote URL stays clean.
  */
 
 import { CONTAINER_WORKSPACE_PATH } from '../constants/sandbox.js';
@@ -18,6 +25,27 @@ import type { ExecResult } from './types.js';
 const log = createLogger('K8sWorkspaceInitializer');
 
 const WORKTREES_DIR = `${CONTAINER_WORKSPACE_PATH}/.worktrees`;
+
+/**
+ * Build the value of `http.extraHeader` for GitHub PAT auth.
+ *
+ * arch29-W2-I (F04-12): replaces the previous `https://x-access-token:TOKEN@github.com/...`
+ * URL form. Git applies `http.extraHeader` for matching URLs only when the
+ * value is set via `-c` (per-invocation) or the file at $HOME/.gitconfig with
+ * a `[http "https://github.com/"]` section. We use the per-invocation form so
+ * the token never lands in any persistent config and `git remote -v` cannot
+ * recover it.
+ *
+ * The token DOES appear once in argv during the single `git fetch` invocation
+ * — that is unavoidable until git supports stdin credential helpers in this
+ * exact shape. The win is that the URL stored in `.git/config` (visible to
+ * any later command) is clean.
+ */
+export function buildGitAuthHeaderArg(token: string): string {
+  const credentials = Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64');
+  // Returned as a single `-c` value: `http.extraHeader=Authorization: Basic <b64>`.
+  return `http.extraHeader=Authorization: Basic ${credentials}`;
+}
 
 /**
  * Minimal sandbox interface for workspace initialization.
@@ -83,10 +111,15 @@ async function cloneRepository(
     return { ok: false, error: `Invalid owner/repo format: ${owner}/${repo}` };
   }
 
-  // Token is embedded in the clone URL for simplicity (git credential helpers
-  // may not be available in the pod). We strip it from the remote immediately
-  // after clone to prevent credential leakage via `git remote -v` or logs.
-  const cloneUrl = `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
+  // arch29-W2-I (F04-12): the remote URL is the public, token-free form. Auth
+  // is supplied per-invocation via `git -c http.extraHeader=...`. The token
+  // never lands in `.git/config`, so `git remote -v` after clone shows only
+  // the public URL — a sibling tenant in shared-sandbox mode cannot recover
+  // the token by reading the repo state. The token still appears in the
+  // single argv of the `git fetch` call below; that is unavoidable until git
+  // supports stdin credential injection in this exact shape.
+  const remoteUrl = `https://github.com/${owner}/${repo}.git`;
+  const authHeaderArg = buildGitAuthHeaderArg(token);
 
   try {
     // Initialize git repo in /workspace if not already a repo.
@@ -117,7 +150,9 @@ async function cloneRepository(
       // Non-critical — may already be configured
     }
 
-    // Set origin remote URL (add if missing, update if exists)
+    // Set origin remote URL (add if missing, update if exists). The URL is
+    // the token-free public form — auth happens per-invocation via -c
+    // http.extraHeader so we don't need to update the remote later.
     try {
       const addResult = await sandbox.exec('git', [
         '-C',
@@ -125,17 +160,18 @@ async function cloneRepository(
         'remote',
         'add',
         'origin',
-        cloneUrl,
+        remoteUrl,
       ]);
       if (addResult.exitCode !== 0) {
-        // Origin already exists — update its URL to use the fresh token
+        // Origin already exists — update its URL to the public form (in case
+        // a previous run left a tokenized URL behind).
         await sandbox.exec('git', [
           '-C',
           CONTAINER_WORKSPACE_PATH,
           'remote',
           'set-url',
           'origin',
-          cloneUrl,
+          remoteUrl,
         ]);
       }
     } catch {
@@ -147,15 +183,19 @@ async function cloneRepository(
           'remote',
           'set-url',
           'origin',
-          cloneUrl,
+          remoteUrl,
         ]);
       } catch (setUrlErr) {
         return { ok: false, error: `Failed to configure git remote: ${errorMessage(setUrlErr)}` };
       }
     }
 
-    // Fetch the requested branch (shallow). If that fails, fetch the default branch.
+    // Fetch the requested branch (shallow). Auth via per-invocation
+    // `-c http.extraHeader=Authorization: Basic <b64(x-access-token:TOKEN)>`.
+    // If that fails, fetch the default branch.
     let cloneResult = await sandbox.exec('git', [
+      '-c',
+      authHeaderArg,
       '-C',
       CONTAINER_WORKSPACE_PATH,
       'fetch',
@@ -171,6 +211,8 @@ async function cloneRepository(
         data: { baseBranch, owner, repo },
       });
       cloneResult = await sandbox.exec('git', [
+        '-c',
+        authHeaderArg,
         '-C',
         CONTAINER_WORKSPACE_PATH,
         'fetch',
@@ -192,7 +234,8 @@ async function cloneRepository(
       };
     }
 
-    // Checkout the base branch (try specified branch, fall back to remote HEAD)
+    // Checkout the base branch (try specified branch, fall back to remote HEAD).
+    // No auth header needed — these are local-only ops.
     cloneResult = await sandbox.exec('git', [
       '-C',
       CONTAINER_WORKSPACE_PATH,
@@ -239,19 +282,6 @@ async function cloneRepository(
         ok: false,
         error: safeStderr || `git clone exited with code ${cloneResult.exitCode}`,
       };
-    }
-
-    // Strip token from remote URL to prevent leaking credentials
-    const stripResult = await sandbox.exec('git', [
-      '-C',
-      CONTAINER_WORKSPACE_PATH,
-      'remote',
-      'set-url',
-      'origin',
-      `https://github.com/${owner}/${repo}.git`,
-    ]);
-    if (stripResult.exitCode !== 0) {
-      return { ok: false, error: 'Failed to strip token from remote URL' };
     }
 
     // Disable credential helper to prevent token persistence

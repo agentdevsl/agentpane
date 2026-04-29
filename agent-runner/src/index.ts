@@ -362,9 +362,12 @@ async function flushAndExit(code: number): Promise<never> {
 
 // Validate required configuration
 function validateConfig(): void {
-  if (!config.oauthToken) {
-    throw new Error('CLAUDE_OAUTH_TOKEN is required');
-  }
+  // arch29-W2-I (F04-07, F06-NEW-05): CLAUDE_OAUTH_TOKEN is no longer required.
+  // The host writes ~/.claude/.credentials.json before exec via the sandbox
+  // provider's `writeFile` (out-of-band tar upload), so the token never
+  // appears in argv or env. The agent-runner now trusts the pre-injected
+  // file. If the env var IS set (local dev / legacy callers), the runner
+  // still rewrites the file to remain backward-compatible.
   if (!config.taskId) {
     throw new Error('AGENT_TASK_ID is required');
   }
@@ -386,9 +389,17 @@ function validateConfig(): void {
 }
 
 /**
- * Write OAuth credentials to $HOME/.claude/.credentials.json
- * The Claude Agent SDK reads this file for authentication.
- * OAuth tokens passed via ANTHROPIC_API_KEY env var are blocked by the API.
+ * Ensure the OAuth credentials file at $HOME/.claude/.credentials.json is
+ * present and well-formed before starting the SDK session.
+ *
+ * arch29-W2-I (F04-07, F06-NEW-05): the host writes this file via the sandbox
+ * provider's `writeFile` (out-of-band tar upload) before exec, so the token
+ * never appears in argv or env. This function now:
+ *   1. Verifies the host-injected file exists and is valid JSON with an
+ *      `accessToken` (the canonical pre-injected path).
+ *   2. Falls back to writing from `CLAUDE_OAUTH_TOKEN` env vars when the file
+ *      is absent — preserves local-dev / legacy callers that still set the
+ *      env var directly without involving the host injector.
  *
  * theme-03 F11:
  * - `homedir()` (which reads `process.env.HOME`) is used so that the host
@@ -396,9 +407,7 @@ function validateConfig(): void {
  *   (e.g. /tmp/agents/<taskId>) and avoid interleaved writes to a shared
  *   `/home/node/.claude/.credentials.json`.
  * - `expiresAt` is read from the host via `CLAUDE_OAUTH_EXPIRES_AT` when
- *   available; otherwise a far-future sentinel is used. The previous
- *   `Date.now() + 24h` fiction caused revoked tokens to appear valid to the
- *   SDK for a day.
+ *   available; otherwise a far-future sentinel is used.
  * - `refreshToken` is threaded through from `CLAUDE_OAUTH_REFRESH_TOKEN`
  *   when the host has one; otherwise null (SDK rejects empty string).
  */
@@ -410,15 +419,43 @@ async function writeCredentialsFile(): Promise<void> {
   // Debug: Log paths and token status (never log token contents for security)
   log.error(`[agent-runner] Home directory: ${home}`);
   log.error(`[agent-runner] Credentials path: ${credentialsFile}`);
-  log.error(`[agent-runner] Token received: ${config.oauthToken ? 'YES' : 'NONE'}`);
+  log.error(`[agent-runner] Env-var token received: ${config.oauthToken ? 'YES' : 'NONE'}`);
+
+  // arch29-W2-I: Try the host-injected file first. The host writes it in the
+  // SDK-compatible CLI shape (`{ claudeAiOauth: { accessToken, ... } }`) via
+  // `injectCredentialsBeforeExec` in container-exec.service.ts.
+  let preInjectedValid = false;
+  try {
+    const existing = await readFile(credentialsFile, 'utf-8');
+    const parsed = JSON.parse(existing) as { claudeAiOauth?: { accessToken?: string } };
+    if (parsed.claudeAiOauth?.accessToken) {
+      preInjectedValid = true;
+      log.error(`[agent-runner] Using host-injected credentials at ${credentialsFile}`);
+    }
+  } catch {
+    // File missing or unparseable — fall through to env-var path.
+  }
+
+  if (preInjectedValid) {
+    return;
+  }
+
+  // arch29-W2-I: env-var fallback (local dev only). Production deployments
+  // should always use host-injected files because the env-var path leaks the
+  // token via `/proc/<pid>/environ`.
+  if (!config.oauthToken) {
+    throw new Error(
+      'No credentials available: host-injected ~/.claude/.credentials.json missing AND CLAUDE_OAUTH_TOKEN env var unset. The host should write the file via sandbox.writeFile() before exec.'
+    );
+  }
+
   log.error(
     `[agent-runner] Token expiresAt: ${process.env.CLAUDE_OAUTH_EXPIRES_AT ? 'from host' : 'sentinel (far-future)'}`
   );
   log.error(`[agent-runner] Refresh token: ${config.oauthRefreshToken ? 'provided' : 'none'}`);
-
-  if (!config.oauthToken) {
-    throw new Error('No OAuth token provided via CLAUDE_OAUTH_TOKEN environment variable');
-  }
+  log.error(
+    `[agent-runner] WARNING: writing credentials from CLAUDE_OAUTH_TOKEN env var (legacy/dev path). The token is visible in /proc/<pid>/environ.`
+  );
 
   const credentials = {
     claudeAiOauth: {
