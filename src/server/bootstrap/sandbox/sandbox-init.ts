@@ -179,8 +179,20 @@ function onSandboxProviderReady(db: Database, sandboxState: SandboxState): void 
  * hold the `/api/health` readiness gate at 503 indefinitely. Shared by
  * the initial init path and the retry path so a provider that only
  * came up on retry still gets reconciled.
+ *
+ * F03-12: also runs `containerAgentService.reconcile()` so orphaned
+ * `tasks.column='in_progress'` rows whose agents are no longer in memory
+ * are moved back to `backlog`. This complements the DB-only
+ * `recoverOrphanedTasks` in the recovery phase by handling tasks that
+ * have a live agent ID but a dead agent state. Without this wire, the
+ * `reconcile()` method in `ContainerAgentService` was dead code — orphan
+ * tasks would sit at `in_progress` until manual intervention.
+ *
+ * Exported for direct invocation from regression tests that assert the
+ * F03-12 wire is live (i.e., `containerAgentService.reconcile()` is
+ * actually called).
  */
-async function runSandboxReconciliation(
+export async function runSandboxReconciliation(
   db: Database,
   services: ServiceContainer,
   sandboxState: SandboxState,
@@ -192,9 +204,20 @@ async function runSandboxReconciliation(
     log.error('Sandbox reconciliation failed (continuing)', {
       error: err instanceof Error ? err.message : String(err),
     });
-  } finally {
-    sandboxState.reconciled = true;
   }
+  // F03-12: complementary task-level reconciliation. Runs after sandbox
+  // reconciliation so the in-memory state (`hasAnyRunningAgent`) is
+  // accurate. Best-effort: errors do not block the readiness gate.
+  if (sandboxState.containerAgentService) {
+    try {
+      await sandboxState.containerAgentService.reconcile();
+    } catch (err) {
+      log.error('Container agent task reconciliation failed (continuing)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  sandboxState.reconciled = true;
 }
 
 /**

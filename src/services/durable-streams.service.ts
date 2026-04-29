@@ -24,6 +24,7 @@ import type {
 import { err, ok, type Result } from '../lib/utils/result.js';
 import type { AgentFileChangedData } from '../types/agent-events.js';
 import type { Database } from '../types/database.js';
+import { enqueueOutboxEvent } from './event-outbox-relay.service.js';
 import { createStreamPayloadWithMetadata } from './session/event-metadata.js';
 import type { SessionEvent, SessionEventType } from './session.service.js';
 
@@ -786,12 +787,18 @@ export class DurableStreamsService {
         );
       }
 
-      // Publish to Caddy streams server for real-time delivery.
+      // F05-19: enqueue durable streams via the outbox so the relay
+      // (`EventOutboxRelayService`) handles delivery + retries. The previous
+      // best-effort dual-write swallowed Caddy failures at log.debug; now a
+      // failed Caddy publish stays in `event_outbox` until the relay drains
+      // it, restoring at-least-once delivery for non-ephemeral streams.
+      // Ephemeral streams (terraform:*) have no DB fallback so they remain
+      // on the direct-publish path.
       let memoryOffset = 0;
-      try {
-        memoryOffset = await this.server.publish(streamId, type, payload);
-      } catch (caddyErr) {
-        if (isEphemeral) {
+      if (isEphemeral) {
+        try {
+          memoryOffset = await this.server.publish(streamId, type, payload);
+        } catch (caddyErr) {
           // Ephemeral streams have no DB fallback — surface the error so callers
           // can decide how to handle it (e.g., throw for terminal events, swallow for status).
           return err(
@@ -802,9 +809,24 @@ export class DurableStreamsService {
             )
           );
         }
-        log.debug('Caddy publish failed (durable — DB persisted)', {
-          error: caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
+      } else if (this.db) {
+        // F05-19: enqueue for the relay to drain. Outbox enqueue runs after
+        // persistToDb so the durable record is in place even if outbox enqueue
+        // fails (in which case live SSE may degrade but DB-replay still works).
+        await enqueueOutboxEvent(this.db, {
+          streamId,
+          type,
+          payload: payload as unknown,
         });
+      } else {
+        // No db (legacy in-memory mode): fall back to direct publish.
+        try {
+          memoryOffset = await this.server.publish(streamId, type, payload);
+        } catch (caddyErr) {
+          log.debug('Caddy publish failed (no DB, no outbox)', {
+            error: caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
+          });
+        }
       }
 
       // F05-13: record publish lag for backpressure metrics.

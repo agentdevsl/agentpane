@@ -16,6 +16,7 @@ import { ApiKeyService } from '../../services/api-key.service.js';
 import { CliMonitorService } from '../../services/cli-monitor/index.js';
 import { CodespaceService } from '../../services/codespace.service.js';
 import { DurableStreamsService } from '../../services/durable-streams.service.js';
+import { EventOutboxRelayService } from '../../services/event-outbox-relay.service.js';
 import { EventProcessingService } from '../../services/event-processing.service.js';
 import { EventSourceService } from '../../services/event-source.service.js';
 import { EventSubscriptionService } from '../../services/event-subscription.service.js';
@@ -27,6 +28,7 @@ import { DreamService } from '../../services/memory/dream.service.js';
 import { MemoryService } from '../../services/memory/index.js';
 import type { MemoryStoreService } from '../../services/memory/memory-store.service.js';
 import { SkillTrackingService } from '../../services/memory/skill-tracking.service.js';
+import { createPlanModeService } from '../../services/plan-mode.service.js';
 import { ProjectFolderService } from '../../services/project-folder.service.js';
 import { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import { SchedulerService } from '../../services/scheduler.service.js';
@@ -146,6 +148,12 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
 
   const durableStreamsService = new DurableStreamsService(caddyStreamsServer, db);
 
+  // F05-19 / F01-03: EventOutboxRelayService consumes pending rows in `event_outbox`
+  // (enqueued by `DurableStreamsService.publish` for non-ephemeral streams) and
+  // publishes them to Caddy with retry + dead-letter semantics. Started by
+  // `phases/schedulers.ts` via the BackgroundJobRegistry.
+  const eventOutboxRelayService = new EventOutboxRelayService(db, caddyStreamsServer);
+
   // 3. Session service
   const sessionService = new SessionService(db, caddyStreamsServer, {
     baseUrl: `http://localhost:${config.port}`,
@@ -163,7 +171,24 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
   });
 
   // 5. Task creation service
-  const taskCreationService = createTaskCreationService(db, durableStreamsService, sessionService);
+  // F01-05: pass `settingsService` so the admin-configured task-creation model
+  // and system prompt are honored (otherwise the service silently falls back
+  // to hard-coded defaults regardless of admin overrides).
+  const taskCreationService = createTaskCreationService(
+    db,
+    durableStreamsService,
+    sessionService,
+    settingsService
+  );
+
+  // F01-04: PlanModeService is needed by `/api/admin/metrics/plan-mode` and
+  // `/api/metrics`. The browser-side `app/services/services.ts` constructs its
+  // own copy for in-browser planning, but the server-side endpoint pretended
+  // to work (200 with zeros) because no instance was ever passed through the
+  // router. Issue creator + GitHub config are unavailable in the server-side
+  // bootstrap context (these are per-request concerns) so they remain `null`;
+  // metric collection works without them.
+  const planModeService = createPlanModeService(db, durableStreamsService, null, null);
 
   // 5.5. Memory service (internal DB-backed, no external Honcho dependency)
   const memoryService = new MemoryService(settingsService, db);
@@ -251,6 +276,7 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
     projectFolderService,
     cliMonitorService,
     durableStreamsService,
+    eventOutboxRelayService,
     terraformRegistryService,
     terraformComposeService,
     settingsService,
@@ -259,6 +285,7 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
     eventSubscriptionService,
     eventProcessingService,
     schedulerService,
+    planModeService,
     commandRunner,
     containerAgentService: null,
     memoryService,

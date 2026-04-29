@@ -8,18 +8,36 @@ const createServerMock = () => ({
   subscribe: vi.fn(),
 });
 
-const createDbMock = () => ({
-  query: {
-    sessionEvents: {
-      findFirst: vi.fn().mockResolvedValue({ offset: 2 }),
+/**
+ * F05-19: publish() enqueues both `session_events` (durable replay) and
+ * `event_outbox` (live delivery via the relay) for non-ephemeral streams.
+ * The DB mock here records both inserts so tests can introspect the
+ * persisted row + the outbox row.
+ */
+const createDbMock = () => {
+  type InsertCall = { table: unknown; values: unknown };
+  const inserts: InsertCall[] = [];
+
+  const insertFn = vi.fn((table: unknown) => ({
+    values: vi.fn((values: unknown) => {
+      inserts.push({ table, values });
+      return {
+        returning: vi.fn().mockResolvedValue([{ offset: 3 }]),
+      };
+    }),
+  }));
+
+  return {
+    query: {
+      sessionEvents: {
+        findFirst: vi.fn().mockResolvedValue({ offset: 2 }),
+      },
     },
-  },
-  insert: vi.fn(() => ({
-    values: vi.fn(() => ({
-      returning: vi.fn().mockResolvedValue([{ offset: 3 }]),
-    })),
-  })),
-});
+    insert: insertFn,
+    /** Test helper: collect everything inserted across all `insert()` calls. */
+    _inserts: inserts,
+  };
+};
 
 describe('DurableStreamsService metadata persistence', () => {
   beforeEach(() => {
@@ -43,15 +61,20 @@ describe('DurableStreamsService metadata persistence', () => {
     const result = await service.publish('session-1', 'container-agent:message', payload as never);
 
     expect(result.ok).toBe(true);
-    expect(db.insert).toHaveBeenCalled();
-    const valuesMock = db.insert.mock.results[0]?.value.values;
-    expect(valuesMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'evt_fixed_123',
-        sessionId: 'session-1',
-      })
-    );
-    expect(server.publish).toHaveBeenCalledWith('session-1', 'container-agent:message', payload);
+    // F05-19: publish() now writes two rows — one to session_events
+    // (durable replay) and one to event_outbox (live delivery via relay).
+    expect(db.insert).toHaveBeenCalledTimes(2);
+
+    // Persisted row keeps the supplied eventId.
+    const sessionEventValues = db._inserts[0]?.values as { id: string; sessionId: string };
+    expect(sessionEventValues).toMatchObject({
+      id: 'evt_fixed_123',
+      sessionId: 'session-1',
+    });
+
+    // F05-19: server.publish() is no longer called from publish() — the
+    // relay is responsible for delivery.
+    expect(server.publish).not.toHaveBeenCalled();
   });
 
   it('adds metadata automatically for typed stream payloads that lack it', async () => {
@@ -68,13 +91,18 @@ describe('DurableStreamsService metadata persistence', () => {
 
     expect(result.ok).toBe(true);
 
-    const valuesMock = db.insert.mock.results[0]?.value.values;
-    const persistedRow = valuesMock.mock.calls[0]?.[0] as {
+    // F05-19: two inserts — session_events row + outbox row. Both carry
+    // the same metadata-augmented payload.
+    expect(db.insert).toHaveBeenCalledTimes(2);
+
+    const persistedRow = db._inserts[0]?.values as {
       id: string;
       data: { meta?: { eventId?: string; streamId?: string; partType?: string } };
     };
-    const publishedPayload = server.publish.mock.calls[0]?.[2] as {
-      meta?: { eventId?: string; streamId?: string; partType?: string };
+    const outboxRow = db._inserts[1]?.values as {
+      streamId: string;
+      type: string;
+      payload: { meta?: { eventId?: string; streamId?: string; partType?: string } };
     };
 
     expect(persistedRow.id).toBeTruthy();
@@ -83,7 +111,11 @@ describe('DurableStreamsService metadata persistence', () => {
       streamId: 'session-2',
       partType: 'system',
     });
-    expect(publishedPayload.meta).toMatchObject({
+    // The outbox row payload carries the same enriched metadata so the
+    // relay re-publishes the canonical envelope to Caddy.
+    expect(outboxRow.streamId).toBe('session-2');
+    expect(outboxRow.type).toBe('container-agent:status');
+    expect(outboxRow.payload.meta).toMatchObject({
       eventId: persistedRow.id,
       streamId: 'session-2',
       partType: 'system',

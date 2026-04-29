@@ -97,6 +97,16 @@ describe('F01-05: BootstrapPhaseResult shape and orchestrator policy', () => {
 
   // ── schedulers ──
 
+  // Stub a minimal BackgroundJob shape for `eventOutboxRelayService` so the
+  // schedulers phase (which now registers the relay) doesn't throw on
+  // partial test containers. The relay is a documented dependency of
+  // `phases/schedulers.ts` after F05-19 / F01-03.
+  const stubOutboxRelay = {
+    name: 'eventOutboxRelay',
+    start: vi.fn(),
+    stop: vi.fn(),
+  } as never;
+
   it('startSchedulers: non-fatal when task scheduler start fails in dev', async () => {
     process.env.NODE_ENV = 'development';
     const shutdown = { register: vi.fn() } as unknown as GracefulShutdown;
@@ -106,6 +116,7 @@ describe('F01-05: BootstrapPhaseResult shape and orchestrator policy', () => {
       terraformRegistryService: {} as never,
       settingsService: {} as never,
       dreamService: null as never,
+      eventOutboxRelayService: stubOutboxRelay,
       schedulerService: {
         start: vi.fn().mockRejectedValue(new Error('boom')),
         stop: vi.fn(),
@@ -131,6 +142,7 @@ describe('F01-05: BootstrapPhaseResult shape and orchestrator policy', () => {
       terraformRegistryService: {} as never,
       settingsService: {} as never,
       dreamService: null as never,
+      eventOutboxRelayService: stubOutboxRelay,
       schedulerService: {
         start: vi.fn().mockRejectedValue(new Error('boom-prod')),
         stop: vi.fn(),
@@ -161,6 +173,7 @@ describe('F01-05: BootstrapPhaseResult shape and orchestrator policy', () => {
       terraformRegistryService: {} as never,
       settingsService: {} as never,
       dreamService: null as never,
+      eventOutboxRelayService: stubOutboxRelay,
       schedulerService: {
         start: vi.fn().mockRejectedValue(new Error('scheduler-boom')),
         stop: vi.fn(),

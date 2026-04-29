@@ -53,6 +53,12 @@ export async function startSchedulers(
   const eventCleanup = new EventCleanupService(db, services.settingsService);
   registry.register(eventCleanup satisfies BackgroundJob);
 
+  // F05-19 / F01-03: register the event-outbox relay so `enqueueOutboxEvent`
+  // rows actually reach Caddy. The relay polls every 50ms; without this
+  // wire, every non-ephemeral `DurableStreamsService.publish()` call would
+  // silently accumulate rows in `event_outbox` that never get delivered.
+  registry.register(services.eventOutboxRelayService satisfies BackgroundJob);
+
   // Register the registry drain with the shutdown handler *before* any
   // scheduler-start failure can return early. Without this, a task scheduler
   // start failure would short-circuit the function and leave `eventCleanup`

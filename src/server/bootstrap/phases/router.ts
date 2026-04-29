@@ -52,5 +52,8 @@ export function createAppRouter(
     skillTrackingService: services.skillTrackingService,
     dreamService: services.dreamService,
     durableStreamsService: services.durableStreamsService,
+    // F01-04: pass through so `/api/admin/metrics/plan-mode` and `/api/metrics`
+    // report real counters instead of the always-zero stub branch.
+    planModeService: services.planModeService,
   });
 }
