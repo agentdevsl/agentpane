@@ -19,9 +19,15 @@ function isKnownService(service: string): service is KnownService {
   return (KNOWN_API_KEY_SERVICES as readonly string[]).includes(service);
 }
 
-// Validation schemas
+// Validation schemas.
+// F03-09 (arch29-W2-C): the optional `refreshToken` is the OAuth refresh
+// token issued alongside an `sk-ant-oat*` access token. It is encrypted with
+// the same AES-GCM key as the access token and stored in
+// `api_keys.encrypted_refresh_token` so the agent-runner can rotate the
+// access token mid-run.
 const saveKeySchema = z.object({
   key: z.string().min(1, 'API key is required'),
+  refreshToken: z.string().min(1).optional(),
 });
 
 interface ApiKeysDeps {
@@ -104,7 +110,7 @@ export function createApiKeysRoutes({ apiKeyService }: ApiKeysDeps) {
       );
     }
 
-    const result = await apiKeyService.saveKey(service, parsed.data.key);
+    const result = await apiKeyService.saveKey(service, parsed.data.key, parsed.data.refreshToken);
 
     if (!result.ok) {
       log.error('Save key error', {

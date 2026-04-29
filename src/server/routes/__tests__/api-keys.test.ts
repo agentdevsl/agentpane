@@ -86,7 +86,11 @@ describe('API Keys Routes', () => {
       const json = await res.json();
       expect(json.ok).toBe(true);
       expect(json.data.keyInfo.configured).toBe(true);
-      expect(apiKeyService.saveKey).toHaveBeenCalledWith('anthropic', 'sk-ant-api03-test-key');
+      expect(apiKeyService.saveKey).toHaveBeenCalledWith(
+        'anthropic',
+        'sk-ant-api03-test-key',
+        undefined
+      );
     });
 
     it('returns 400 for invalid JSON body', async () => {

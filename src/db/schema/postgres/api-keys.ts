@@ -13,6 +13,10 @@ export const apiKeys = pgTable('api_keys', {
   // F06-09: rotation-tracking columns. Null = not tracked (legacy rows).
   expiresAt: timestamp('expires_at', { mode: 'string' }),
   rotatedAt: timestamp('rotated_at', { mode: 'string' }),
+  // F03-09 (arch29-W2-C): encrypted OAuth refresh token (AES-GCM, base64) used
+  // by the Claude Agent SDK to silently rotate the access token mid-run. Null
+  // when the host has not been issued a refresh token (legacy rows or non-OAuth keys).
+  encryptedRefreshToken: text('encrypted_refresh_token'),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { mode: 'string' })
     .defaultNow()
