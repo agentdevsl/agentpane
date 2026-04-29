@@ -7,11 +7,16 @@
  * - Route handlers import schemas and helpers (parseBody, parseJsonBody) from here.
  * - Client-side parsing utilities live in `src/lib/api/validation.ts` (parseBody, parseQuery
  *   returning Result types for use outside Hono handlers).
- * - `src/lib/api/schemas.ts` re-exports and extends schemas for client/shared use.
- *   Where schemas overlap, schemas.ts should import from here rather than redefine.
+ *
+ * arch29-W2-P (F12-01): the previous `src/lib/api/schemas.ts` was deleted —
+ * 41 schemas of which only 5 were imported, and 5 of those redeclared names
+ * here with tighter limits, producing silent drift. Anything the route layer
+ * needs (incl. `createWorkflowSchema`) lives here now. New schemas land here
+ * unless they are pure client-side concerns belonging to a feature module.
  */
 
 import { z } from 'zod';
+import { workflowEdgeSchema, workflowNodeSchema } from '@/lib/workflow-dsl/types.js';
 
 /** Safe CUID2 / kebab-case identifier */
 export const idSchema = z
@@ -402,9 +407,50 @@ export const terraformValidateSchema = z.object({
   tfvars: z.string().max(500_000).optional(),
 });
 
-// ─── Workflow update schema (PATCH) ──────────────────
+// ─── Workflow create/update schemas ──────────────────
 
 export const workflowStatusUpdateSchema = z.enum(['draft', 'published', 'archived']);
+
+const workflowViewportSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  zoom: z.number(),
+});
+
+/**
+ * Migrated from the deleted `src/lib/api/schemas.ts` as part of arch29-W2-P
+ * (F12-01). Used by `POST /api/workflows`. The workflow service stores
+ * nodes/edges as JSON; we still validate the structured shapes here so
+ * malformed client input is rejected at the route boundary.
+ */
+export const createWorkflowSchema = z.object({
+  /** Workflow name (required) */
+  name: z.string().min(1).max(200),
+  /** Workflow description */
+  description: z.string().max(2000).optional(),
+  /** Workflow nodes */
+  nodes: z.array(workflowNodeSchema).optional(),
+  /** Workflow edges */
+  edges: z.array(workflowEdgeSchema).optional(),
+  /** Canvas viewport state */
+  viewport: workflowViewportSchema.optional(),
+  /** Workflow status */
+  status: workflowStatusUpdateSchema.optional(),
+  /** Tags for categorization */
+  tags: z.array(z.string().max(50)).max(20).optional(),
+  /** Source template ID (if created from a template) */
+  sourceTemplateId: idSchema.optional(),
+  /** Source template name */
+  sourceTemplateName: z.string().max(200).optional(),
+  /** Thumbnail image URL or data */
+  thumbnail: z.string().max(5000).optional(),
+  /** Whether this workflow was AI-generated */
+  aiGenerated: z.boolean().optional(),
+  /** AI model used for generation */
+  aiModel: z.string().max(100).optional(),
+  /** AI confidence score (0-100) */
+  aiConfidence: z.number().min(0).max(100).optional(),
+});
 
 export const updateWorkflowSchema = z
   .object({
@@ -412,13 +458,7 @@ export const updateWorkflowSchema = z
     description: z.string().max(2000).optional(),
     nodes: z.array(z.unknown()).optional(),
     edges: z.array(z.unknown()).optional(),
-    viewport: z
-      .object({
-        x: z.number(),
-        y: z.number(),
-        zoom: z.number(),
-      })
-      .optional(),
+    viewport: workflowViewportSchema.optional(),
     status: workflowStatusUpdateSchema.optional(),
     tags: z.array(z.string().max(100)).max(50).optional(),
     sourceTemplateId: z.string().nullable().optional(),

@@ -429,17 +429,19 @@ const configFileSchema = z.object({
 });
 ```
 
-The agent config schema used by the API (`src/lib/api/schemas.ts`) validates agent-level settings:
+The agent config schema used by the API (`src/server/validation.ts`) validates agent-level settings:
 
 ```typescript
-// src/lib/api/schemas.ts
-const agentConfigSchema = z.object({
-  allowedTools: z.array(z.string()).optional(),
-  maxTurns: z.number().min(1).max(500).optional(),
-  model: z.string().optional(),
-  systemPrompt: z.string().max(10000).optional(),
-  temperature: z.number().min(0).max(1).optional(),
-});
+// src/server/validation.ts (arch29-W2-P, F12-01: canonical location)
+const agentConfigFieldsSchema = z
+  .object({
+    allowedTools: z.array(z.string().max(200)).max(200).optional(),
+    maxTurns: z.number().int().min(1).max(1000).optional(),
+    model: z.string().max(200).optional(),
+    systemPrompt: z.string().max(20000).optional(),
+    temperature: z.number().min(0).max(2).optional(),
+  })
+  .partial();
 ```
 
 ### Config Sync Service
