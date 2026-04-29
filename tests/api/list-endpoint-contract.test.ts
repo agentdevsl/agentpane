@@ -51,7 +51,7 @@ describe('List endpoint contract — sessions (flat shape)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    app = createSessionsRoutes({ sessionService: sessionServiceMocks as never });
+    app = createSessionsRoutes({ sessionService: sessionServiceMocks as never, db: {} as never });
     sessionServiceMocks.list.mockResolvedValue(ok([sampleSession]));
     sessionServiceMocks.getSessionSummary.mockResolvedValue(
       ok({ turnsCount: 0, tokensUsed: 0, filesModified: 0, linesAdded: 0, linesRemoved: 0 })

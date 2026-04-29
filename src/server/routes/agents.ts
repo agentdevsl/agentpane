@@ -4,7 +4,10 @@
 
 import { Hono } from 'hono';
 import type { AgentConfig } from '../../db/schema';
+import type { AuthContext } from '../../lib/api/auth-middleware.js';
+import { applyTokenTagFilter } from '../../lib/api/rbac-middleware.js';
 import type { AgentService } from '../../services/agent.service.js';
+import type { Database } from '../../types/database.js';
 import { errorResponse, json, requireQueryId, validateIdParam } from '../shared.js';
 import {
   agentResumeSchema,
@@ -16,10 +19,11 @@ import {
 
 interface AgentsDeps {
   agentService: AgentService;
+  db: Database;
 }
 
-export function createAgentsRoutes({ agentService }: AgentsDeps) {
-  const app = new Hono();
+export function createAgentsRoutes({ agentService, db }: AgentsDeps) {
+  const app = new Hono<{ Variables: { auth: AuthContext } }>();
 
   // GET /api/agents
   app.get('/', async (c) => {
@@ -35,7 +39,11 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
       );
     }
 
-    return json({ ok: true, data: result.value });
+    // F06-NEW-07: filter by tag scope when the token is tag-restricted.
+    const auth = c.get('auth') as AuthContext | undefined;
+    const filtered = await applyTokenTagFilter(db, auth, result.value, (a) => a.id);
+
+    return json({ ok: true, data: filtered });
   });
 
   // POST /api/agents

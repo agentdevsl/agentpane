@@ -906,6 +906,212 @@ describe('requireTagAccess', () => {
     expect(body.error.code).toBe('FORBIDDEN');
     expect(body.error.message).toBe('Tag-restricted tokens cannot access this resource type');
   });
+
+  // ── F06-NEW-07: collection-endpoint passthrough ─────────────────────────
+  //
+  // Before the W2-L fix, tag-restricted tokens hitting collection endpoints
+  // (no `:id` param) got 403'd. The new behaviour is to pass through, with
+  // a `tagFilter` on the auth context so the route handler can narrow its
+  // result set. These tests pin that contract.
+
+  it('passes through on /api/codespaces collection (no :id) and sets tagFilter for tag-restricted token', async () => {
+    const auth: AuthContext = {
+      userId: 'user-123',
+      authMethod: 'api_token',
+      tokenScope: {
+        tokenId: 'tk-1',
+        role: 'admin',
+        codespaceId: null,
+        tags: ['production'],
+      },
+    };
+
+    let capturedAuth: AuthContext | undefined;
+    const mw = requireTagAccess(mockDb as never) as never;
+    const app = new Hono();
+    app.get('/api/codespaces', createAuthMiddleware(auth) as never, mw, (c) => {
+      capturedAuth = c.get('auth') as AuthContext | undefined;
+      return c.json({ ok: true });
+    });
+
+    const res = await app.request('/api/codespaces');
+    expect(res.status).toBe(200);
+    expect(capturedAuth?.tagFilter).toEqual({
+      resourceType: 'codespace',
+      scopeTags: ['production'],
+    });
+    // Critical: the middleware must NOT have done a DB lookup for collection
+    // paths — that's the handler's job via applyTokenTagFilter.
+    expect(mockDb.select).not.toHaveBeenCalled();
+  });
+
+  it('passes through on /api/tasks collection and tags it as task resource type', async () => {
+    const auth: AuthContext = {
+      userId: 'user-123',
+      authMethod: 'api_token',
+      tokenScope: {
+        tokenId: 'tk-1',
+        role: 'admin',
+        codespaceId: null,
+        tags: ['team-alpha', 'team-beta'],
+      },
+    };
+
+    let capturedAuth: AuthContext | undefined;
+    const mw = requireTagAccess(mockDb as never) as never;
+    const app = new Hono();
+    app.get('/api/tasks', createAuthMiddleware(auth) as never, mw, (c) => {
+      capturedAuth = c.get('auth') as AuthContext | undefined;
+      return c.json({ ok: true });
+    });
+
+    const res = await app.request('/api/tasks?codespaceId=cs-1');
+    expect(res.status).toBe(200);
+    expect(capturedAuth?.tagFilter?.resourceType).toBe('task');
+    expect(capturedAuth?.tagFilter?.scopeTags).toEqual(['team-alpha', 'team-beta']);
+  });
+
+  it('passes through on /api/agents and /api/sessions collection endpoints', async () => {
+    const auth: AuthContext = {
+      userId: 'user-123',
+      authMethod: 'api_token',
+      tokenScope: {
+        tokenId: 'tk-1',
+        role: 'admin',
+        codespaceId: null,
+        tags: ['infra'],
+      },
+    };
+
+    const mw = requireTagAccess(mockDb as never) as never;
+    const app = new Hono();
+    app.get('/api/agents', createAuthMiddleware(auth) as never, mw, (c) =>
+      c.json({ ok: true, type: (c.get('auth') as AuthContext).tagFilter?.resourceType })
+    );
+    app.get('/api/sessions', createAuthMiddleware(auth) as never, mw, (c) =>
+      c.json({ ok: true, type: (c.get('auth') as AuthContext).tagFilter?.resourceType })
+    );
+
+    const agentRes = await app.request('/api/agents?codespaceId=cs-1');
+    expect(agentRes.status).toBe(200);
+    expect(((await agentRes.json()) as { type: string }).type).toBe('agent');
+
+    const sessionRes = await app.request('/api/sessions');
+    expect(sessionRes.status).toBe(200);
+    expect(((await sessionRes.json()) as { type: string }).type).toBe('session');
+  });
+
+  // F06-NEW-07: in production the middleware is wired as
+  // `app.use('/api/*', requireTagAccess(db))` — wildcard middleware runs
+  // BEFORE route matching, so `c.req.param('id')` is undefined for all
+  // paths. The middleware must detect resource IDs from the path itself.
+
+  it('detects resource ID from path when wired as wildcard middleware', async () => {
+    const auth: AuthContext = {
+      userId: 'user-123',
+      authMethod: 'api_token',
+      tokenScope: {
+        tokenId: 'tk-1',
+        role: 'admin',
+        codespaceId: null,
+        tags: ['production'],
+      },
+    };
+
+    // Resource has matching tag — should be allowed
+    const chain = buildSelectChain([{ tagId: 'production' }]);
+    mockDb.select.mockReturnValue(chain);
+
+    const app = new Hono();
+    app.use('*', createAuthMiddleware(auth) as never);
+    // Wildcard mount: mirrors production wiring at router.ts:405
+    app.use('/api/*', requireTagAccess(mockDb as never) as never);
+    // No `:id` in the route — Hono won't populate c.req.param('id'),
+    // so the middleware MUST extract the ID from the path.
+    app.get('/api/codespaces/proj-1', (c) => c.json({ ok: true }));
+
+    const res = await app.request('/api/codespaces/proj-1');
+    expect(res.status).toBe(200);
+    expect(mockDb.select).toHaveBeenCalled();
+  });
+
+  it('denies wildcard-mounted tag-restricted access when path-extracted resource has no matching tag', async () => {
+    const auth: AuthContext = {
+      userId: 'user-123',
+      authMethod: 'api_token',
+      tokenScope: {
+        tokenId: 'tk-1',
+        role: 'admin',
+        codespaceId: null,
+        tags: ['production'],
+      },
+    };
+
+    // Resource has staging tag, token requires production
+    const chain = buildSelectChain([{ tagId: 'staging' }]);
+    mockDb.select.mockReturnValue(chain);
+
+    const app = new Hono();
+    app.use('*', createAuthMiddleware(auth) as never);
+    app.use('/api/*', requireTagAccess(mockDb as never) as never);
+    app.get('/api/codespaces/proj-1', (c) => c.json({ ok: true }));
+
+    const res = await app.request('/api/codespaces/proj-1');
+    expect(res.status).toBe(403);
+  });
+
+  it('treats /api/codespaces/summaries as a collection (not a resource ID)', async () => {
+    const auth: AuthContext = {
+      userId: 'user-123',
+      authMethod: 'api_token',
+      tokenScope: {
+        tokenId: 'tk-1',
+        role: 'admin',
+        codespaceId: null,
+        tags: ['production'],
+      },
+    };
+
+    let capturedAuth: AuthContext | undefined;
+    const app = new Hono();
+    app.use('*', createAuthMiddleware(auth) as never);
+    app.use('/api/*', requireTagAccess(mockDb as never) as never);
+    app.get('/api/codespaces/summaries', (c) => {
+      capturedAuth = c.get('auth') as AuthContext | undefined;
+      return c.json({ ok: true });
+    });
+
+    const res = await app.request('/api/codespaces/summaries');
+    expect(res.status).toBe(200);
+    expect(capturedAuth?.tagFilter?.resourceType).toBe('codespace');
+    // No DB lookup happened — `summaries` is recognised as a sub-collection.
+    expect(mockDb.select).not.toHaveBeenCalled();
+  });
+
+  it('does not set tagFilter for non-tag-restricted tokens', async () => {
+    const auth: AuthContext = {
+      userId: 'user-123',
+      authMethod: 'api_token',
+      tokenScope: {
+        tokenId: 'tk-1',
+        role: 'admin',
+        codespaceId: null,
+        tags: null,
+      },
+    };
+
+    let capturedAuth: AuthContext | undefined;
+    const mw = requireTagAccess(mockDb as never) as never;
+    const app = new Hono();
+    app.get('/api/codespaces', createAuthMiddleware(auth) as never, mw, (c) => {
+      capturedAuth = c.get('auth') as AuthContext | undefined;
+      return c.json({ ok: true });
+    });
+
+    const res = await app.request('/api/codespaces');
+    expect(res.status).toBe(200);
+    expect(capturedAuth?.tagFilter).toBeUndefined();
+  });
 });
 
 // =============================================================================

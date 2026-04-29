@@ -41,6 +41,7 @@ describe('Tasks Routes (IT-1350)', () => {
     mockService = createMockTaskService();
     app = createTasksRoutes({
       taskService: mockService as any,
+      db: {} as never,
     });
   });
 

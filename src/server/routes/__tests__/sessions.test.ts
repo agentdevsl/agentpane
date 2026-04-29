@@ -20,7 +20,10 @@ function createMockSessionService() {
 
 function createTestApp() {
   const sessionService = createMockSessionService();
-  const routes = createSessionsRoutes({ sessionService: sessionService as never });
+  // Minimal stub DB for the tag-filter helper. Tests do not exercise tag
+  // restrictions; the helper short-circuits when `auth.tagFilter` is unset.
+  const db = {} as never;
+  const routes = createSessionsRoutes({ sessionService: sessionService as never, db });
   const app = new Hono();
   app.route('/api/sessions', routes);
   app.onError((err, c) => {

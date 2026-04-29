@@ -3,9 +3,12 @@
  */
 
 import { Hono } from 'hono';
+import type { AuthContext } from '../../lib/api/auth-middleware.js';
 import { decodeRequestCursor, paginate } from '../../lib/api/pagination.js';
+import { applyTokenTagFilter } from '../../lib/api/rbac-middleware.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { TaskService } from '../../services/task.service.js';
+import type { Database } from '../../types/database.js';
 import { errorResponse, json, parseLimit, requireQueryId, validateIdParam } from '../shared.js';
 import {
   approveTaskSchema,
@@ -22,10 +25,11 @@ const logger = createLogger('routes:tasks');
 
 interface TasksDeps {
   taskService: TaskService;
+  db: Database;
 }
 
-export function createTasksRoutes({ taskService }: TasksDeps) {
-  const app = new Hono();
+export function createTasksRoutes({ taskService, db }: TasksDeps) {
+  const app = new Hono<{ Variables: { auth: AuthContext } }>();
 
   // GET /api/tasks
   //
@@ -98,7 +102,13 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
       return errorResponse(result);
     }
 
-    const body = paginate(result.value, { limit, sortField, order });
+    // F06-NEW-07: filter by tag scope when the token is tag-restricted.
+    // We filter the raw service result before paginate() so the cursor +
+    // hasMore semantics still hold for the visible-to-token subset.
+    const auth = c.get('auth') as AuthContext | undefined;
+    const filteredItems = await applyTokenTagFilter(db, auth, result.value, (t) => t.id);
+
+    const body = paginate(filteredItems, { limit, sortField, order });
     return json({ ok: true, data: body });
   });
 

@@ -22,7 +22,10 @@ function createMockAgentService() {
 
 function createTestApp() {
   const agentService = createMockAgentService();
-  const routes = createAgentsRoutes({ agentService: agentService as never });
+  // Minimal stub DB for the tag-filter helper. Tests do not exercise tag
+  // restrictions; the helper short-circuits when `auth.tagFilter` is unset.
+  const db = {} as never;
+  const routes = createAgentsRoutes({ agentService: agentService as never, db });
   const app = new Hono();
   app.route('/api/agents', routes);
   return { app, agentService };

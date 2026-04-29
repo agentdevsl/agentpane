@@ -42,6 +42,7 @@ describe('Agent API', () => {
     vi.clearAllMocks();
     app = createAgentsRoutes({
       agentService: agentServiceMocks as never,
+      db: {} as never,
     });
   });
 
