@@ -208,13 +208,19 @@ export const createInvitationSchema = z.object({
   role: assignableRoleSchema,
 });
 
-export const addProjectMemberSchema = z.object({
+/**
+ * arch29-W3-D (F12-06): renamed from `addProjectMemberSchema` /
+ * `updateProjectMemberSchema`. Codespace members are tracked in the
+ * `codespaceMembers` table and the route is mounted under
+ * `/api/codespaces/:id/members`, so the schema names should match.
+ */
+export const addCodespaceMemberSchema = z.object({
   userId: idSchema,
   role: assignableRoleSchema,
   teamId: idSchema.optional(),
 });
 
-export const updateProjectMemberSchema = z.object({
+export const updateCodespaceMemberSchema = z.object({
   role: assignableRoleSchema,
 });
 

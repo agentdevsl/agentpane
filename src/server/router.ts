@@ -54,6 +54,10 @@ import { createAgentsRoutes } from './routes/agents.js';
 import { createApiKeysRoutes } from './routes/api-keys.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createCliMonitorRoutes } from './routes/cli-monitor.js';
+// arch29-W3-D (F12-06): renamed from `project-folders.ts` / `project-members.ts`.
+// Old paths `/api/project-folders/*` issue 308 redirects below for one release.
+import { createCodespaceFoldersRoutes } from './routes/codespace-folders.js';
+import { createCodespaceMembersRoutes } from './routes/codespace-members.js';
 import { createCodespacesRoutes } from './routes/codespaces.js';
 import { createEventsRoutes } from './routes/events.js';
 import { createFilesystemRoutes } from './routes/filesystem.js';
@@ -67,8 +71,6 @@ import { createMarketplacesRoutes } from './routes/marketplaces.js';
 import { createMeRoutes } from './routes/me.js';
 import { createMemoryRoutes } from './routes/memory.js';
 import { createMetricsRoutes } from './routes/metrics.js';
-import { createProjectFoldersRoutes } from './routes/project-folders.js';
-import { createProjectMembersRoutes } from './routes/project-members.js';
 import { createRbacTokensRoutes } from './routes/rbac-tokens.js';
 import { createSandboxConfigRoutes } from './routes/sandbox-configs.js';
 import { createK8sRoutes } from './routes/sandbox-k8s.js';
@@ -370,6 +372,25 @@ export function createRouter(deps: RouterDependencies) {
   app.use('*', securityHeaders);
   // F10-01: record per-request counters for /api/metrics.
   app.use('*', metricsMiddleware);
+
+  // arch29-W3-D (F12-06): one-release backward-compat redirect from the old
+  // `/api/project-folders` mount path to the new `/api/codespace-folders`. We
+  // emit a 308 (Permanent Redirect) to preserve the request method (GET/POST/
+  // PATCH/DELETE) on the rewritten target. The matcher must run *before* the
+  // auth middleware so unauthenticated probes still see the redirect, and
+  // *before* the body-size middleware so a POST/PATCH with a body is not
+  // double-buffered. The query string is preserved.
+  app.use('/api/project-folders/*', async (c) => {
+    const url = new URL(c.req.url);
+    const newPath = url.pathname.replace(/^\/api\/project-folders/, '/api/codespace-folders');
+    const location = `${newPath}${url.search}`;
+    return c.redirect(location, 308);
+  });
+  app.use('/api/project-folders', async (c) => {
+    const url = new URL(c.req.url);
+    return c.redirect(`/api/codespace-folders${url.search}`, 308);
+  });
+
   // F06-NEW-09: cap incoming body size on the public-facing surfaces.
   // Default is 5MB (matches the prior cli-monitor cap). Applied early so
   // webhook handlers that call `c.req.text()` and route handlers that call
@@ -470,8 +491,10 @@ export function createRouter(deps: RouterDependencies) {
   useRoleGuard(app, '/api/memory', 'viewer', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/codespaces', 'viewer', rbacService);
+  // arch29-W3-D (F12-06): renamed from `/api/project-folders`. Role guard is
+  // applied to the new path; redirects from the old path are registered below.
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
-  useRoleGuard(app, '/api/project-folders', 'viewer', rbacService);
+  useRoleGuard(app, '/api/codespace-folders', 'viewer', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/tasks', 'viewer', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
@@ -565,8 +588,8 @@ export function createRouter(deps: RouterDependencies) {
     })
   );
   app.route(
-    '/api/project-folders',
-    createProjectFoldersRoutes({ projectFolderService: deps.projectFolderService })
+    '/api/codespace-folders',
+    createCodespaceFoldersRoutes({ projectFolderService: deps.projectFolderService })
   );
   app.route('/api/agents', createAgentsRoutes({ agentService: deps.agentService, db: deps.db }));
   app.route(
@@ -688,7 +711,7 @@ export function createRouter(deps: RouterDependencies) {
   app.route('/api/invitations', createInvitationAcceptRoutes({ db: deps.db }));
   app.route(
     '/api/codespaces/:id/members',
-    createProjectMembersRoutes({ db: deps.db, rbacService })
+    createCodespaceMembersRoutes({ db: deps.db, rbacService })
   );
   app.route('/api/tokens', createRbacTokensRoutes({ db: deps.db, rbacService }));
   app.route('/api/tags', createTagsRoutes({ db: deps.db, rbacService }));

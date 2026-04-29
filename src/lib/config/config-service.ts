@@ -14,15 +14,22 @@ export type LoadedConfig = {
   codespace: CodespaceConfig;
 };
 
+/**
+ * Load the per-codespace `.claude/settings.json` from the given codespace path.
+ *
+ * arch29-W3-D (F12-06): the parameter was named `projectPath` after the
+ * project→codespace rename was incomplete. Renamed to `codespacePath` to
+ * match the function name and the rest of the API surface.
+ */
 export const loadCodespaceConfigFrom = async ({
-  projectPath,
+  codespacePath,
 }: {
-  projectPath: string;
+  codespacePath: string;
 }): Promise<CodespaceConfigResult> => {
-  const projectConfigPath = path.join(projectPath, '.claude', 'settings.json');
+  const codespaceConfigPath = path.join(codespacePath, '.claude', 'settings.json');
 
   try {
-    const content = await fs.readFile(projectConfigPath, 'utf-8');
+    const content = await fs.readFile(codespaceConfigPath, 'utf-8');
     const parsed = JSON.parse(content) as Record<string, unknown>;
     const validated = codespaceConfigSchema.parse(parsed);
 
@@ -52,16 +59,21 @@ const parseEnvNumber = (value: string | undefined, fallback: number): number => 
   return Number.isNaN(parsed) ? fallback : parsed;
 };
 
+/**
+ * Load the codespace config from disk and merge env overrides.
+ *
+ * arch29-W3-D (F12-06): parameter renamed `projectPath` → `codespacePath`.
+ */
 export const loadCodespaceConfig = async ({
-  projectPath,
+  codespacePath,
 }: {
-  projectPath: string;
+  codespacePath: string;
 }): Promise<Result<LoadedConfig, ReturnType<typeof createError>>> => {
   // CB-013: ANTHROPIC_API_KEY is no longer checked at config loading time.
   // Non-agent operations (codespace listing, settings, etc.) do not require an API key.
   // The key is validated at agent execution time instead (see api.ts key resolution).
 
-  const baseConfigResult = await loadCodespaceConfigFrom({ projectPath });
+  const baseConfigResult = await loadCodespaceConfigFrom({ codespacePath });
   if (!baseConfigResult.ok) {
     return baseConfigResult;
   }

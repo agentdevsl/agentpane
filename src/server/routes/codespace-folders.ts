@@ -1,7 +1,15 @@
 /**
- * Project Folder routes
+ * Codespace Folder routes
  *
  * Thin route handlers that delegate to ProjectFolderService.
+ *
+ * arch29-W3-D (F12-06): renamed from `project-folders.ts` to align the API
+ * surface with the codespace naming used in CLAUDE.md. The DB schema and
+ * service still carry the `projectFolder` name (the entity is a
+ * "folder of codespaces" — distinct from a single codespace) so the rename
+ * is scoped to the public API mount path and route file. The 308 redirect
+ * from `/api/project-folders/*` is registered in `router.ts` for one-release
+ * backward compatibility.
  */
 
 import { Hono } from 'hono';
@@ -12,8 +20,8 @@ import type { ProjectFolderService } from '../../services/project-folder.service
 import { json, validateIdParam } from '../shared.js';
 import { parseJsonBody } from '../validation.js';
 
-// Validation schemas
-const createProjectFolderSchema = z.object({
+// Validation schemas — internal to this route module.
+const createCodespaceFolderSchema = z.object({
   name: z.string().min(1, 'Name is required').max(200),
   slug: z.string().min(1).max(200).optional(),
   description: z.string().max(1000).optional(),
@@ -21,7 +29,7 @@ const createProjectFolderSchema = z.object({
   color: z.string().max(50).optional(),
 });
 
-const updateProjectFolderSchema = z
+const updateCodespaceFolderSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
     slug: z.string().min(1).max(200).optional(),
@@ -33,14 +41,14 @@ const updateProjectFolderSchema = z
     message: 'At least one field must be provided',
   });
 
-interface ProjectFoldersDeps {
+interface CodespaceFoldersDeps {
   projectFolderService: ProjectFolderService;
 }
 
-export function createProjectFoldersRoutes({ projectFolderService }: ProjectFoldersDeps) {
+export function createCodespaceFoldersRoutes({ projectFolderService }: CodespaceFoldersDeps) {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
 
-  // GET /api/project-folders
+  // GET /api/codespace-folders
   app.get('/', async (c) => {
     const teamId = c.req.query('teamId') ?? undefined;
 
@@ -62,9 +70,9 @@ export function createProjectFoldersRoutes({ projectFolderService }: ProjectFold
     });
   });
 
-  // POST /api/project-folders
+  // POST /api/codespace-folders
   app.post('/', async (c) => {
-    const parsed = await parseJsonBody(c, createProjectFolderSchema);
+    const parsed = await parseJsonBody(c, createCodespaceFolderSchema);
     if (!parsed.ok) return parsed.response;
 
     const slug = parsed.data.slug ?? slugify(parsed.data.name, 200);
@@ -87,7 +95,7 @@ export function createProjectFoldersRoutes({ projectFolderService }: ProjectFold
     return json({ ok: true, data: result.value }, 201);
   });
 
-  // GET /api/project-folders/:id
+  // GET /api/codespace-folders/:id
   app.get('/:id', async (c) => {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
@@ -96,7 +104,7 @@ export function createProjectFoldersRoutes({ projectFolderService }: ProjectFold
 
     if (!result.ok) {
       return json(
-        { ok: false, error: { code: 'NOT_FOUND', message: 'Project folder not found' } },
+        { ok: false, error: { code: 'NOT_FOUND', message: 'Codespace folder not found' } },
         404
       );
     }
@@ -104,12 +112,12 @@ export function createProjectFoldersRoutes({ projectFolderService }: ProjectFold
     return json({ ok: true, data: result.value });
   });
 
-  // PATCH /api/project-folders/:id
+  // PATCH /api/codespace-folders/:id
   app.patch('/:id', async (c) => {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
 
-    const parsed = await parseJsonBody(c, updateProjectFolderSchema);
+    const parsed = await parseJsonBody(c, updateCodespaceFolderSchema);
     if (!parsed.ok) return parsed.response;
 
     const result = await projectFolderService.update(id, parsed.data);
@@ -124,7 +132,7 @@ export function createProjectFoldersRoutes({ projectFolderService }: ProjectFold
     return json({ ok: true, data: result.value });
   });
 
-  // DELETE /api/project-folders/:id
+  // DELETE /api/codespace-folders/:id
   app.delete('/:id', async (c) => {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
@@ -141,7 +149,7 @@ export function createProjectFoldersRoutes({ projectFolderService }: ProjectFold
     return json({ ok: true, data: { deleted: true } });
   });
 
-  // GET /api/project-folders/:id/codespaces
+  // GET /api/codespace-folders/:id/codespaces
   app.get('/:id/codespaces', async (c) => {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;
@@ -164,7 +172,7 @@ export function createProjectFoldersRoutes({ projectFolderService }: ProjectFold
     });
   });
 
-  // GET /api/project-folders/:id/summary
+  // GET /api/codespace-folders/:id/summary
   app.get('/:id/summary', async (c) => {
     const { id, error } = validateIdParam(c, 'id');
     if (error) return error;

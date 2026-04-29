@@ -1,14 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createProjectFoldersRoutes } from '../../src/server/routes/project-folders';
+import { createCodespaceFoldersRoutes } from '../../src/server/routes/codespace-folders';
 import { ProjectFolderService } from '../../src/services/project-folder.service';
 import { createTestProject } from '../factories/project.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
 
 /**
- * Integration tests for project-folders API routes.
+ * Integration tests for codespace-folders (formerly project-folders) API
+ * routes. arch29-W3-D (F12-06): the public mount path is now
+ * `/api/codespace-folders` and the route factory is
+ * `createCodespaceFoldersRoutes`. The 308 redirect from the old path is
+ * covered separately in `tests/integration/codespace-rename-redirect.test.ts`.
  *
- * Creates a real Hono app with the project-folders routes mounted,
- * backed by a real SQLite database via ProjectFolderService.
+ * Creates a real Hono app with the codespace-folders routes mounted,
+ * backed by a real SQLite database via ProjectFolderService (the underlying
+ * service still uses the project-folder name because the entity is a
+ * "folder of codespaces", a distinct concept).
  */
 
 const jsonRequest = (url: string, body: unknown, init?: RequestInit): Request =>
@@ -19,8 +25,8 @@ const jsonRequest = (url: string, body: unknown, init?: RequestInit): Request =>
     body: JSON.stringify(body),
   });
 
-describe('Project Folder Routes (IT-500)', () => {
-  let app: ReturnType<typeof createProjectFoldersRoutes>;
+describe('Codespace Folder Routes (IT-500)', () => {
+  let app: ReturnType<typeof createCodespaceFoldersRoutes>;
   let service: ProjectFolderService;
   let db: ReturnType<typeof getTestDb>;
 
@@ -28,14 +34,14 @@ describe('Project Folder Routes (IT-500)', () => {
     await setupTestDatabase();
     db = getTestDb();
     service = new ProjectFolderService(db as any);
-    app = createProjectFoldersRoutes({ projectFolderService: service });
+    app = createCodespaceFoldersRoutes({ projectFolderService: service });
   });
 
   afterEach(async () => {
     await clearTestDatabase();
   });
 
-  // ─── GET /api/project-folders ───────────────────────
+  // ─── GET /api/codespace-folders ───────────────────────
 
   it('IT-501: GET / returns empty list when no folders exist (besides default)', async () => {
     // clearTestDatabase re-seeds default-folder, so we expect at least that
@@ -60,7 +66,7 @@ describe('Project Folder Routes (IT-500)', () => {
     expect(body.data.totalCount).toBeGreaterThanOrEqual(3);
   });
 
-  // ─── POST /api/project-folders ──────────────────────
+  // ─── POST /api/codespace-folders ──────────────────────
 
   it('IT-503: POST / creates a new folder', async () => {
     const response = await app.request(
@@ -141,7 +147,7 @@ describe('Project Folder Routes (IT-500)', () => {
     expect(body.ok).toBe(false);
   });
 
-  // ─── GET /api/project-folders/:id ───────────────────
+  // ─── GET /api/codespace-folders/:id ───────────────────
 
   it('IT-509: GET /:id returns a folder by ID', async () => {
     const createResult = await service.create({ name: 'FindMe', slug: 'find-me' });
@@ -172,7 +178,7 @@ describe('Project Folder Routes (IT-500)', () => {
     expect(body.error.code).toBe('INVALID_ID');
   });
 
-  // ─── PATCH /api/project-folders/:id ─────────────────
+  // ─── PATCH /api/codespace-folders/:id ─────────────────
 
   it('IT-512: PATCH /:id updates a folder', async () => {
     const createResult = await service.create({ name: 'Old Name', slug: 'old-name' });
@@ -214,7 +220,7 @@ describe('Project Folder Routes (IT-500)', () => {
     expect(body.ok).toBe(false);
   });
 
-  // ─── DELETE /api/project-folders/:id ────────────────
+  // ─── DELETE /api/codespace-folders/:id ────────────────
 
   it('IT-515: DELETE /:id removes an empty folder', async () => {
     const createResult = await service.create({ name: 'ToDelete', slug: 'to-delete' });
@@ -253,7 +259,7 @@ describe('Project Folder Routes (IT-500)', () => {
     expect(body.error.code).toBe('PROJECT_FOLDER_HAS_CODESPACES');
   });
 
-  // ─── GET /api/project-folders/:id/codespaces ───────
+  // ─── GET /api/codespace-folders/:id/codespaces ───────
 
   it('IT-518: GET /:id/codespaces returns codespaces in folder', async () => {
     const createResult = await service.create({ name: 'WithCS', slug: 'with-cs' });
@@ -278,7 +284,7 @@ describe('Project Folder Routes (IT-500)', () => {
     expect(body.ok).toBe(false);
   });
 
-  // ─── GET /api/project-folders/:id/summary ──────────
+  // ─── GET /api/codespace-folders/:id/summary ──────────
 
   it('IT-520: GET /:id/summary returns folder summary', async () => {
     const createResult = await service.create({ name: 'Summary', slug: 'summary-test' });
