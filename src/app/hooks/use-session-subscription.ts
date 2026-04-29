@@ -83,6 +83,13 @@ export function useSessionSubscription(
       'onTopologyAgentSpawned',
       'onTopologyAgentProgress',
       'onTopologyAgentCompleted',
+      // F05-21: proxy gap-detection + terminal-disconnect callbacks so
+      // consumers (use-session, agent-session-view) can render the
+      // truncation/reconnect banners. Previously these were missing from
+      // the keys list, so the underlying SSE multiplexer fanned them out
+      // but the React hook layer dropped them on the floor.
+      'onGapDetected',
+      'onTerminalDisconnect',
     ];
 
     for (const key of keys) {

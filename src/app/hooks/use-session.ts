@@ -242,10 +242,16 @@ export function useSession(
   state: SessionState;
   connectionState: ConnectionState;
   lastCursor: StreamCursor | null;
+  /**
+   * F05-21: true when the durable-streams reconnect budget is exhausted.
+   * UI should render a manual `Reconnect` banner so the user can resume.
+   */
+  terminalDisconnect: boolean;
   join: () => Promise<Result<void, ReturnType<typeof SessionErrors.CONNECTION_FAILED>>>;
   leave: () => Promise<Result<void, ReturnType<typeof SessionErrors.CONNECTION_FAILED>>>;
 } {
   const [state, setState] = useState<SessionState>(createInitialState);
+  const [terminalDisconnect, setTerminalDisconnect] = useState<boolean>(false);
   const pendingUpdatesRef = useRef<PendingSessionUpdates>(createPendingSessionUpdates());
   const flushFrameRef = useRef<number | null>(null);
   const seenEventIdsRef = useRef<Set<string>>(new Set());
@@ -373,6 +379,9 @@ export function useSession(
     pendingUpdatesRef.current = createPendingSessionUpdates();
     seenEventIdsRef.current.clear();
     setState(createInitialState());
+    // F05-21: a session swap re-arms the subscription; clear the terminal
+    // banner so it doesn't persist into the new session.
+    setTerminalDisconnect(false);
   }, [sessionId]);
 
   const stableOnReconnect = useEffectEvent(() => {
@@ -445,11 +454,35 @@ export function useSession(
     },
 
     onReconnect: () => {
+      // F05-21: a successful reconnect cancels any pending terminal banner.
+      setTerminalDisconnect(false);
       stableOnReconnect();
     },
 
     onDisconnect: () => {
       console.log('[useSession] Disconnected from session stream');
+    },
+
+    /**
+     * F05-21: bubble gap-detection events into the console so the UI can
+     * (eventually) call `fetchGapEvents` to back-fill. We don't auto-fetch
+     * here because the offset→cursor mapping uses lossy conversion; a
+     * dedicated REST gap-fill is staged behind a feature flag.
+     */
+    onGapDetected: ({ fromOffset, toOffset }) => {
+      console.warn(`[useSession] Stream gap detected from offset ${fromOffset} to ${toOffset}`);
+    },
+
+    /**
+     * F05-21: surface the terminal-disconnect signal so the UI can render
+     * a manual reconnect banner. The reconnect budget is exhausted; the
+     * client will not retry on its own.
+     */
+    onTerminalDisconnect: () => {
+      console.warn(
+        '[useSession] Reconnect budget exhausted — surfacing terminal-disconnect banner'
+      );
+      setTerminalDisconnect(true);
     },
   };
 
@@ -474,5 +507,5 @@ export function useSession(
 
   const lastCursor = getLastCursor();
 
-  return { state, connectionState, lastCursor, join, leave };
+  return { state, connectionState, lastCursor, terminalDisconnect, join, leave };
 }

@@ -580,8 +580,10 @@ export class DurableStreamsService {
   }
 
   /**
-   * F05-01: validate that a raw stream-ID string matches the expected kind
-   * for the event type. Returns an AppError on mismatch, null on success.
+   * F05-01 / F05-20: validate that a raw stream-ID string matches the expected
+   * kind for the event type. Returns an AppError on mismatch, null on success.
+   * Callers (publish, publishSessionEvent) MUST treat the AppError as a hard
+   * reject so the runtime invariant is binding.
    */
   private validateStreamIdKind(streamId: string, type: string): AppError | null {
     const expected = expectedStreamIdKindForEventType(type);
@@ -671,6 +673,11 @@ export class DurableStreamsService {
   ): Promise<number> {
     if (!this.db) return 0;
 
+    // F05-25: derive the stream-kind discriminator from the streamId prefix at
+    // publish time so cleanup paths and admin queries can filter rows without
+    // re-parsing the prefix at runtime.
+    const streamKind = classifyStreamId(streamId) ?? 'session';
+
     // QW-2: Atomic offset computation — single INSERT with subquery eliminates
     // the read-then-write retry loop and reduces contention from O(retries) to O(1).
     // Retry up to 3 times on unique constraint violations (concurrent inserts).
@@ -682,6 +689,7 @@ export class DurableStreamsService {
           .values({
             id: attempt === 0 ? eventId : `${eventId}-r${attempt}`,
             sessionId: streamId,
+            streamKind,
             offset: sql`(SELECT COALESCE(MAX(${sessionEvents.offset}), -1) + 1 FROM ${sessionEvents} WHERE ${sessionEvents.sessionId} = ${streamId})`,
             type,
             channel,
@@ -732,15 +740,17 @@ export class DurableStreamsService {
       );
     }
 
-    // F05-01: validate stream-ID kind matches the event type. We warn rather
-    // than reject on mismatch to avoid breaking existing call sites that are
-    // being migrated; the error path below will still catch the protocol
-    // mismatch via payload metadata if it was generated correctly.
+    // F05-20: hard-reject stream-ID kind mismatches. The previous warn-only
+    // path silently allowed plan-typed events on session stream IDs (and
+    // vice-versa), violating the documented invariant. Returning the AppError
+    // forces producers either to (a) use the correct prefix, or (b) migrate to
+    // the branded factory functions in `lib/streams/stream-id.ts`.
     const kindMismatch = this.validateStreamIdKind(streamId, type);
     if (kindMismatch) {
-      log.warn('Stream ID kind mismatch (see F05-01)', {
+      log.warn('Stream ID kind mismatch — rejected (F05-20)', {
         data: { streamId, type, reason: kindMismatch.message },
       });
+      return err(kindMismatch);
     }
 
     const startedAt = Date.now();
@@ -1076,6 +1086,19 @@ export class DurableStreamsService {
           400
         )
       );
+    }
+
+    // F05-20: hard-reject stream-ID kind mismatches on publishSessionEvent
+    // too. Previously this path skipped kind validation entirely, so
+    // session-typed events published to plan/sandbox stream IDs leaked
+    // silently. Calling validateStreamIdKind keeps the invariant binding
+    // across both publish entry points.
+    const kindMismatch = this.validateStreamIdKind(streamId, event.type);
+    if (kindMismatch) {
+      log.warn('Session event stream ID kind mismatch — rejected (F05-20)', {
+        data: { streamId, type: event.type, reason: kindMismatch.message },
+      });
+      return err(kindMismatch);
     }
 
     try {

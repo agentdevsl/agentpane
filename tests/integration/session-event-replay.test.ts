@@ -27,9 +27,23 @@ describe('Session Event Replay (IT-010)', () => {
     opts: { sessId: string; offset: number; type: string; data: unknown }
   ) {
     const id = createId();
+    // F05-25: discriminator from streamId prefix. Bare CUIDs are session-kind.
+    const streamKind: 'session' | 'plan' | 'sandbox' | 'terraform' | 'topology' | 'cli-monitor' =
+      opts.sessId === 'cli-monitor'
+        ? 'cli-monitor'
+        : opts.sessId.startsWith('plan:')
+          ? 'plan'
+          : opts.sessId.startsWith('sandbox:')
+            ? 'sandbox'
+            : opts.sessId.startsWith('terraform:')
+              ? 'terraform'
+              : opts.sessId.startsWith('topology:')
+                ? 'topology'
+                : 'session';
     await db.insert(sessionEvents).values({
       id,
       sessionId: opts.sessId,
+      streamKind,
       offset: opts.offset,
       type: opts.type,
       channel: opts.type.startsWith('agent:') ? 'agent' : 'other',

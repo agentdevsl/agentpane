@@ -295,10 +295,11 @@ describe('SessionCrudService (IT-220 to IT-245)', () => {
     const codespace = await createTestProject();
     const session = await createTestSession(codespace.id, { status: 'active' });
 
-    // Insert events
+    // Insert events. F05-25: bare CUIDs are session-kind.
     await db.insert(sessionEvents).values([
       {
         sessionId: session.id,
+        streamKind: 'session',
         offset: 0,
         type: 'chunk',
         channel: 'chunks',
@@ -307,6 +308,7 @@ describe('SessionCrudService (IT-220 to IT-245)', () => {
       },
       {
         sessionId: session.id,
+        streamKind: 'session',
         offset: 1,
         type: 'tool:start',
         channel: 'toolCalls',

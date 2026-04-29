@@ -7,7 +7,9 @@ const AgentTopology = lazy(() =>
 
 import { ErrorState } from '@/app/components/features/error-state';
 import { Skeleton } from '@/app/components/ui/skeleton';
+import { StreamReconnectBanner } from '@/app/components/ui/stream-reconnect-banner';
 import { TooltipProvider } from '@/app/components/ui/tooltip';
+import { TruncationBanner } from '@/app/components/ui/truncation-banner';
 import { usePresence } from '@/app/hooks/use-presence';
 import { useSession } from '@/app/hooks/use-session';
 import { cn } from '@/lib/utils/cn';
@@ -144,7 +146,7 @@ export function AgentSessionView({
   onSessionEnd,
   onError,
 }: AgentSessionViewProps): React.JSX.Element {
-  const { state, connectionState, leave } = useSession(sessionId, userId);
+  const { state, connectionState, terminalDisconnect, leave } = useSession(sessionId, userId);
   const isStreaming = state.agentState?.status === 'running';
   const { users } = usePresence(sessionId, userId);
   const [activeTab, setActiveTab] = useState<SessionTab>('stream');
@@ -325,6 +327,16 @@ export function AgentSessionView({
     onSessionEnd?.();
   }, [handleStop, leave, onSessionEnd]);
 
+  // F05-21: manual reconnect when the streams client surfaces a terminal
+  // disconnect. Reloading the route re-creates the subscription with a fresh
+  // reconnect budget. A future iteration can rebuild the subscription in
+  // place rather than reloading the page.
+  const handleManualReconnect = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.location.reload();
+    }
+  }, []);
+
   // Get viewer colors for stream panel (memoized to avoid new array refs every render)
   const viewerColors = useMemo<string[]>(
     () =>
@@ -392,6 +404,22 @@ export function AgentSessionView({
         <div className="col-span-full">
           <PresenceBar users={users} shareUrl={shareUrl} />
         </div>
+
+        {/* F05-21: stream-status banners. Truncation banner shows when the
+            client-side chunk buffer drops history; reconnect banner shows
+            when the durable-streams reconnect budget is exhausted. Both
+            primitives existed previously but had no caller — wiring them
+            here makes them user-visible. */}
+        {state.truncated ? (
+          <div className="col-span-full">
+            <TruncationBanner truncatedCount={state.truncatedCount} />
+          </div>
+        ) : null}
+        {terminalDisconnect ? (
+          <div className="col-span-full">
+            <StreamReconnectBanner onReconnect={handleManualReconnect} />
+          </div>
+        ) : null}
 
         {/* Main content - left column with tabs */}
         <div className="flex flex-col min-h-0">

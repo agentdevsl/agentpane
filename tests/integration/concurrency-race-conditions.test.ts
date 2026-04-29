@@ -84,11 +84,12 @@ describe('Concurrency: Race Conditions (IT-211 to IT-215)', () => {
     const codespace = await createTestProject();
     const session = await createTestSession(codespace.id, { status: 'active' });
 
-    // Insert 10 events with offsets 0-9
+    // Insert 10 events with offsets 0-9. F05-25: bare CUIDs are session-kind.
     for (let i = 0; i < 10; i++) {
       await db.insert(sessionEvents).values({
         id: createId(),
         sessionId: session.id,
+        streamKind: 'session',
         offset: i,
         type: 'chunk',
         channel: 'chunks',
@@ -102,6 +103,7 @@ describe('Concurrency: Race Conditions (IT-211 to IT-215)', () => {
       db.insert(sessionEvents).values({
         id: createId(),
         sessionId: session.id,
+        streamKind: 'session',
         offset: 5,
         type: 'chunk',
         channel: 'chunks',

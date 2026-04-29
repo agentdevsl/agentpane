@@ -101,6 +101,8 @@ describe('Cross-Service: Events & Export (IT-183 to IT-184)', () => {
       await db.insert(sessionEvents).values({
         id: createId(),
         sessionId: session.id,
+        // F05-25: bare CUIDs map to session-kind discriminator.
+        streamKind: 'session',
         offset: i,
         type: eventTypes[i]!.type,
         channel: eventTypes[i]!.channel,
