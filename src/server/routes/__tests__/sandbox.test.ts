@@ -153,7 +153,6 @@ describe('Sandbox Config API Routes', () => {
               id: 'cfg-1',
               name: 'Nomad',
               nomadToken: 'secret-token',
-              awsSecretAccessKey: 'aws-secret',
             },
           ],
           totalCount: 1,
@@ -165,7 +164,6 @@ describe('Sandbox Config API Routes', () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.data.items[0].nomadToken).toBeUndefined();
-      expect(json.data.items[0].awsSecretAccessKey).toBeUndefined();
       expect(json.data.items[0].name).toBe('Nomad');
     });
 
@@ -327,7 +325,6 @@ describe('Sandbox Config API Routes', () => {
           id: 'cfg-1',
           name: 'Config',
           nomadToken: 'encrypted-secret',
-          awsSecretAccessKey: 'encrypted-aws',
         },
       });
 
@@ -338,7 +335,6 @@ describe('Sandbox Config API Routes', () => {
       expect(res.status).toBe(201);
       const json = await res.json();
       expect(json.data.nomadToken).toBeUndefined();
-      expect(json.data.awsSecretAccessKey).toBeUndefined();
     });
 
     it('returns 400 for memoryMb too high', async () => {
@@ -436,21 +432,6 @@ describe('Sandbox Config API Routes', () => {
 
       expect(res.status).toBe(201);
     });
-
-    it('accepts valid agentcore type', async () => {
-      const { app, sandboxConfigService } = createTestApp();
-      sandboxConfigService.create.mockResolvedValue({
-        ok: true,
-        value: { id: 'cfg-ac', name: 'AgentCore Config', type: 'agentcore' },
-      });
-
-      const res = await request(app, 'POST', '/api/sandbox-configs', {
-        name: 'AgentCore Config',
-        type: 'agentcore',
-      });
-
-      expect(res.status).toBe(201);
-    });
   });
 
   // ── GET /api/sandbox-configs/:id ──
@@ -515,7 +496,6 @@ describe('Sandbox Config API Routes', () => {
           id: 'cfg-1',
           name: 'Config',
           nomadToken: 'secret',
-          awsSecretAccessKey: 'aws-secret',
         },
       });
 
@@ -524,7 +504,6 @@ describe('Sandbox Config API Routes', () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.data.nomadToken).toBeUndefined();
-      expect(json.data.awsSecretAccessKey).toBeUndefined();
     });
   });
 
@@ -640,7 +619,6 @@ describe('Sandbox Config API Routes', () => {
           id: 'cfg-1',
           name: 'Config',
           nomadToken: 'secret',
-          awsSecretAccessKey: 'aws-secret',
         },
       });
 
@@ -651,7 +629,6 @@ describe('Sandbox Config API Routes', () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.data.nomadToken).toBeUndefined();
-      expect(json.data.awsSecretAccessKey).toBeUndefined();
     });
 
     it('allows updating isDefault', async () => {

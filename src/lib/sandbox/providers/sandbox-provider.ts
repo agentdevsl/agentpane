@@ -185,9 +185,7 @@ export interface SandboxProvider {
    *
    * theme-04 P1-03: crash-safe startup — scan the runtime for agentpane
    * sandboxes, re-register running ones into the in-memory cache, tear down
-   * stale/stopped ones. Implemented by Docker, K8s and Nomad providers. The
-   * default implementation is a no-op for providers that do not persist state
-   * across restarts (e.g. AgentCore).
+   * stale/stopped ones. Implemented by Docker, K8s and Nomad providers.
    */
   recover(): Promise<RecoverResult>;
 

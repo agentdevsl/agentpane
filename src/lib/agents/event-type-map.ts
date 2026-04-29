@@ -1,13 +1,12 @@
 /**
  * Shared event type mapping from agent-runner events to durable streams events.
  *
- * Used by both ContainerBridge (JSON lines from Docker stdout) and
- * AgentCoreBridge (SSE events from AWS AgentCore).
+ * Used by ContainerBridge (JSON lines from Docker stdout).
  */
 import type { TypedEventType } from '../../services/durable-streams.service.js';
 
 /**
- * Event types emitted by the agent-runner (container or AgentCore).
+ * Event types emitted by the agent-runner.
  */
 export type AgentRunnerEventType =
   | 'agent:started'
@@ -27,7 +26,7 @@ export type AgentRunnerEventType =
 
 /**
  * Maps agent-runner event types to durable streams event types.
- * Shared between ContainerBridge (stdout JSON lines) and AgentCoreBridge (SSE events).
+ * Used by ContainerBridge (stdout JSON lines).
  */
 export const EVENT_TYPE_MAP: Record<AgentRunnerEventType, TypedEventType> = {
   'agent:started': 'container-agent:started',

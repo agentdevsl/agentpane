@@ -38,13 +38,7 @@ describe('PlanApprovalService — full service integration (IT-220)', () => {
       apiKeyService: {} as any,
     };
 
-    service = new PlanApprovalService(
-      deps,
-      state,
-      mockWorktreeInit as any,
-      mockStartAgentFn,
-      () => false // isAgentCoreProvider
-    );
+    service = new PlanApprovalService(deps, state, mockWorktreeInit as any, mockStartAgentFn);
   });
 
   afterEach(async () => {
@@ -449,92 +443,6 @@ describe('PlanApprovalService — full service integration (IT-220)', () => {
           sdkSessionId: 'sdk-same',
         })
       );
-    });
-  });
-
-  describe('approvePlan — AgentCore path (IT-224)', () => {
-    let agentCoreService: PlanApprovalService;
-
-    beforeEach(() => {
-      const deps: ContainerAgentDeps = {
-        db: db as any,
-        provider: mockProvider as any,
-        streams: mockStreams as any,
-        apiKeyService: {} as any,
-      };
-
-      agentCoreService = new PlanApprovalService(
-        deps,
-        state,
-        mockWorktreeInit as any,
-        mockStartAgentFn,
-        () => true // isAgentCoreProvider returns true
-      );
-    });
-
-    it('IT-224a: approves plan via AgentCore path without sandbox check', async () => {
-      const project = await createTestProject();
-      const session = await createTestSession(project.id);
-      const task = await createTestTask(project.id, { column: 'waiting_approval' });
-
-      state.setPendingPlan(task.id, {
-        taskId: task.id,
-        sessionId: session.id,
-        codespaceId: project.id,
-        plan: 'AgentCore plan',
-        turnCount: 4,
-        sdkSessionId: 'sdk-agentcore',
-        createdAt: new Date(),
-      });
-
-      const result = await agentCoreService.approvePlan(task.id);
-
-      expect(result.ok).toBe(true);
-
-      // Provider.get should NOT have been called (no sandbox check)
-      expect(mockProvider.get).not.toHaveBeenCalled();
-
-      // startAgentFn should be called with sdkSessionId
-      expect(mockStartAgentFn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          phase: 'execute',
-          sdkSessionId: 'sdk-agentcore',
-          prompt: 'AgentCore plan',
-        })
-      );
-
-      const dbTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
-      expect(dbTask?.column).toBe('in_progress');
-    });
-
-    it('IT-224b: restores task state on AgentCore start failure', async () => {
-      const project = await createTestProject();
-      const session = await createTestSession(project.id);
-      const task = await createTestTask(project.id, { column: 'waiting_approval' });
-
-      state.setPendingPlan(task.id, {
-        taskId: task.id,
-        sessionId: session.id,
-        codespaceId: project.id,
-        plan: 'Failing AgentCore plan',
-        turnCount: 4,
-        sdkSessionId: 'sdk-fail',
-        createdAt: new Date(),
-      });
-
-      mockStartAgentFn.mockResolvedValue({
-        ok: false,
-        error: { code: 'SANDBOX_AGENT_START_FAILED', message: 'API key expired' },
-      });
-
-      const result = await agentCoreService.approvePlan(task.id);
-
-      expect(result.ok).toBe(false);
-
-      // Task should be restored to waiting_approval
-      const dbTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
-      expect(dbTask?.column).toBe('waiting_approval');
-      expect(dbTask?.lastAgentStatus).toBe('planning');
     });
   });
 
