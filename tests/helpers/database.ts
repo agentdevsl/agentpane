@@ -446,7 +446,7 @@ CREATE TABLE IF NOT EXISTS sandbox_tmux_sessions (
     // Tables may already exist
   }
 
-  // F02-19 (arch29-W2-Q, runtime v37): codespace_tags.assigned_at column.
+  // F02-19 (arch29-W2-Q, runtime v38): codespace_tags.assigned_at column.
   try {
     testSqlite.exec(
       `ALTER TABLE codespace_tags ADD COLUMN assigned_at TEXT NOT NULL DEFAULT (datetime('now'))`
@@ -455,7 +455,7 @@ CREATE TABLE IF NOT EXISTS sandbox_tmux_sessions (
     // Column may already exist — idempotent
   }
 
-  // F02-20 (arch29-W2-Q, runtime v38): api_tokens.scope_codespace_id FK behavior fix.
+  // F02-20 (arch29-W2-Q, runtime v39): api_tokens.scope_codespace_id FK behavior fix.
   // Rebuild api_tokens with ON DELETE SET NULL (was CASCADE in v19). Skip if the
   // table already has the correct behavior (PG mode + fresh installs).
   try {
@@ -469,8 +469,8 @@ CREATE TABLE IF NOT EXISTS sandbox_tmux_sessions (
     const scopeFk = fkRows.find((r) => r.from === 'scope_codespace_id');
     if (scopeFk && scopeFk.on_delete === 'CASCADE') {
       testSqlite.exec(`
-DROP TABLE IF EXISTS api_tokens_new_v38;
-CREATE TABLE api_tokens_new_v38 (
+DROP TABLE IF EXISTS api_tokens_new_v39;
+CREATE TABLE api_tokens_new_v39 (
   id TEXT PRIMARY KEY NOT NULL,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -490,7 +490,7 @@ CREATE TABLE api_tokens_new_v38 (
   created_at TEXT DEFAULT (datetime('now')) NOT NULL
 );
 
-INSERT INTO api_tokens_new_v38 (
+INSERT INTO api_tokens_new_v39 (
   id, user_id, team_id, name, token_hash, token_prefix, role,
   scope_tags, scope_project_id, scope_codespace_id,
   status, expires_at, rotated_at, use_count, last_used_at, revoked_at, created_at
@@ -507,7 +507,7 @@ SELECT
 FROM api_tokens;
 
 DROP TABLE api_tokens;
-ALTER TABLE api_tokens_new_v38 RENAME TO api_tokens;
+ALTER TABLE api_tokens_new_v39 RENAME TO api_tokens;
 
 CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_tokens_team ON api_tokens(team_id);
