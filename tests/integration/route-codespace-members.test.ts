@@ -3,13 +3,15 @@ import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { codespaceMembers, users } from '../../src/db/schema';
 import type { AuthContext } from '../../src/lib/api/auth-middleware';
-import { createProjectMembersRoutes } from '../../src/server/routes/project-members';
+import { createCodespaceMembersRoutes } from '../../src/server/routes/codespace-members';
 import { RbacService } from '../../src/services/rbac.service';
 import { createTestProject } from '../factories/project.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
 
 /**
- * Integration tests for project-members (codespace members) API routes.
+ * Integration tests for codespace-members (formerly project-members) API
+ * routes. arch29-W3-D (F12-06) completed the rename: routes file is now
+ * `codespace-members.ts` with `createCodespaceMembersRoutes`.
  *
  * The routes are mounted under /api/codespaces/:id/members, so the :id param
  * is read from the parent route. We simulate this by mounting the sub-routes
@@ -29,7 +31,7 @@ const jsonRequest = (url: string, body: unknown, init?: RequestInit): Request =>
     body: JSON.stringify(body),
   });
 
-describe('Project Members Routes (IT-460)', () => {
+describe('Codespace Members Routes (IT-460)', () => {
   let outerApp: Hono;
   let db: ReturnType<typeof getTestDb>;
   let rbacService: RbacService;
@@ -66,7 +68,7 @@ describe('Project Members Routes (IT-460)', () => {
     codespaceId = codespace.id;
 
     // Create the routes with auth context injected via middleware
-    const memberRoutes = createProjectMembersRoutes({ db: db as any, rbacService });
+    const memberRoutes = createCodespaceMembersRoutes({ db: db as any, rbacService });
 
     outerApp = new Hono();
     outerApp.use('/*', async (c, next) => {
@@ -144,6 +146,10 @@ describe('Project Members Routes (IT-460)', () => {
     expect(body.data.items[0].userId).toBe(memberUserId);
     expect(body.data.items[0].name).toBe('Member User');
     expect(body.data.items[0].email).toBe('member@example.com');
+    // arch29-W3-D (F12-06): both fields are emitted during the deprecation
+    // window so existing clients continue to work while new code can read
+    // `codespaceRole`. Both must always agree.
+    expect(body.data.items[0].codespaceRole).toBe('viewer');
     expect(body.data.items[0].projectRole).toBe('viewer');
     expect(body.data.items[0].source).toBe('direct');
   });

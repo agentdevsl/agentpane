@@ -24,7 +24,7 @@ describe('config system', () => {
   });
 
   it('loads project config from defaults when missing', async () => {
-    const result = await loadCodespaceConfigFrom({ projectPath: '/tmp/missing' });
+    const result = await loadCodespaceConfigFrom({ codespacePath: '/tmp/missing' });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -37,7 +37,7 @@ describe('config system', () => {
     process.env.ANTHROPIC_API_KEY = 'test-key';
     process.env.AGENTPANE_MAX_TURNS = '12';
 
-    const result = await loadCodespaceConfig({ projectPath: '/tmp/missing' });
+    const result = await loadCodespaceConfig({ codespacePath: '/tmp/missing' });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -58,7 +58,7 @@ describe('config system', () => {
     const previousKey = process.env.ANTHROPIC_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
 
-    const result = await loadCodespaceConfig({ projectPath: '/tmp/missing' });
+    const result = await loadCodespaceConfig({ codespacePath: '/tmp/missing' });
 
     expect(result.ok).toBe(true);
 

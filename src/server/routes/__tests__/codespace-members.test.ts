@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 import type { AuthContext } from '../../../lib/api/auth-middleware.js';
-import { createProjectMembersRoutes } from '../project-members.js';
+import { createCodespaceMembersRoutes } from '../codespace-members.js';
 
 // ── Mock Database ──
 
 function createMockDb() {
   return {
     query: {
-      projectMembers: {
+      codespaceMembers: {
         findMany: vi.fn(),
       },
     },
@@ -49,7 +49,7 @@ function sessionAuth(userId = 'user-1'): AuthContext {
 function createTestApp(auth = devAuth()) {
   const db = createMockDb();
   const rbacService = createMockRbacService();
-  const routes = createProjectMembersRoutes({
+  const routes = createCodespaceMembersRoutes({
     db: db as never,
     rbacService: rbacService as never,
   });
@@ -81,7 +81,7 @@ async function request(app: Hono, method: string, path: string, body?: unknown) 
 
 // ── Tests ──
 
-describe('Project Members API Routes', () => {
+describe('Codespace Members API Routes', () => {
   // ── POST /api/codespaces/:id/members ──
 
   describe('POST /api/codespaces/:id/members', () => {

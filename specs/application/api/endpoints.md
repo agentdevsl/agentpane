@@ -2,11 +2,13 @@
 
 ## Overview
 
-Complete REST API specification for AgentPane. The API is built on **Hono** (`hono` v4.11.5), a lightweight web framework. Each domain area is implemented as a Hono sub-application in a dedicated route file under `src/server/routes/`, then mounted onto the main router via `app.route()` in `src/server/router.ts`.
+Complete REST API specification for AgentPane. The API is built on **Hono** (`hono` v4.x), a lightweight web framework. Each domain area is implemented as a Hono sub-application in a dedicated route file under `src/server/routes/`, then mounted onto the main router via `app.route()` in `src/server/router.ts`.
 
 All endpoints are prefixed with `/api/` and return JSON with a consistent `ok/error` response structure.
 
-**Route files:** 33 files producing 120+ endpoints across 20 domain groups.
+**Route files:** 40+ files producing 240+ endpoints across the documented domain groups.
+
+> **arch29-W3-D (F12-06)** — the project→codespace rename has been completed at the API surface. The previous `/api/projects/*`, `/api/project-folders/*`, `/api/project-members/*`, and `/api/team-projects/*` paths have been renamed to `/api/codespaces/*`, `/api/codespace-folders/*`, `/api/codespaces/:id/members`, and `/api/teams/:id/project-folders` respectively. For one release the server emits a 308 Permanent Redirect from `/api/project-folders/*` → `/api/codespace-folders/*` so existing API clients continue to work; the redirect will be removed in the next release. All other old paths have been replaced (no redirect was added because there was no production API consumer using them when the rename landed).
 
 ---
 
@@ -24,35 +26,43 @@ src/server/
     ├── api-keys.ts
     ├── auth.ts
     ├── cli-monitor.ts
+    ├── codespace-folders.ts   # arch29-W3-D: renamed from project-folders.ts
+    ├── codespace-members.ts   # arch29-W3-D: renamed from project-members.ts
+    ├── codespaces.ts          # was projects.ts
     ├── events.ts
     ├── filesystem.ts
     ├── git.ts
     ├── github.ts
+    ├── github-app.ts
+    ├── github-app-webhooks.ts
     ├── health.ts
     ├── invitation-accept.ts
     ├── marketplaces.ts
     ├── me.ts
-    ├── project-members.ts
-    ├── projects.ts
+    ├── memory.ts
+    ├── metrics.ts
+    ├── admin-metrics.ts
     ├── rbac-tokens.ts
-    ├── sandbox.ts          # 3 exported factories: sandbox configs, K8s, Nomad
+    ├── sandbox.ts             # legacy factories
+    ├── sandbox-configs.ts
+    ├── sandbox-k8s.ts
+    ├── sandbox-nomad.ts
     ├── sandbox-status.ts
     ├── sessions.ts
     ├── settings.ts
-    ├── tags.ts             # 3 exported factories: tags, project-tags, task-tags
+    ├── tags.ts                # 3 exported factories: tags, codespace-tags, task-tags
     ├── task-creation.ts
     ├── tasks.ts
     ├── team-github-token.ts
     ├── team-invitations.ts
     ├── team-members.ts
-    ├── team-projects.ts
+    ├── team-project-folders.ts  # was team-projects.ts
     ├── teams.ts
     ├── templates.ts
     ├── terraform.ts
     ├── webhooks.ts
     ├── workflow-designer.ts
-    ├── workflows.ts
-    └── worktrees.ts
+    └── workflows.ts
 ```
 
 ### Route Factory Pattern
@@ -63,11 +73,11 @@ Each route file exports a factory function that receives service dependencies an
 import { Hono } from 'hono';
 import { json } from '../shared.js';
 
-interface ProjectsDeps {
+interface CodespacesDeps {
   db: Database;
 }
 
-export function createProjectsRoutes({ db }: ProjectsDeps) {
+export function createCodespacesRoutes({ db }: CodespacesDeps) {
   const app = new Hono();
 
   app.get('/', async (c) => {
@@ -82,7 +92,7 @@ export function createProjectsRoutes({ db }: ProjectsDeps) {
 The main router mounts it:
 
 ```typescript
-app.route('/api/projects', createProjectsRoutes({ db }));
+app.route('/api/codespaces', createCodespacesRoutes({ db }));
 ```
 
 ### Response Format
@@ -130,12 +140,12 @@ All `/api/*` routes pass through a middleware chain defined in `router.ts`:
 | `/api/webhooks` | `admin` |
 | `/api/tasks/create-with-ai` | `agent_operator` |
 | `/api/git` | `agent_operator` |
-| `/api/projects`, `/api/tasks`, `/api/agents`, `/api/sessions`, `/api/worktrees` | `viewer` |
+| `/api/codespaces`, `/api/codespace-folders`, `/api/tasks`, `/api/agents`, `/api/sessions` | `viewer` |
 | `/api/github`, `/api/workflows`, `/api/templates`, `/api/workflow-designer` | `viewer` |
 | `/api/marketplaces`, `/api/terraform`, `/api/cli-monitor`, `/api/events` | `viewer` |
 | `/api/sandbox/status` | `viewer` |
 
-Some route handlers perform additional fine-grained role checks (e.g., `requireTeamRole`, `requireProjectRole`) internally.
+Some route handlers perform additional fine-grained role checks (e.g., `requireTeamRole`, `requireCodespaceRole`) internally.
 
 ### Validation Pattern
 
@@ -143,7 +153,7 @@ Routes use either inline Zod validation or the shared `parseBody` / `parseJsonBo
 
 ```typescript
 // Inline pattern
-const parsed = createProjectSchema.safeParse(body);
+const parsed = createCodespaceSchema.safeParse(body);
 if (!parsed.success) {
   return json({ ok: false, error: { code: 'VALIDATION_ERROR', message: '...' } }, 400);
 }
@@ -197,48 +207,76 @@ if (!parsed.ok) return parsed.response;
 
 ---
 
-## Projects
+## Codespaces
 
-**File:** `projects.ts` | **Mount:** `/api/projects`
+**File:** `codespaces.ts` | **Mount:** `/api/codespaces`
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/projects` | List all projects (ordered by `updatedAt` desc) |
-| `POST` | `/api/projects` | Create a new project (validates unique path) |
-| `GET` | `/api/projects/summaries` | List projects with task counts, running agents, status |
-| `GET` | `/api/projects/:id` | Get project by ID |
-| `PATCH` | `/api/projects/:id` | Update project (name, description, config, maxConcurrentAgents) |
-| `DELETE` | `/api/projects/:id` | Delete project (optionally delete files with `?deleteFiles=true`) |
+| `GET` | `/api/codespaces` | List all codespaces (ordered by `updatedAt` desc) |
+| `POST` | `/api/codespaces` | Create a new codespace (validates unique path) |
+| `GET` | `/api/codespaces/summaries` | List codespaces with task counts, running agents, status |
+| `GET` | `/api/codespaces/:id` | Get codespace by ID |
+| `PATCH` | `/api/codespaces/:id` | Update codespace (name, description, config, maxConcurrentAgents) |
+| `DELETE` | `/api/codespaces/:id` | Delete codespace (optionally delete files with `?deleteFiles=true`) |
 
-**Validation (inline Zod):**
+**Validation (`src/server/validation.ts`):**
 
 ```typescript
-const createProjectSchema = z.object({
-  name: z.string().min(1),
-  path: z.string().min(1),
-  description: z.string().optional(),
+export const createCodespaceSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(200),
+  path: z.string().min(1, 'Path is required').max(2048),
+  description: z.string().max(2000).optional(),
+  projectFolderId: idSchema,
 });
 
-const updateProjectSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
+export const updateCodespaceSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(2000).optional(),
   maxConcurrentAgents: z.number().int().positive().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
+  projectFolderId: idSchema.optional(),
+  githubOwner: z.string().min(1).max(200).optional(),
+  githubRepo: z.string().min(1).max(200).optional(),
 });
 ```
 
 ---
 
-## Project Members
+## Codespace Folders
 
-**File:** `project-members.ts` | **Mount:** `/api/projects/:id/members`
+**File:** `codespace-folders.ts` | **Mount:** `/api/codespace-folders`
+
+> arch29-W3-D: previously mounted at `/api/project-folders`. Old path emits 308 redirect.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/projects/:id/members` | List project members with effective roles |
-| `POST` | `/api/projects/:id/members` | Add project member override (requires `admin` role) |
-| `PATCH` | `/api/projects/:id/members/:uid` | Update member role (requires `admin` role) |
-| `DELETE` | `/api/projects/:id/members/:uid` | Remove project member override (requires `admin` role) |
+| `GET` | `/api/codespace-folders` | List all codespace folders (optional `teamId` filter) |
+| `POST` | `/api/codespace-folders` | Create a new folder (auto-generates slug if not provided) |
+| `GET` | `/api/codespace-folders/:id` | Get folder by ID |
+| `PATCH` | `/api/codespace-folders/:id` | Update folder (name, slug, description, icon, color) |
+| `DELETE` | `/api/codespace-folders/:id` | Delete folder (refuses if it contains codespaces) |
+| `GET` | `/api/codespace-folders/:id/codespaces` | List codespaces in this folder |
+| `GET` | `/api/codespace-folders/:id/summary` | Get folder summary (counts, running agents, etc.) |
+
+> The DB table and service are still named `projectFolders` / `ProjectFolderService` because the entity is a "folder of codespaces" — distinct from a single codespace. The rename is scoped to the public API path and route file.
+
+---
+
+## Codespace Members
+
+**File:** `codespace-members.ts` | **Mount:** `/api/codespaces/:id/members`
+
+> arch29-W3-D: route file renamed from `project-members.ts`. The mount path was already `/api/codespaces/:id/members`. Internal symbols renamed (`createCodespaceMembersRoutes`, `addCodespaceMemberSchema`, `updateCodespaceMemberSchema`).
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/codespaces/:id/members` | List codespace members with effective roles |
+| `POST` | `/api/codespaces/:id/members` | Add codespace member override (requires `admin` role) |
+| `PATCH` | `/api/codespaces/:id/members/:uid` | Update member role (requires `admin` role) |
+| `DELETE` | `/api/codespaces/:id/members/:uid` | Remove codespace member override (requires `admin` role) |
+
+Each list item includes `codespaceRole` and (deprecated) `projectRole` mirror plus `effectiveRole` resolved from RBAC.
 
 ---
 
@@ -248,7 +286,7 @@ const updateProjectSchema = z.object({
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/tasks` | List tasks for a project (requires `projectId` query param) |
+| `GET` | `/api/tasks` | List tasks for a codespace (requires `codespaceId` query param) |
 | `POST` | `/api/tasks` | Create a new task |
 | `GET` | `/api/tasks/:id` | Get task by ID |
 | `PUT` | `/api/tasks/:id` | Update a task (title, description, labels, priority) |
@@ -308,7 +346,7 @@ The SSE stream emits events: `connected`, `task-creation:token`, `task-creation:
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/agents` | List agents for a project (requires `projectId` query param) |
+| `GET` | `/api/agents` | List agents for a codespace (requires `codespaceId` query param) |
 | `POST` | `/api/agents` | Create a new agent |
 | `GET` | `/api/agents/:id` | Get agent by ID |
 | `PATCH` | `/api/agents/:id` | Update agent configuration |
@@ -327,7 +365,7 @@ The SSE stream emits events: `connected`, `task-creation:token`, `task-creation:
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/sessions` | List sessions (optional `projectId`, `status`, `agentId`, `search`, `dateFrom`, `dateTo` filters) |
+| `GET` | `/api/sessions` | List sessions (optional `codespaceId`, `status`, `agentId`, `search`, `dateFrom`, `dateTo` filters) |
 | `POST` | `/api/sessions` | Create a new session |
 | `GET` | `/api/sessions/:id` | Get session by ID |
 | `DELETE` | `/api/sessions/:id` | Delete a session |
@@ -345,9 +383,9 @@ Note: The SSE streaming endpoint has been removed. Clients subscribe to Caddy du
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/worktrees` | List worktrees for a project (requires `projectId` query param) |
+| `GET` | `/api/worktrees` | List worktrees for a codespace (requires `codespaceId` query param) |
 | `POST` | `/api/worktrees` | Create a new worktree |
-| `POST` | `/api/worktrees/prune` | Prune stale worktrees for a project |
+| `POST` | `/api/worktrees/prune` | Prune stale worktrees for a codespace |
 | `GET` | `/api/worktrees/:id` | Get worktree status |
 | `DELETE` | `/api/worktrees/:id` | Remove a worktree (`?force=true` to force) |
 | `GET` | `/api/worktrees/:id/diff` | Get diff for a worktree |
@@ -362,7 +400,7 @@ Note: The SSE streaming endpoint has been removed. Clients subscribe to Caddy du
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/git/status` | Get git status for a project (requires `projectId` query param) |
+| `GET` | `/api/git/status` | Get git status for a codespace (requires `codespaceId` query param) |
 | `GET` | `/api/git/branches` | List local branches for a project |
 | `GET` | `/api/git/commits` | List commits (optional `branch` and `limit` query params) |
 | `GET` | `/api/git/remote-branches` | List remote branches (fetches from remote first) |
@@ -415,14 +453,16 @@ Note: The SSE streaming endpoint has been removed. Clients subscribe to Caddy du
 
 ---
 
-## Team Projects
+## Team Project Folders
 
-**File:** `team-projects.ts` | **Mount:** `/api/teams/:id/projects`
+**File:** `team-project-folders.ts` | **Mount:** `/api/teams/:id/project-folders`
+
+> arch29-W3-D: previously named "team-projects". Now scopes folders (each folder contains many codespaces) onto a team.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/teams/:id/projects` | Assign a project to the team (requires `admin` role) |
-| `DELETE` | `/api/teams/:id/projects/:projectId` | Remove a project from the team (requires `admin` role) |
+| `POST` | `/api/teams/:id/project-folders` | Assign a folder to the team (requires `admin` role) |
+| `DELETE` | `/api/teams/:id/project-folders/:folderId` | Remove a folder from the team (requires `admin` role) |
 
 ---
 
@@ -476,14 +516,16 @@ Validates token hash, checks email match against GitHub OAuth email, and adds us
 
 ---
 
-## Project Tags
+## Codespace Tags
 
-**File:** `tags.ts` (exported as `createProjectTagRoutes`) | **Mount:** `/api/projects/:id/tags`
+**File:** `tags.ts` (exported as `createProjectTagRoutes`) | **Mount:** `/api/codespaces/:id/tags`
+
+> arch29-W3-D: mounted at `/api/codespaces/:id/tags`. The exported factory name `createProjectTagRoutes` is a legacy holdover and not user-visible.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/projects/:id/tags` | Assign a tag to a project (requires `agent_operator` on project) |
-| `DELETE` | `/api/projects/:id/tags/:tagId` | Remove a tag from a project |
+| `POST` | `/api/codespaces/:id/tags` | Assign a tag to a codespace (requires `agent_operator` on codespace) |
+| `DELETE` | `/api/codespaces/:id/tags/:tagId` | Remove a tag from a codespace |
 
 ---
 
@@ -535,7 +577,7 @@ Sensitive fields (`sandbox.nomad.token`, `sandbox.agentcore.secretAccessKey`) ar
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/templates` | List templates (optional `scope`, `projectId`, `limit` filters) |
+| `GET` | `/api/templates` | List templates (optional `scope`, `codespaceId`, `limit` filters) |
 | `POST` | `/api/templates` | Create a template (requires `name`, `scope`, `githubUrl`) |
 | `GET` | `/api/templates/:id` | Get template by ID |
 | `PATCH` | `/api/templates/:id` | Update a template |
@@ -659,7 +701,7 @@ The SSE stream sends an initial `cli-monitor:snapshot` event, then relays live e
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/events/subscriptions` | List subscriptions (optional `sourceId`, `projectId` filters) |
+| `GET` | `/api/events/subscriptions` | List subscriptions (optional `sourceId`, `codespaceId` filters) |
 | `GET` | `/api/events/subscriptions/:id` | Get subscription by ID |
 | `POST` | `/api/events/subscriptions` | Create a subscription |
 | `PATCH` | `/api/events/subscriptions/:id` | Update a subscription |
@@ -700,8 +742,8 @@ The SSE stream sends an initial `cli-monitor:snapshot` event, then relays live e
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/sandbox/status/:projectId` | Get sandbox mode, container status, and provider health (Docker, K8s, Nomad) |
-| `POST` | `/api/sandbox/status/:projectId/restart` | Restart the sandbox container |
+| `GET` | `/api/sandbox/status/:codespaceId` | Get sandbox mode, container status, and provider health (Docker, K8s, Nomad) |
+| `POST` | `/api/sandbox/status/:codespaceId/restart` | Restart the sandbox container |
 
 Includes self-healing: auto-creates the default sandbox when Docker/K8s is available but no container exists.
 
