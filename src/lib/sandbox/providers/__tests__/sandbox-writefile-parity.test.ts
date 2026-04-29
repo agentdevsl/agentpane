@@ -136,7 +136,6 @@ describe('K8s AgentSandboxInstance.writeFile (arch29-W2-I F04-06)', () => {
       'sandbox-name-1',
       'cs-1',
       'agentpane-sandboxes',
-      // biome-ignore lint/suspicious/noExplicitAny: client mock fits the shape
       client as any
     );
 
@@ -197,7 +196,6 @@ describe('K8s AgentSandboxInstance.writeFile (arch29-W2-I F04-06)', () => {
       'sandbox-name-1',
       'cs-1',
       'ns',
-      // biome-ignore lint/suspicious/noExplicitAny: client mock fits the shape
       client as any
     );
 
@@ -263,7 +261,6 @@ describe('Nomad NomadSandboxInstance.writeFile (arch29-W2-I F04-06)', () => {
       'alloc-1',
       'cs-1',
       'default',
-      // biome-ignore lint/suspicious/noExplicitAny: client mock fits the shape
       client as any
     );
 
@@ -330,7 +327,6 @@ describe('Nomad NomadSandboxInstance.writeFile (arch29-W2-I F04-06)', () => {
       'alloc-1',
       'cs-1',
       'default',
-      // biome-ignore lint/suspicious/noExplicitAny: client mock fits the shape
       client as any
     );
     (instance as unknown as { _status: string })._status = 'running';
@@ -350,7 +346,6 @@ describe('Nomad NomadSandboxInstance.writeFile (arch29-W2-I F04-06)', () => {
       'alloc-1',
       'cs-1',
       'default',
-      // biome-ignore lint/suspicious/noExplicitAny: client mock fits the shape
       client as any
     );
     // Default _status is 'creating' — assertRunning() should throw.

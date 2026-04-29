@@ -79,7 +79,6 @@ describe('F06-NEW-01: command-runner argv survives shell metacharacters', () => 
         const runner = createSandboxCommandRunner(sandbox);
 
         // Pretend a hostile branch name reaches `git branch -D <branch>`.
-        // biome-ignore lint/style/noNonNullAssertion: createSandboxCommandRunner always supplies execArgs.
         runner.execArgs!(['git', 'branch', '-D', hostile], '/tmp/cwd');
 
         // sandbox.exec is called as `('sh', ['-c', "cd '/tmp/cwd' && exec \"$@\"",
@@ -107,7 +106,6 @@ describe('F06-NEW-01: command-runner argv survives shell metacharacters', () => 
           exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
         };
         const runner = createSandboxCommandRunner(sandbox);
-        // biome-ignore lint/style/noNonNullAssertion: createSandboxCommandRunner always supplies execArgs.
         runner.execArgs!(['echo', hostile], '/tmp');
         const [, args] = sandbox.exec.mock.calls[0]!;
         expect(args[args.length - 1]).toBe(hostile);
@@ -124,7 +122,6 @@ describe('F06-NEW-01: command-runner argv survives shell metacharacters', () => 
           exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
         };
         const runner = createSandboxCommandRunner(sandbox);
-        // biome-ignore lint/style/noNonNullAssertion: createSandboxCommandRunner always supplies execArgs.
         runner.execArgs!(['echo', hostile], '/tmp');
         const [, args] = sandbox.exec.mock.calls[0]!;
         expect(args[args.length - 1]).toBe(hostile);
@@ -141,7 +138,6 @@ describe('F06-NEW-01: command-runner argv survives shell metacharacters', () => 
           exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
         };
         const runner = createSandboxCommandRunner(sandbox);
-        // biome-ignore lint/style/noNonNullAssertion: createSandboxCommandRunner always supplies execArgs.
         runner.execArgs!(['echo', hostile], '/tmp');
         const [, args] = sandbox.exec.mock.calls[0]!;
         expect(args[args.length - 1]).toBe(hostile);
@@ -156,17 +152,20 @@ describe('F06-NEW-01: command-runner argv survives shell metacharacters', () => 
 
   it('hostile arg with command substitution `$()` is NOT evaluated', () => {
     fc.assert(
-      fc.property(fc.constantFrom('$(whoami)', 'foo$(rm -rf /)', '`id`', '${HOME}'), (hostile) => {
-        const sandbox = {
-          exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
-        };
-        const runner = createSandboxCommandRunner(sandbox);
-        // biome-ignore lint/style/noNonNullAssertion: createSandboxCommandRunner always supplies execArgs.
-        runner.execArgs!(['echo', hostile], '/tmp');
-        const [, args] = sandbox.exec.mock.calls[0]!;
-        expect(args[args.length - 1]).toBe(hostile);
-        expect(args[1]).toBe(TEMPLATE_TMP);
-      }),
+      fc.property(
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: literal shell-expansion sequences are fuzz inputs
+        fc.constantFrom('$(whoami)', 'foo$(rm -rf /)', '`id`', '${HOME}'),
+        (hostile) => {
+          const sandbox = {
+            exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
+          };
+          const runner = createSandboxCommandRunner(sandbox);
+          runner.execArgs!(['echo', hostile], '/tmp');
+          const [, args] = sandbox.exec.mock.calls[0]!;
+          expect(args[args.length - 1]).toBe(hostile);
+          expect(args[1]).toBe(TEMPLATE_TMP);
+        }
+      ),
       { numRuns: 50 }
     );
   });
@@ -187,7 +186,6 @@ describe('F06-NEW-01: command-runner argv survives shell metacharacters', () => 
             exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
           };
           const runner = createSandboxCommandRunner(sandbox);
-          // biome-ignore lint/style/noNonNullAssertion: createSandboxCommandRunner always supplies execArgs.
           runner.execArgs!(['printf', hostile], '/tmp');
           const [, args] = sandbox.exec.mock.calls[0]!;
           // Hostile chars are delivered as a single positional argument

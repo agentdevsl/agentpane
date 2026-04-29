@@ -69,11 +69,12 @@ function tooLarge(c: Context, maxBytes: number): Response {
 export function bodyLimit(options: BodyLimitOptions = {}): MiddlewareHandler {
   const maxBytes = options.maxBytes ?? DEFAULT_BODY_LIMIT_BYTES;
 
-  return async function bodyLimitMiddleware(c: Context, next: Next): Promise<Response | void> {
+  return async function bodyLimitMiddleware(c: Context, next: Next) {
     // No body to inspect for read-only methods.
     const method = c.req.method.toUpperCase();
     if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS' || method === 'DELETE') {
-      return next();
+      await next();
+      return;
     }
 
     // Fast path: reject by Content-Length before reading anything.
@@ -149,6 +150,7 @@ export function bodyLimit(options: BodyLimitOptions = {}): MiddlewareHandler {
       c.res = tooLarge(c, maxBytes);
       c.error = undefined;
     }
+    return;
   };
 }
 

@@ -55,7 +55,6 @@ function makeSandboxState(
   containerAgentService: ServiceContainer['containerAgentService']
 ): SandboxState {
   return {
-    // biome-ignore lint/suspicious/noExplicitAny: stub provider sufficient for the reconcile path
     provider: { name: 'test-provider', list: async () => [] } as any,
     containerAgentService,
     k8sProvider: null,
@@ -94,12 +93,9 @@ describe('F03-12 — bootstrap calls containerAgentService.reconcile()', () => {
     // started this run, `state.hasAnyRunningAgent(taskId)` returns false
     // — the task is orphaned by the reconcile() contract.
     const containerAgentService = createContainerAgentService(
-      // biome-ignore lint/suspicious/noExplicitAny: tests pass a sqlite test db that satisfies the dual-dialect Database type at runtime
       db as any,
-      // biome-ignore lint/suspicious/noExplicitAny: stubbed provider for unit isolation
       makeNoopProvider() as any,
       makeNoopStreams(),
-      // biome-ignore lint/suspicious/noExplicitAny: stubbed apiKeyService for unit isolation
       makeNoopApiKeyService() as any
     );
 
@@ -110,16 +106,9 @@ describe('F03-12 — bootstrap calls containerAgentService.reconcile()', () => {
 
     const sandboxState = makeSandboxState(containerAgentService);
 
-    // biome-ignore lint/suspicious/noExplicitAny: minimal services container — only what runSandboxReconciliation needs to delegate
     const services = {} as any as ServiceContainer;
 
-    await runSandboxReconciliation(
-      // biome-ignore lint/suspicious/noExplicitAny: tests pass a sqlite test db that satisfies the dual-dialect Database type at runtime
-      db as any,
-      services,
-      sandboxState,
-      'sqlite'
-    );
+    await runSandboxReconciliation(db as any, services, sandboxState, 'sqlite');
 
     // Wire assertion: reconcile() was actually called.
     expect(reconcileSpy).toHaveBeenCalledTimes(1);
@@ -145,17 +134,10 @@ describe('F03-12 — bootstrap calls containerAgentService.reconcile()', () => {
 
     const sandboxState = makeSandboxState(null);
 
-    // biome-ignore lint/suspicious/noExplicitAny: minimal services container
     const services = {} as any as ServiceContainer;
 
     // No throw, no orphan move, but reconciled flag should still flip true.
-    await runSandboxReconciliation(
-      // biome-ignore lint/suspicious/noExplicitAny: tests pass a sqlite test db that satisfies the dual-dialect Database type at runtime
-      db as any,
-      services,
-      sandboxState,
-      'sqlite'
-    );
+    await runSandboxReconciliation(db as any, services, sandboxState, 'sqlite');
 
     expect(sandboxState.reconciled).toBe(true);
 

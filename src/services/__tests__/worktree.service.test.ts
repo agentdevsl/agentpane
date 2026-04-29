@@ -1282,9 +1282,11 @@ describe('WorktreeService', () => {
       expect(() => validateShellCommand('cmd < file')).toThrow();
     });
 
-    it('rejects `${var}` expansion', async () => {
+    it('rejects shell variable-expansion sequence', async () => {
       const { validateShellCommand } = await import('../worktree.service.js');
-      expect(() => validateShellCommand('echo ${HOME}')).toThrow();
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: literal shell-expansion sequence is the test input
+      const dollarBrace = '${HOME}';
+      expect(() => validateShellCommand(`echo ${dollarBrace}`)).toThrow();
     });
 
     it('rejects backslash-newline continuation', async () => {

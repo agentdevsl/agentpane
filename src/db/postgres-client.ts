@@ -39,7 +39,9 @@ import type { PostgresClientConfig } from '../server/bootstrap/types.js';
  * connection. Exported for tests and callers that have already parsed the
  * config (e.g. the primary bootstrap phase).
  */
-export function buildPostgresOptions(config: PostgresClientConfig): postgres.Options<{}> {
+export function buildPostgresOptions(
+  config: PostgresClientConfig
+): postgres.Options<Record<string, never>> {
   return {
     max: config.max,
     idle_timeout: config.idleTimeoutSeconds,

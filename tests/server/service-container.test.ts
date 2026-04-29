@@ -57,7 +57,6 @@ describe('createServiceContainer wiring', () => {
 
   it('F01-03: registers an EventOutboxRelayService instance on the container', () => {
     const db = getTestDb();
-    // biome-ignore lint/suspicious/noExplicitAny: tests pass a sqlite test db that satisfies the dual-dialect Database type at runtime
     const services = createServiceContainer(db as any, makeConfig());
 
     // Before fix: `eventOutboxRelayService` was not present on the container.
@@ -68,7 +67,6 @@ describe('createServiceContainer wiring', () => {
 
   it('F01-04: constructs a PlanModeService instance on the container', () => {
     const db = getTestDb();
-    // biome-ignore lint/suspicious/noExplicitAny: tests pass a sqlite test db that satisfies the dual-dialect Database type at runtime
     const services = createServiceContainer(db as any, makeConfig());
 
     // Before fix: `planModeService` was undefined; the admin-metrics endpoint
@@ -82,7 +80,6 @@ describe('createServiceContainer wiring', () => {
 
   it('F01-05: TaskCreationService is constructed with settingsService', async () => {
     const db = getTestDb();
-    // biome-ignore lint/suspicious/noExplicitAny: tests pass a sqlite test db that satisfies the dual-dialect Database type at runtime
     const services = createServiceContainer(db as any, makeConfig());
 
     // Persist an admin override for the task-creation model.
@@ -93,7 +90,6 @@ describe('createServiceContainer wiring', () => {
     // The TaskCreationService must read the override from settingsService;
     // before fix it ignored it (4th arg was undefined) and returned the
     // hard-coded default.
-    // biome-ignore lint/suspicious/noExplicitAny: introspection of private field for the regression assertion
     const wired = (services.taskCreationService as any).settingsService;
     expect(wired).toBeDefined();
     expect(wired).toBe(services.settingsService);
