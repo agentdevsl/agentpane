@@ -8,6 +8,8 @@ import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { agents } from '../../db/schema';
+import type { AuthContext } from '../../lib/api/auth-middleware.js';
+import { applyTokenTagFilter } from '../../lib/api/rbac-middleware.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import { deriveGitHubFromPath } from '../../lib/sandbox/git-token-resolver.js';
 import type { CodespaceService } from '../../services/codespace.service.js';
@@ -25,7 +27,7 @@ interface CodespacesDeps {
 }
 
 export function createCodespacesRoutes({ codespaceService, templateService, db }: CodespacesDeps) {
-  const app = new Hono();
+  const app = new Hono<{ Variables: { auth: AuthContext } }>();
 
   // GET /api/codespaces
   app.get('/', async (c) => {
@@ -40,10 +42,14 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
       );
     }
 
+    // F06-NEW-07: filter by tag scope when the token is tag-restricted.
+    const auth = c.get('auth') as AuthContext | undefined;
+    const filteredItems = await applyTokenTagFilter(db, auth, result.value, (cs) => cs.id);
+
     return json({
       ok: true,
       data: {
-        items: result.value.map((p) => ({
+        items: filteredItems.map((p) => ({
           id: p.id,
           name: p.name,
           path: p.path,
@@ -54,7 +60,7 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
         })),
         nextCursor: null,
         hasMore: false,
-        totalCount: result.value.length,
+        totalCount: filteredItems.length,
       },
     });
   });
@@ -136,10 +142,19 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
 
       const summaries = result.value;
 
+      // F06-NEW-07: filter by tag scope when the token is tag-restricted.
+      const auth = c.get('auth') as AuthContext | undefined;
+      const filteredSummaries = await applyTokenTagFilter(
+        db,
+        auth,
+        summaries,
+        (s) => s.codespace.id
+      );
+
       return json({
         ok: true,
         data: {
-          items: summaries.map((s) => ({
+          items: filteredSummaries.map((s) => ({
             codespace: {
               id: s.codespace.id,
               name: s.codespace.name,
@@ -163,7 +178,7 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
           })),
           nextCursor: null,
           hasMore: false,
-          totalCount: summaries.length,
+          totalCount: filteredSummaries.length,
         },
       });
     } catch (error) {

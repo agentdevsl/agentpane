@@ -39,7 +39,7 @@ describe('Task plan approval API routes', () => {
 
   beforeEach(() => {
     taskService = createMockTaskService();
-    const routes = createTasksRoutes({ taskService });
+    const routes = createTasksRoutes({ taskService, db: {} as never });
     app = new Hono();
     app.route('/api/tasks', routes);
   });
@@ -73,7 +73,7 @@ describe('Task plan approval API routes', () => {
             err({ code: 'SANDBOX_PLAN_NOT_FOUND', message: 'No pending plan', status: 404 })
           ),
       });
-      const routes = createTasksRoutes({ taskService });
+      const routes = createTasksRoutes({ taskService, db: {} as never });
       app = new Hono();
       app.route('/api/tasks', routes);
 
@@ -93,7 +93,7 @@ describe('Task plan approval API routes', () => {
             err({ code: 'SANDBOX_AGENT_START_FAILED', message: 'DB error', status: 500 })
           ),
       });
-      const routes = createTasksRoutes({ taskService });
+      const routes = createTasksRoutes({ taskService, db: {} as never });
       app = new Hono();
       app.route('/api/tasks', routes);
 
@@ -140,7 +140,7 @@ describe('Task plan approval API routes', () => {
             err({ code: 'SANDBOX_PLAN_NOT_FOUND', message: 'No pending plan', status: 404 })
           ),
       });
-      const routes = createTasksRoutes({ taskService });
+      const routes = createTasksRoutes({ taskService, db: {} as never });
       app = new Hono();
       app.route('/api/tasks', routes);
 

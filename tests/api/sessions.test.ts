@@ -50,6 +50,7 @@ describe('Session API', () => {
     vi.clearAllMocks();
     app = createSessionsRoutes({
       sessionService: sessionServiceMocks as never,
+      db: {} as never,
     });
   });
 

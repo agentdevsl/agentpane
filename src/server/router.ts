@@ -516,12 +516,12 @@ export function createRouter(deps: RouterDependencies) {
     '/api/project-folders',
     createProjectFoldersRoutes({ projectFolderService: deps.projectFolderService })
   );
-  app.route('/api/agents', createAgentsRoutes({ agentService: deps.agentService }));
+  app.route('/api/agents', createAgentsRoutes({ agentService: deps.agentService, db: deps.db }));
   app.route(
     '/api/tasks/create-with-ai',
     createTaskCreationRoutes({ taskCreationService: deps.taskCreationService })
   );
-  app.route('/api/tasks', createTasksRoutes({ taskService: deps.taskService }));
+  app.route('/api/tasks', createTasksRoutes({ taskService: deps.taskService, db: deps.db }));
   app.route('/api/workflows', createWorkflowsRoutes({ workflowService: deps.workflowService }));
   app.route('/api/templates', createTemplatesRoutes({ templateService: deps.templateService }));
   app.route(
@@ -532,6 +532,7 @@ export function createRouter(deps: RouterDependencies) {
     '/api/sessions',
     createSessionsRoutes({
       sessionService: deps.sessionService,
+      db: deps.db,
     })
   );
   app.route('/api/github', createGitHubRoutes({ githubService: deps.githubService }));

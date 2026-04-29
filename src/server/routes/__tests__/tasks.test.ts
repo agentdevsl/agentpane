@@ -25,7 +25,10 @@ function createMockTaskService() {
 
 function createTestApp() {
   const taskService = createMockTaskService();
-  const routes = createTasksRoutes({ taskService: taskService as never });
+  // Minimal stub DB for the tag-filter helper. Tests do not exercise tag
+  // restrictions; the helper short-circuits when `auth.tagFilter` is unset.
+  const db = {} as never;
+  const routes = createTasksRoutes({ taskService: taskService as never, db });
   const app = new Hono();
   app.route('/api/tasks', routes);
   return { app, taskService };
