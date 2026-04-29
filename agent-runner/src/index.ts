@@ -34,6 +34,7 @@ import {
   unstable_v2_createSession,
   unstable_v2_resumeSession,
 } from '@anthropic-ai/claude-agent-sdk';
+import { type AgentDefinition, parseAgentFrontmatter } from './agent-frontmatter.js';
 import { createEventEmitter } from './event-emitter.js';
 import { createAgentRunnerLogger } from './logger.js';
 // SC-023: Shared session utilities. index.ts still uses its own writeCredentialsFile
@@ -55,19 +56,21 @@ const VALID_TOPOLOGY_STATUSES = new Set(['completed', 'failed', 'stopped']);
 
 /**
  * Load agent definitions from .claude/agents/*.md files.
- * Parses YAML frontmatter to create SDK AgentDefinition records.
- * Returns a Record<string, AgentDefinition> keyed by agent name.
+ *
+ * Each file is parsed via {@link parseAgentFrontmatter}, which uses a real
+ * YAML parser (`yaml` package) and a strict schema. The previous hand-rolled
+ * regex parser was bypassable by injecting `\n`-laden fields that the host
+ * serialiser correctly quoted but the runner mis-decoded — see F06-NEW-04
+ * in `specs/arch_review_april29/06-security.md` and the comment block in
+ * `agent-frontmatter.ts`.
+ *
+ * Returns a Record<string, AgentDefinition> keyed by agent name. Files that
+ * fail validation are logged and skipped — one bad file never aborts the
+ * whole load, matching the prior behaviour.
  */
-async function loadAgentDefinitions(
-  cwd: string
-): Promise<
-  Record<string, { description: string; tools?: string[]; prompt: string; model?: string }>
-> {
+async function loadAgentDefinitions(cwd: string): Promise<Record<string, AgentDefinition>> {
   const agentsDir = join(cwd, '.claude', 'agents');
-  const agents: Record<
-    string,
-    { description: string; tools?: string[]; prompt: string; model?: string }
-  > = {};
+  const agents: Record<string, AgentDefinition> = {};
 
   try {
     const { readdir } = await import('node:fs/promises');
@@ -76,41 +79,16 @@ async function loadAgentDefinitions(
       if (!file.endsWith('.md')) continue;
       try {
         const content = await readFile(join(agentsDir, file), 'utf-8');
-        // Parse YAML frontmatter between --- delimiters
-        const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)/);
-        if (!match) continue;
-
-        const frontmatter = match[1];
-        const body = match[2]?.trim() ?? '';
-
-        // Simple YAML parsing for key fields. Strip surrounding quotes so
-        // `name: "my-agent"` is read as `my-agent`, matching how the SDK supplies
-        // subagent_type values.
-        const unquote = (v: string | undefined): string | undefined =>
-          v?.replace(/^['"]|['"]$/g, '').trim();
-        const name = unquote(frontmatter.match(/^name:\s*(.+)$/m)?.[1]?.trim());
-        const description = unquote(frontmatter.match(/^description:\s*(.+)$/m)?.[1]?.trim());
-        const model = unquote(frontmatter.match(/^model:\s*(.+)$/m)?.[1]?.trim());
-
-        // Parse tools array
-        const toolsMatch = frontmatter.match(/^tools:\n((?:\s+-\s+.+\n?)*)/m);
-        const tools = toolsMatch
-          ? toolsMatch[1]
-              .split('\n')
-              .map((l) => unquote(l.replace(/^\s+-\s+/, '').trim()))
-              .filter((v): v is string => Boolean(v))
-          : undefined;
-
-        if (!name || !description) continue;
-
-        agents[name] = {
-          description,
-          tools,
-          prompt: body || description,
-          ...(model && model !== 'inherit' ? { model } : {}),
-        };
-      } catch {
-        // Skip individual file parse errors
+        const parsed = parseAgentFrontmatter(content);
+        if (!parsed) {
+          log.error(`[agent-runner] Skipped agent file (invalid frontmatter): ${file}`);
+          continue;
+        }
+        agents[parsed.name] = parsed.definition;
+      } catch (err) {
+        // Skip individual file parse errors but log so we don't lose visibility.
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.error(`[agent-runner] Failed to read agent file ${file}: ${errMsg}`);
       }
     }
     log.error(
