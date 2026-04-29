@@ -55,6 +55,7 @@ export const K8S_ERROR_IDS = {
   NETWORK_POLICY_NOT_FOUND: 'K8S-801',
   NETWORK_POLICY_UPDATE_FAILED: 'K8S-802',
   NETWORK_POLICY_DELETION_FAILED: 'K8S-803',
+  NETWORK_ISOLATION_UNSUPPORTED: 'K8S-804',
 
   // RBAC (900-999)
   SERVICE_ACCOUNT_CREATION_FAILED: 'K8S-900',
@@ -246,6 +247,21 @@ export const K8sErrors = {
       `Failed to delete network policy ${policyName}: ${message}`,
       500,
       { policyName }
+    ),
+
+  /**
+   * arch29-W2-J / F04-09: Surfaced when `SANDBOX_DEFAULT_NETWORK_MODE=none` is
+   * requested but the cluster does not expose `networking.k8s.io/v1`
+   * NetworkPolicy resources, which means a default-deny policy cannot be
+   * created. We fail-closed at boot so the operator notices the gap rather
+   * than silently shipping sandboxes with bridge-level access.
+   */
+  NETWORK_ISOLATION_UNSUPPORTED: (provider: string, reason: string) =>
+    createError(
+      'K8S_NETWORK_ISOLATION_UNSUPPORTED',
+      `Network isolation requested (SANDBOX_DEFAULT_NETWORK_MODE=none) but ${provider} cannot enforce it: ${reason}`,
+      500,
+      { provider, reason }
     ),
 
   // RBAC errors

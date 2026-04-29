@@ -10,11 +10,11 @@ import {
   TimeoutError,
 } from '@agentpane/nomad-sandbox-sdk';
 import { createId } from '@paralleldrive/cuid2';
-import { NomadErrors } from '../../errors/nomad-errors.js';
+import { NOMAD_ERROR_IDS, NomadErrors } from '../../errors/nomad-errors.js';
 import { createLogger } from '../../logging/logger.js';
 import { errorMessage } from '../../utils/error-message';
 import type { SandboxConfig, SandboxHealthCheck, SandboxInfo, SandboxStatus } from '../types.js';
-import { SANDBOX_DEFAULTS } from '../types.js';
+import { getDefaultSandboxNetworkMode, SANDBOX_DEFAULTS } from '../types.js';
 import { NomadSandboxInstance } from './nomad-sandbox-instance.js';
 import type {
   EventEmittingSandboxProvider,
@@ -101,6 +101,13 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
   private readonly datacenter: string;
   private readonly image: string;
   private readonly readyTimeoutSeconds: number;
+  /**
+   * arch29-W2-J / F04-09: when true, every `create()` will set the task group
+   * network stanza to `mode = "none"` so the workload has no network access.
+   * Defaults to `true` whenever `SANDBOX_DEFAULT_NETWORK_MODE=none` is set;
+   * otherwise `false` (sandboxes use the cluster default network).
+   */
+  private readonly enforceNetworkIsolation: boolean;
 
   private sandboxes = new Map<string, NomadSandboxInstance>();
   private codespaceToSandbox = new Map<string, string>();
@@ -112,17 +119,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
     this.datacenter = options.datacenter ?? PROVIDER_DEFAULTS.datacenter;
     this.image = options.image ?? SANDBOX_DEFAULTS.image;
     this.readyTimeoutSeconds = options.readyTimeoutSeconds ?? PROVIDER_DEFAULTS.readyTimeoutSeconds;
-
-    // theme-04 P1-06: Network isolation on Nomad (Consul Connect / network
-    // stanza) is not yet wired up. Emit a warning if the operator has opted
-    // into isolation so the gap is not silent.
-    if (process.env.SANDBOX_DEFAULT_NETWORK_MODE === 'none') {
-      log.warn(
-        'SANDBOX_DEFAULT_NETWORK_MODE=none is set but the Nomad provider does ' +
-          'not yet set a network-mode-none stanza. Sandboxes will use the cluster ' +
-          'default network. See specs/arch_review_april/04-sandbox-providers.md.'
-      );
-    }
+    this.enforceNetworkIsolation = getDefaultSandboxNetworkMode() === 'none';
 
     // Use injected client or create a new one via the SDK
     this.client =
@@ -133,6 +130,56 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         namespace: this.namespace,
         region: options.region,
       });
+  }
+
+  /**
+   * arch29-W2-J / F04-09: Verify the cluster can enforce a
+   * `network { mode = "none" }` stanza. Called from boot when
+   * `SANDBOX_DEFAULT_NETWORK_MODE=none` is set, so we fail-closed before any
+   * sandbox is provisioned.
+   *
+   * Throws `NomadErrors.NETWORK_ISOLATION_UNSUPPORTED` when:
+   * - The Nomad cluster is unreachable (cannot verify support), OR
+   * - The cluster's reported version is older than 0.10 (the version that
+   *   introduced network mode `"none"` for the Docker driver).
+   *
+   * No-op when network isolation is not requested.
+   */
+  async assertNetworkIsolationSupport(): Promise<void> {
+    if (!this.enforceNetworkIsolation) return;
+
+    try {
+      const health = await this.client.healthCheck();
+      if (!health.healthy) {
+        throw NomadErrors.NETWORK_ISOLATION_UNSUPPORTED(
+          'cluster unhealthy — cannot verify network-mode-none support'
+        );
+      }
+      // Nomad 0.10+ supports `mode = "none"` for the Docker driver. Older
+      // versions ignore the stanza, which would silently permit network
+      // access. If the version string is not parseable, we fail closed.
+      const version = (health as { version?: string }).version;
+      if (version) {
+        // Parse a leading semver-like prefix; reject anything below 0.10.
+        const match = version.match(/^v?(\d+)\.(\d+)/);
+        if (match) {
+          const major = parseInt(match[1] ?? '0', 10);
+          const minor = parseInt(match[2] ?? '0', 10);
+          if (major === 0 && minor < 10) {
+            throw NomadErrors.NETWORK_ISOLATION_UNSUPPORTED(
+              `Nomad ${version} predates the network mode 'none' stanza (introduced in 0.10)`
+            );
+          }
+        }
+      }
+    } catch (error) {
+      // If the error is already a typed NETWORK_ISOLATION_UNSUPPORTED, rethrow.
+      const code = (error as { code?: string }).code;
+      if (code === NOMAD_ERROR_IDS.NETWORK_ISOLATION_UNSUPPORTED) throw error;
+      throw NomadErrors.NETWORK_ISOLATION_UNSUPPORTED(
+        `unable to verify cluster support (${errorMessage(error)})`
+      );
+    }
   }
 
   // --- SandboxProvider interface ---
@@ -186,6 +233,18 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         .meta(NOMAD_META.SANDBOX_ID, sandboxId)
         .meta(NOMAD_META.PROJECT_ID, config.codespaceId)
         .build();
+
+      // arch29-W2-J / F04-09: when network isolation is requested via
+      // `SANDBOX_DEFAULT_NETWORK_MODE=none`, set the task group's network
+      // stanza to mode `"none"` so the workload has no network access. This
+      // lands as a real `network { mode = "none" }` block in the job spec
+      // (Docker driver supports this since Nomad 0.10).
+      if (this.enforceNetworkIsolation) {
+        const firstGroup = jobSpec.TaskGroups?.[0];
+        if (firstGroup) {
+          firstGroup.Networks = [{ Mode: 'none' }];
+        }
+      }
 
       // Register the job with Nomad
       await this.client.registerJob(jobSpec);
