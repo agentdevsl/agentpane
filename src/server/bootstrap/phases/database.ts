@@ -102,10 +102,20 @@ async function initializePostgres(config: ServerConfig): Promise<DatabaseResult>
   });
   const db = drizzlePg(pgClient, { schema: pgSchema }) as unknown as Database;
 
-  await migratePg(db as unknown as ReturnType<typeof drizzlePg>, {
-    migrationsFolder: './src/db/migrations-pg',
-  });
-  log.info('PostgreSQL migrations applied');
+  // F11-17: When migrations have already been applied out-of-band (e.g. by
+  // the Helm pre-upgrade Job), skip the in-process migrator. Replicas that
+  // each call migratePg() race the Drizzle advisory lock; under retry storms
+  // one pod can interleave ahead of another. The pre-upgrade Job is the
+  // single mutator path; app pods run `migrate-check-only.ts` from start.sh
+  // and refuse to start on stale schema.
+  if (process.env.MIGRATIONS_PRE_APPLIED === 'true') {
+    log.info('Skipping in-process migrate (MIGRATIONS_PRE_APPLIED=true)');
+  } else {
+    await migratePg(db as unknown as ReturnType<typeof drizzlePg>, {
+      migrationsFolder: './src/db/migrations-pg',
+    });
+    log.info('PostgreSQL migrations applied');
+  }
 
   return { db, sqlite: null, pgClient };
 }
@@ -120,8 +130,15 @@ function initializeSqlite(config: ServerConfig): DatabaseResult {
   sqlite.exec('PRAGMA foreign_keys=ON');
   log.info('SQLite WAL mode enabled', { data: { dbPath } });
 
-  // Run all migrations via the consolidated runner
-  runMigrations(sqlite, MIGRATIONS);
+  // F11-17: skip in-process migrate when an out-of-band runner has already
+  // applied the schema (CD pipeline, init container). start.sh has already
+  // verified the schema via `migrate-check-only.ts` so we know it's current.
+  if (process.env.MIGRATIONS_PRE_APPLIED === 'true') {
+    log.info('Skipping in-process migrate (MIGRATIONS_PRE_APPLIED=true)');
+  } else {
+    // Run all migrations via the consolidated runner
+    runMigrations(sqlite, MIGRATIONS);
+  }
 
   // Seed default team for existing installations with orphaned github_tokens
   seedDefaultTeamForExistingTokens(sqlite);

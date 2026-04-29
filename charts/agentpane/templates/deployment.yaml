@@ -45,6 +45,45 @@ spec:
       # budget in src/server/bootstrap/shutdown.ts (30s) plus a few seconds of
       # slack for SSE / sandbox stop calls. Operators can override.
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 60 }}
+      {{- if .Values.migrationJob.enabled }}
+      # F11-17: Init container that refuses to start the app when the schema is
+      # behind. The Helm pre-upgrade Job is the only path that mutates the
+      # schema; app pods set MIGRATIONS_PRE_APPLIED=true so the in-process
+      # migrator no-ops. If the schema_migrations table is missing or the
+      # Drizzle ledger lags the bundled journal, this container exits non-zero
+      # and Kubernetes prevents the main container from starting.
+      initContainers:
+        - name: migrate-check
+          image: {{ include "agentpane.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command: ["bun", "run", "migrate:check-only"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "agentpane.fullname" . }}
+          env:
+            {{- if and .Values.database.external.enabled .Values.database.external.existingSecret }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.external.existingSecret }}
+                  key: {{ .Values.database.external.secretKeys.urlKey | default "DATABASE_URL" }}
+            {{- else }}
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agentpane.database.secretName" . }}
+                  key: {{ include "agentpane.database.passwordKey" . }}
+            - name: DATABASE_URL
+              value: {{ include "agentpane.database.url" . | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.migrationJob.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           image: {{ include "agentpane.image" . }}
@@ -64,6 +103,13 @@ spec:
             - configMapRef:
                 name: {{ include "agentpane.fullname" . }}
           env:
+            {{- if .Values.migrationJob.enabled }}
+            {{/* F11-17: pre-upgrade Job has already migrated. App pods must
+                 not race the in-process migrator; the migrate-check init
+                 container guards against starting on a stale schema. */}}
+            - name: MIGRATIONS_PRE_APPLIED
+              value: "true"
+            {{- end }}
             {{/* ---- Database URL ---- */}}
             {{- if and .Values.database.external.enabled .Values.database.external.existingSecret }}
             {{/* External DB with full URL in existing secret */}}
