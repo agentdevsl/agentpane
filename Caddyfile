@@ -11,12 +11,23 @@
 
   # Durable streams (LMDB persistence, SSE + long-poll)
   #
-  # F05-07: SSE Authentication
+  # F05-07 / F05-23 / F06-NEW-11: SSE Authentication + per-stream tenant scope
   # `forward_auth` validates every stream request against
   # POST /api/auth/verify-stream on the Bun API server. The API server checks:
   #   1. The session cookie maps to an active user session (not expired).
   #   2. The X-Original-URI header parses to /v1/stream/{kind}/{id}.
-  # A 200 response greenlights the connection; 401/400 blocks it.
+  #   3. The authenticated user has access to the SPECIFIC stream — i.e.
+  #      they are a member of the codespace that owns the session, plan, or
+  #      sandbox identified by `id`. Direct subscribes that bypass the Hono
+  #      router (the only path post-PR-176, since `/api/sessions/:id/stream`
+  #      was removed) cannot leak cross-tenant data because Caddy gates every
+  #      `/v1/stream/*` request through this hook before routing to the
+  #      durable_streams plugin.
+  # A 200 response greenlights the connection; 401/403/404/400 blocks it.
+  #
+  # `header_up X-Original-URI {uri}` forwards the full requested URI (including
+  # the stream id segment) so the API can perform the per-stream lookup. Caddy
+  # matches `/v1/stream/*` here; no other route reaches the plugin.
   #
   # In local development (no Caddy running, DurableStreamTestServer on :3002
   # handling streams), this block is not executed and authentication falls
