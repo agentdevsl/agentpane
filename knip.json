@@ -6,22 +6,10 @@
     "src/services/**/*.ts",
     "src/lib/**/*.ts",
     "scripts/*.ts",
-    "vite.config.ts",
-    "vitest.config.ts",
-    "drizzle.config.ts",
     "drizzle.config.pg.ts"
   ],
   "project": ["src/**/*.{ts,tsx}"],
   "ignore": [
-    ".claude/**",
-    ".worktrees/**",
-    ".stryker-tmp/**",
-    "agent-runner/**",
-    "specs/**",
-    "charts/**",
-    "docker/**",
-    "packages/**",
-    "app.config.timestamp_*.js",
     "src/app/components/features/agent-topology/mock/**",
     "src/app/components/features/global-settings.tsx",
     "src/app/components/features/session-history/components/index.ts",
@@ -36,17 +24,11 @@
     "src/app/services/runtime.ts"
   ],
   "ignoreDependencies": [
-    "@agentpane/agent-sandbox-sdk",
-    "@agentpane/nomad-sandbox-sdk",
-    "@tanstack/router-core",
     "@tanstack/react-start",
-    "@radix-ui/react-visually-hidden",
     "agent-browser",
     "@aws-sdk/client-sts",
-    "@radix-ui/react-popover",
-    "@biomejs/biome",
-    "@stryker-mutator/core"
+    "@radix-ui/react-popover"
   ],
-  "ignoreBinaries": ["vitest", "stryker", "vite", "tsc", "biome", "knip", "semgrep", "drizzle-kit"],
+  "ignoreBinaries": [],
   "ignoreExportsUsedInFile": true
 }
