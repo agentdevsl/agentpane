@@ -346,9 +346,9 @@ export const SESSION_STATUS_COLORS: Record<
     text: 'text-success',
   },
   paused: {
-    dot: 'bg-warning',
-    badge: 'bg-warning/15',
-    text: 'text-warning',
+    dot: 'bg-attention',
+    badge: 'bg-attention/15',
+    text: 'text-attention',
   },
   closing: {
     dot: 'bg-fg-subtle',
@@ -390,7 +390,7 @@ export const STREAM_ENTRY_TYPE_CONFIG: Record<
   },
   tool: {
     label: 'Tool Call',
-    textClass: 'text-warning',
+    textClass: 'text-attention',
   },
 };
 

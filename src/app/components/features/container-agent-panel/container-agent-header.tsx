@@ -46,7 +46,7 @@ const statusBadgeVariants = cva(
         completed: 'bg-accent/15 text-accent',
         plan_ready: 'bg-attention/15 text-attention',
         error: 'bg-danger/15 text-danger',
-        cancelled: 'bg-warning/15 text-warning',
+        cancelled: 'bg-attention/15 text-attention',
       },
     },
     defaultVariants: {
@@ -64,7 +64,7 @@ const statusDotVariants = cva('h-1.5 w-1.5 rounded-full', {
       completed: 'bg-accent',
       plan_ready: 'bg-attention',
       error: 'bg-danger',
-      cancelled: 'bg-warning',
+      cancelled: 'bg-attention',
     },
   },
   defaultVariants: {
@@ -207,7 +207,7 @@ export function ContainerAgentHeader({
         ) : connectionState === 'connecting' ? (
           <WifiHigh className="h-4 w-4 text-fg-muted animate-pulse" />
         ) : connectionState === 'reconnecting' ? (
-          <WifiHigh className="h-4 w-4 text-warning animate-pulse" />
+          <WifiHigh className="h-4 w-4 text-attention animate-pulse" />
         ) : connectionState === 'disconnected' ? (
           <WifiSlash className="h-4 w-4 text-danger" />
         ) : null}

@@ -143,14 +143,14 @@ export function ToolCallsFullView({
       data-testid="tool-calls-full-view"
     >
       {/* Gradient accent line at top */}
-      <div className="absolute left-0 right-0 top-0 h-px bg-gradient-to-r from-transparent via-warning/20 to-transparent" />
+      <div className="absolute left-0 right-0 top-0 h-px bg-gradient-to-r from-transparent via-attention/20 to-transparent" />
 
       {/* Header */}
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
         <div className="flex items-center gap-3">
-          <Wrench className="h-4 w-4 text-warning" weight="bold" />
+          <Wrench className="h-4 w-4 text-attention" weight="bold" />
           <h3 className="text-sm font-semibold text-fg">Tool Calls</h3>
-          <span className="inline-flex items-center justify-center rounded-full bg-warning/15 px-2.5 py-0.5 text-xs font-medium text-warning">
+          <span className="inline-flex items-center justify-center rounded-full bg-attention/15 px-2.5 py-0.5 text-xs font-medium text-attention">
             {isFiltered
               ? `${filteredToolCalls.length} / ${toolCalls.length}`
               : `${toolCalls.length} ${toolCalls.length === 1 ? 'call' : 'calls'}`}

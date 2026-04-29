@@ -69,6 +69,9 @@ jobs:
       - name: Test discipline gate (arch29-W2-S / F09-23, F09-32)
         run: bash scripts/check-test-discipline.sh
 
+      - name: Frontend design-token gate (arch29-W3-C / F08-01, F08-02)
+        run: bash scripts/check-frontend-tokens.sh
+
       - name: Type check
         run: bun run typecheck
 

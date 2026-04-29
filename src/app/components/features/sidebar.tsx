@@ -173,17 +173,17 @@ export function Sidebar({ codespaceId: _codespaceId }: SidebarProps): React.JSX.
                 aria-hidden="true"
                 style={
                   {
-                    '--logo-node-blue': '#58a6ff',
-                    '--logo-node-purple': '#a371f7',
-                    '--logo-node-green': '#3fb950',
-                    '--logo-node-pink': '#f778ba',
-                    '--logo-node-yellow': '#d29922',
+                    '--logo-node-blue': 'var(--accent-fg)',
+                    '--logo-node-purple': 'var(--done-fg)',
+                    '--logo-node-green': 'var(--success-fg)',
+                    '--logo-node-pink': 'var(--secondary-fg)',
+                    '--logo-node-yellow': 'var(--attention-fg)',
                   } as React.CSSProperties
                 }
               >
                 <defs>
                   <radialGradient id="coreGrad" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stopColor="#fff" />
+                    <stop offset="0%" stopColor="var(--fg-on-emphasis)" />
                     <stop offset="50%" stopColor="var(--logo-node-green)" />
                     <stop offset="100%" stopColor="var(--logo-node-green)" stopOpacity="0" />
                   </radialGradient>
@@ -286,7 +286,7 @@ export function Sidebar({ codespaceId: _codespaceId }: SidebarProps): React.JSX.
                   }}
                 />
                 <circle cx="14" cy="14" r="5" fill="url(#coreGrad)" />
-                <circle cx="14" cy="14" r="2" fill="#fff" />
+                <circle cx="14" cy="14" r="2" fill="var(--fg-on-emphasis)" />
               </svg>
             </div>
             <span className="text-[15px] font-semibold text-fg">AgentPane</span>
@@ -448,7 +448,7 @@ export function Sidebar({ codespaceId: _codespaceId }: SidebarProps): React.JSX.
         <div data-testid="system-status" className="border-t border-border px-4 py-2">
           <div className="flex items-center gap-2">
             <div
-              className={`h-2 w-2 rounded-full ${isHealthy ? 'bg-success' : 'bg-warning'}`}
+              className={`h-2 w-2 rounded-full ${isHealthy ? 'bg-success' : 'bg-attention'}`}
               data-testid="health-indicator"
             />
             <span className="text-xs text-fg-muted">

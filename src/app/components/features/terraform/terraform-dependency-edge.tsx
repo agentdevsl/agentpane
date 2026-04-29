@@ -102,7 +102,7 @@ export function TerraformEdgeMarkers(): React.JSX.Element {
           <path
             d="M1,1 L7,4 L1,7"
             fill="none"
-            stroke="#58a6ff"
+            stroke="var(--accent-fg)"
             strokeWidth="1.5"
             strokeLinejoin="round"
             strokeLinecap="round"
@@ -121,14 +121,14 @@ export function TerraformEdgeMarkers(): React.JSX.Element {
           <path
             d="M1,1 L7,4 L1,7"
             fill="none"
-            stroke="#484f58"
+            stroke="var(--fg-subtle)"
             strokeWidth="1.5"
             strokeLinejoin="round"
             strokeLinecap="round"
           />
         </marker>
         {/* Animated flow dot for explicit edges */}
-        <circle id="tf-flow-dot" r="2" fill="#58a6ff" opacity="0.8" />
+        <circle id="tf-flow-dot" r="2" fill="var(--accent-fg)" opacity="0.8" />
       </defs>
     </svg>
   );
@@ -186,8 +186,10 @@ function TerraformDependencyEdgeComponent({
     });
   }
 
-  const stroke = isExplicit ? '#58a6ff' : '#3b424c';
-  const hoverStroke = isExplicit ? '#79b8ff' : '#6e7681';
+  // Edge colours derive from the accent / muted-foreground tokens so the
+  // diagram tracks light/dark theme switches.
+  const stroke = isExplicit ? 'var(--accent-fg)' : 'var(--fg-subtle)';
+  const hoverStroke = isExplicit ? 'var(--accent-hover)' : 'var(--fg-muted)';
 
   return (
     <>
@@ -208,7 +210,7 @@ function TerraformDependencyEdgeComponent({
         <path
           d={edgePath}
           fill="none"
-          stroke="#58a6ff"
+          stroke="var(--accent-fg)"
           strokeWidth={hovered ? 10 : 6}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -236,7 +238,7 @@ function TerraformDependencyEdgeComponent({
       />
       {/* Animated flow dot along explicit edges */}
       {isExplicit && (
-        <circle r="2.5" fill="#58a6ff" opacity="0.7">
+        <circle r="2.5" fill="var(--accent-fg)" opacity="0.7">
           <animateMotion dur="2.5s" repeatCount="indefinite" path={edgePath} />
         </circle>
       )}
