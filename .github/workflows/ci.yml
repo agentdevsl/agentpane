@@ -118,6 +118,20 @@ jobs:
       - name: Install agent-runner dependencies
         run: cd agent-runner && bun install --frozen-lockfile
 
+      # F11-15: Fail the build if a stray npm lockfile resurfaces in the
+      # agent-runner workspace. Two lockfiles drift silently — CI uses
+      # `bun install --frozen-lockfile` against bun.lock, but the Dockerfiles
+      # historically used `npm install` against package-lock.json, building
+      # and CI tested different graphs. bun.lock is the only source of truth.
+      - name: Enforce single lockfile in agent-runner
+        run: |
+          if [ -f agent-runner/package-lock.json ]; then
+            echo "ERROR: agent-runner/package-lock.json must not be checked in." >&2
+            echo "       The agent-runner workspace uses bun.lock as the single" >&2
+            echo "       source of truth (see CLAUDE.md 'agent-runner Lockfile')." >&2
+            exit 1
+          fi
+
       - name: Build verification
         run: bun run build
 

@@ -6,9 +6,10 @@ Runs `bun run migrate:run-only` exactly once before the Deployment is rolled
 out. Helm waits for this Job to report Complete before proceeding to the app
 pods, so replicaCount >= 2 deployments never race on migrate().
 
-App pods run `bun run migrate:check-only` as part of their startup (see the
-Deployment startupProbe / bootstrap flow) and refuse to serve if the schema
-is behind — this Job is the only path that mutates the schema.
+F11-17: App pods run `bun run migrate:check-only` as an init container in
+deployment.yaml and refuse to serve if the schema is behind. They also set
+MIGRATIONS_PRE_APPLIED=true so the in-process migrator no-ops — this Job is
+the only path that mutates the schema.
 */ -}}
 apiVersion: batch/v1
 kind: Job

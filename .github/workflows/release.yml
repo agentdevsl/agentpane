@@ -103,6 +103,137 @@ jobs:
           ignore-unfixed: true
           vuln-type: os,library
 
+  # F11-16: Build and push the agent-sandbox image. This is the runtime
+  # security boundary for sandboxed agent execution. The repo at
+  # ghcr.io/<owner>/agent-sandbox is independent of the main app image and
+  # is referenced by SANDBOX_DEFAULTS.image (src/lib/sandbox/types.ts) by
+  # digest. Operators rotate the digest after publish; see release notes.
+  build-and-push-sandbox:
+    name: Build, scan, and push (agent-sandbox)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      image-digest: ${{ steps.push.outputs.digest }}
+      image-tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Set up QEMU for multi-arch
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/agent-sandbox
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
+      - name: Build and push (multi-arch)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.agent-sandbox
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: true
+          sbom: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=agent-sandbox
+          cache-to: type=gha,mode=max,scope=agent-sandbox
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/agent-sandbox@${{ steps.push.outputs.digest }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+
+  # F11-16: Build and push the AgentCore image (ARM64 only — AWS Bedrock
+  # AgentCore runs Firecracker microVMs on ARM64). The Dockerfile.agentcore
+  # path uses --platform=linux/arm64 explicitly; we publish a single arch
+  # image. Trivy still gates HIGH/CRITICAL on the ARM64 build.
+  build-and-push-agentcore:
+    name: Build, scan, and push (agentcore)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      image-digest: ${{ steps.push.outputs.digest }}
+      image-tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Set up QEMU for multi-arch
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/agentpane-agentcore
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
+      - name: Build and push (arm64)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.agentcore
+          platforms: linux/arm64
+          push: true
+          provenance: true
+          sbom: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=agentcore
+          cache-to: type=gha,mode=max,scope=agentcore
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/agentpane-agentcore@${{ steps.push.outputs.digest }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+
   package-helm-chart:
     name: Package Helm chart
     runs-on: ubuntu-latest
@@ -155,7 +286,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [build-and-push, package-helm-chart]
+    needs: [build-and-push, build-and-push-sandbox, build-and-push-agentcore, package-helm-chart]
     if: startsWith(github.ref, 'refs/tags/v')
     timeout-minutes: 10
     steps:
@@ -176,9 +307,18 @@ jobs:
           body: |
             ## AgentPane ${{ github.ref_name }}
 
-            ### Image
-            - `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image-tag }}`
-            - Digest: `${{ needs.build-and-push.outputs.image-digest }}`
+            ### Images
+            - App: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image-tag }}`
+              - Digest: `${{ needs.build-and-push.outputs.image-digest }}`
+            - Agent sandbox: `${{ env.REGISTRY }}/${{ github.repository_owner }}/agent-sandbox:${{ needs.build-and-push-sandbox.outputs.image-tag }}`
+              - Digest: `${{ needs.build-and-push-sandbox.outputs.image-digest }}`
+            - AgentCore (ARM64): `${{ env.REGISTRY }}/${{ github.repository_owner }}/agentpane-agentcore:${{ needs.build-and-push-agentcore.outputs.image-tag }}`
+              - Digest: `${{ needs.build-and-push-agentcore.outputs.image-digest }}`
+
+            > After cutting this release, rotate `SANDBOX_DEFAULTS.image` in
+            > `src/lib/sandbox/types.ts` to the new agent-sandbox digest. Tag-only
+            > references are rejected at the SandboxConfigService and Settings
+            > PUT endpoint layers.
 
             ### Helm chart
             The chart asset is attached below. Install with:
