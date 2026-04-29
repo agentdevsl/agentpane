@@ -3,10 +3,10 @@
  */
 
 import { Hono } from 'hono';
-import { z } from 'zod';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { ApiKeyService } from '../../services/api-key.service.js';
 import { json } from '../shared.js';
+import { parseJsonBody, saveKeySchema } from '../validation.js';
 
 const log = createLogger('ApiKeysRoutes');
 
@@ -18,17 +18,6 @@ type KnownService = (typeof KNOWN_API_KEY_SERVICES)[number];
 function isKnownService(service: string): service is KnownService {
   return (KNOWN_API_KEY_SERVICES as readonly string[]).includes(service);
 }
-
-// Validation schemas.
-// F03-09 (arch29-W2-C): the optional `refreshToken` is the OAuth refresh
-// token issued alongside an `sk-ant-oat*` access token. It is encrypted with
-// the same AES-GCM key as the access token and stored in
-// `api_keys.encrypted_refresh_token` so the agent-runner can rotate the
-// access token mid-run.
-const saveKeySchema = z.object({
-  key: z.string().min(1, 'API key is required'),
-  refreshToken: z.string().min(1).optional(),
-});
 
 interface ApiKeysDeps {
   apiKeyService: ApiKeyService;
@@ -86,32 +75,8 @@ export function createApiKeysRoutes({ apiKeyService }: ApiKeysDeps) {
       );
     }
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      // F07-15 (arch29-W2-H): standardise on VALIDATION_ERROR for both JSON
-      // parse failures and Zod validation failures so clients can branch on a
-      // single code. The other api-keys endpoints already use VALIDATION_ERROR.
-      return json(
-        { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
-    const parsed = saveKeySchema.safeParse(body);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues[0]?.message ?? 'Invalid request',
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, saveKeySchema);
+    if (!parsed.ok) return parsed.response;
 
     const result = await apiKeyService.saveKey(service, parsed.data.key, parsed.data.refreshToken);
 

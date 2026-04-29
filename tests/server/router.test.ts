@@ -15,20 +15,45 @@ import { createRouter, type RouterDependencies } from '@/server/router';
 // ---------------------------------------------------------------------------
 
 function stubDb(): RouterDependencies['db'] {
-  return {
-    query: {
-      codespaces: { findFirst: vi.fn().mockResolvedValue({ id: 'p1' }) },
-      userSessions: { findFirst: vi.fn().mockResolvedValue(null) },
-      apiTokens: { findFirst: vi.fn().mockResolvedValue(null) },
-      users: { findFirst: vi.fn().mockResolvedValue(null) },
-    },
-    select: vi.fn().mockReturnThis(),
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    insert: vi.fn().mockReturnThis(),
-    update: vi.fn().mockReturnThis(),
-    delete: vi.fn().mockReturnThis(),
-  } as unknown as RouterDependencies['db'];
+  // Fluent-builder mock: every method on the chain returns the same object so
+  // arbitrary `db.insert(t).values(v).onConflictDoUpdate({...})` etc. resolve.
+  // Terminal calls (`.then`/`await`) resolve to `[]`.
+  const chain: Record<string, unknown> = {};
+  const methods = [
+    'select',
+    'from',
+    'where',
+    'insert',
+    'update',
+    'delete',
+    'values',
+    'set',
+    'returning',
+    'onConflictDoUpdate',
+    'onConflictDoNothing',
+    'orderBy',
+    'limit',
+    'offset',
+    'leftJoin',
+    'innerJoin',
+    'groupBy',
+    'having',
+  ];
+  for (const m of methods) {
+    chain[m] = vi.fn(() => chain);
+  }
+  // Make the chain awaitable — `await db.insert(...)...` resolves to `[]`.
+  // biome-ignore lint/suspicious/noThenProperty: intentional thenable for fluent-builder mock
+  (chain as { then: (resolve: (v: unknown[]) => unknown) => unknown }).then = (
+    resolve: (v: unknown[]) => unknown
+  ) => Promise.resolve([]).then(resolve);
+  chain.query = {
+    codespaces: { findFirst: vi.fn().mockResolvedValue({ id: 'p1' }) },
+    userSessions: { findFirst: vi.fn().mockResolvedValue(null) },
+    apiTokens: { findFirst: vi.fn().mockResolvedValue(null) },
+    users: { findFirst: vi.fn().mockResolvedValue(null) },
+  };
+  return chain as unknown as RouterDependencies['db'];
 }
 
 function stubService(overrides: Record<string, unknown> = {}): any {
