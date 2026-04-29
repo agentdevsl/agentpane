@@ -81,9 +81,10 @@ export function jsonExtractText(col: SQL | unknown, ...parts: string[]): SQL {
   if (getDbDialect() === 'postgres') {
     // Use `#>>` (text extraction at path). Path is a literal `{a,b}` PG array;
     // values are pre-validated to contain only safe characters so building
-    // the literal as a string is safe.
+    // the literal as a string is safe. Explicit `::text[]` cast disambiguates
+    // the polymorphic resolution against postgres-js's untyped parameter binding.
     const pgPath = `{${parts.join(',')}}`;
-    return sql`(${col} #>> ${pgPath})`;
+    return sql`(${col} #>> ${pgPath}::text[])`;
   }
   // SQLite — build the JSON path expression `$.a.b`.
   const sqlitePath = `$.${parts.join('.')}`;
