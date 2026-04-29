@@ -526,6 +526,12 @@ export class ContainerExecService {
     const oauthToken = await resolveOAuthToken(apiKeyService);
     // theme-03 F11: look up real token expiry alongside the token itself.
     const oauthExpiresAtMs = oauthToken ? await resolveOAuthExpiresAtMs(db) : null;
+    // F03-09 (arch29-W2-C): pull the OAuth refresh token from the registry so
+    // the SDK can rotate the access token mid-run. Returns null when the key
+    // was saved without a refresh token (legacy rows, non-OAuth keys).
+    const oauthRefreshToken = oauthToken
+      ? await apiKeyService.getDecryptedRefreshToken('anthropic')
+      : null;
 
     if (!oauthToken) {
       log.info('No OAuth token available');
@@ -738,9 +744,11 @@ export class ContainerExecService {
       stopFilePath,
       oauthToken,
       oauthExpiresAtMs,
-      // refreshToken storage is not yet wired through the registry;
-      // agent-runner treats absence as "no refresh token".
-      oauthRefreshToken: null,
+      // F03-09 (arch29-W2-C): refresh token now flows from `api_keys.
+      // encrypted_refresh_token` through `ApiKeyService.getDecryptedRefreshToken`.
+      // Null when no refresh token is stored for this service (legacy rows or
+      // non-OAuth keys); the agent-runner falls back to its "no refresh" path.
+      oauthRefreshToken,
     });
 
     // Merge project-level env vars (sandbox.env setting) into container env.

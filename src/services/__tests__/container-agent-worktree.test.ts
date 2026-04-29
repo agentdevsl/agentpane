@@ -84,6 +84,8 @@ function createStreamsMock() {
 function createApiKeyMock() {
   return {
     getDecryptedKey: vi.fn().mockResolvedValue('sk-ant-oat01-test-token'),
+    // F03-09 (arch29-W2-C): default to null (no refresh token stored).
+    getDecryptedRefreshToken: vi.fn().mockResolvedValue(null),
   };
 }
 

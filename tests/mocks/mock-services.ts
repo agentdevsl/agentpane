@@ -301,7 +301,13 @@ export function createMockDurableStreamsService(
  */
 export interface ApiKeyService {
   getDecryptedKey: (service: string) => Promise<string | null>;
-  saveKey?: (service: string, key: string) => Promise<Result<unknown, unknown>>;
+  /** F03-09 (arch29-W2-C): OAuth refresh token retrieval. */
+  getDecryptedRefreshToken: (service: string) => Promise<string | null>;
+  saveKey?: (
+    service: string,
+    key: string,
+    refreshToken?: string | null
+  ) => Promise<Result<unknown, unknown>>;
   getKeyInfo?: (service: string) => Promise<Result<unknown, unknown>>;
   deleteKey?: (service: string) => Promise<Result<void, unknown>>;
   markInvalid?: (service: string) => Promise<void>;
@@ -318,6 +324,8 @@ export interface ApiKeyService {
 export function createMockApiKeyService(overrides?: Partial<ApiKeyService>): ApiKeyService {
   return {
     getDecryptedKey: vi.fn().mockResolvedValue(null),
+    // F03-09 (arch29-W2-C): default to null (no refresh token stored).
+    getDecryptedRefreshToken: vi.fn().mockResolvedValue(null),
     saveKey: vi.fn().mockResolvedValue(
       ok({
         id: 'key-1',

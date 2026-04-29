@@ -161,9 +161,14 @@ function createMockProvider(sandbox?: ReturnType<typeof createMockSandbox>) {
   };
 }
 
-function createMockApiKeyService(token: string | null = 'sk-ant-oat01-test-token') {
+function createMockApiKeyService(
+  token: string | null = 'sk-ant-oat01-test-token',
+  refreshToken: string | null = null
+) {
   return {
     getDecryptedKey: vi.fn().mockResolvedValue(token),
+    // F03-09 (arch29-W2-C): default to null (no refresh token stored).
+    getDecryptedRefreshToken: vi.fn().mockResolvedValue(refreshToken),
     saveKey: vi.fn(),
     deleteKey: vi.fn(),
   } as any;
@@ -521,6 +526,10 @@ describe('ContainerAgentService', () => {
     it('falls back to ANTHROPIC_AUTH_TOKEN env var when database key throws', async () => {
       const throwingService = {
         getDecryptedKey: vi.fn().mockRejectedValue(new Error('DB error')),
+        // F03-09 (arch29-W2-C): refresh-token resolution is gated on the
+        // access-token returning truthy, so this is never called when
+        // getDecryptedKey throws — but provide it for type-safety.
+        getDecryptedRefreshToken: vi.fn().mockResolvedValue(null),
         saveKey: vi.fn(),
         deleteKey: vi.fn(),
       } as any;

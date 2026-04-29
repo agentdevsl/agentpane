@@ -29,9 +29,19 @@ export class ApiKeyService {
   constructor(private db: Database) {}
 
   /**
-   * Save an API key for a specific service (encrypted)
+   * Save an API key for a specific service (encrypted).
+   *
+   * F03-09 (arch29-W2-C): when `refreshToken` is supplied (OAuth grant flow),
+   * it is encrypted with the same AES-GCM key as the access token and stored
+   * in `encrypted_refresh_token`. Subsequent agent-runner invocations read it
+   * via {@link getDecryptedRefreshToken} and pipe it through to the SDK so the
+   * access token can be silently rotated mid-run.
    */
-  async saveKey(service: string, key: string): Promise<Result<ApiKeyInfo, ApiKeyError>> {
+  async saveKey(
+    service: string,
+    key: string,
+    refreshToken?: string | null
+  ): Promise<Result<ApiKeyInfo, ApiKeyError>> {
     // Basic validation
     if (!key || key.trim().length === 0) {
       return err({
@@ -56,6 +66,12 @@ export class ApiKeyService {
       const encrypted = await encryptToken(key);
       const masked = maskToken(key);
 
+      // Encrypt refresh token only when one was supplied. An empty string is
+      // treated the same as null so callers cannot accidentally persist an
+      // unusable empty-string token (the SDK rejects empty strings).
+      const encryptedRefreshToken =
+        refreshToken && refreshToken.trim().length > 0 ? await encryptToken(refreshToken) : null;
+
       const [saved] = await this.db
         .insert(apiKeys)
         .values({
@@ -64,6 +80,7 @@ export class ApiKeyService {
           maskedKey: masked,
           isValid: true,
           lastValidatedAt: new Date().toISOString(),
+          encryptedRefreshToken,
         })
         .returning();
 
@@ -137,6 +154,38 @@ export class ApiKeyService {
     } catch (error) {
       log.warn('Failed to decrypt API key', { error });
       throw ServiceErrors.DECRYPT_FAILED(service);
+    }
+  }
+
+  /**
+   * F03-09 (arch29-W2-C): get the decrypted OAuth refresh token for a service.
+   *
+   * Returns `null` when:
+   *   - no api_keys row exists for the service
+   *   - the row has no `encrypted_refresh_token` (legacy rows, non-OAuth keys,
+   *     or rows saved before this column existed).
+   *
+   * Decryption errors are logged and surfaced as `null` rather than throwing
+   * because a missing/corrupt refresh token is recoverable: the agent-runner
+   * simply runs without one (degrading silent rotation, not breaking startup).
+   * The access-token equivalent throws because absence there is fatal.
+   */
+  async getDecryptedRefreshToken(service: string): Promise<string | null> {
+    const row = await this.db.query.apiKeys.findFirst({
+      where: eq(apiKeys.service, service),
+    });
+
+    if (!row?.encryptedRefreshToken) {
+      return null;
+    }
+
+    try {
+      return decryptToken(row.encryptedRefreshToken);
+    } catch (error) {
+      log.warn('Failed to decrypt OAuth refresh token (continuing without)', {
+        data: { service, error: error instanceof Error ? error.message : String(error) },
+      });
+      return null;
     }
   }
 

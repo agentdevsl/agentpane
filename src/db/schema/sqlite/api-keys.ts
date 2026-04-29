@@ -22,6 +22,10 @@ export const apiKeys = sqliteTable('api_keys', {
   // F06-09: rotation-tracking columns. Null = not tracked (legacy rows).
   expiresAt: text('expires_at'),
   rotatedAt: text('rotated_at'),
+  // F03-09 (arch29-W2-C): encrypted OAuth refresh token (AES-GCM, base64) used by
+  // the Claude Agent SDK to silently rotate the access token mid-run. Null when
+  // the host has not been issued a refresh token (legacy rows, or non-OAuth keys).
+  encryptedRefreshToken: text('encrypted_refresh_token'),
   // Timestamps
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
   updatedAt: text('updated_at')

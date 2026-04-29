@@ -195,10 +195,12 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
   }
 
   // F06-09: token rotation columns (migration 0017).
+  // F03-09 (arch29-W2-C): encrypted refresh token column (migration 0019).
   for (const stmt of [
     'ALTER TABLE api_tokens ADD COLUMN rotated_at TEXT',
     'ALTER TABLE api_keys ADD COLUMN expires_at TEXT',
     'ALTER TABLE api_keys ADD COLUMN rotated_at TEXT',
+    'ALTER TABLE api_keys ADD COLUMN encrypted_refresh_token TEXT',
     'ALTER TABLE github_tokens ADD COLUMN expires_at TEXT',
     'ALTER TABLE github_tokens ADD COLUMN rotated_at TEXT',
   ]) {
