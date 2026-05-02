@@ -88,7 +88,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.113",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.126",
     "@anthropic-ai/sdk": "^0.90.0",
     "@aws-sdk/client-sts": "^3.1032.0",
     "@cdktf/hcl2json": "^0.21.0",
