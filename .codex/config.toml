@@ -1,0 +1,40 @@
+personality = "friendly"
+
+[mcp_servers.XcodeBuildMCP]
+args = [
+    "-y",
+    "xcodebuildmcp@latest",
+]
+command = "npx"
+
+[marketplaces.claude-plugins-official]
+source_type = "git"
+source = "https://github.com/anthropics/claude-plugins-official.git"
+
+[marketplaces.openai-curated]
+source_type = "git"
+source = "https://github.com/openai/plugins.git"
+
+[plugins."agent-sdk-dev@claude-plugins-official"]
+enabled = true
+
+[plugins."claude-md-management@claude-plugins-official"]
+enabled = true
+
+[plugins."cloudflare@openai-curated"]
+enabled = true
+
+[plugins."code-review@claude-plugins-official"]
+enabled = true
+
+[plugins."code-simplifier@claude-plugins-official"]
+enabled = true
+
+[plugins."commit-commands@claude-plugins-official"]
+enabled = true
+
+[plugins."frontend-design@claude-plugins-official"]
+enabled = true
+
+[plugins."pr-review-toolkit@claude-plugins-official"]
+enabled = true
