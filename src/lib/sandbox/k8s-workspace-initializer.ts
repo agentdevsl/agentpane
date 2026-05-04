@@ -313,24 +313,23 @@ async function cloneRepository(
       };
     }
 
-    // Disable credential helper to prevent token persistence
-    const credResult = await sandbox.exec('git', [
-      '-C',
-      CONTAINER_WORKSPACE_PATH,
-      'config',
-      'credential.helper',
-      '',
-    ]);
-    if (credResult.exitCode !== 0) {
-      log.debug('Failed to disable credential helper', { data: { exitCode: credResult.exitCode } });
-    }
-
-    // Best-effort: remove the transient credential file. The
-    // GitHubCredentialsInjector will write a persistent one at
-    // ~/.git-credentials later for the agent's own push/PR operations,
-    // but that lives at a different path under $HOME — clearing /tmp here
-    // ensures the clone-time token is not laying around for the rest of
-    // the run.
+    // NOTE: previous revisions ran `git config credential.helper ''` here to
+    // prevent token persistence in the local repo. That setting RESETS the
+    // helper list at the local level, which silently overrides the global
+    // `credential.helper=store` we intentionally inject via
+    // ~/.gitconfig + ~/.git-credentials so the agent can push and open PRs.
+    // The transient clone token already lives in `${TRANSIENT_GIT_CREDENTIALS_PATH}`,
+    // not in `.git/config`, so there is no persistence to prevent here.
+    return { ok: true };
+  } catch (err) {
+    const msg = errorMessage(err);
+    log.warn('Failed to clone repository', { error: msg });
+    return { ok: false, error: msg };
+  } finally {
+    // Always remove the transient clone credential file. Earlier revisions
+    // only cleaned up after a fully successful fetch+checkout, which left
+    // the token at `${TRANSIENT_GIT_CREDENTIALS_PATH}` whenever fetch or
+    // checkout failed — readable by the next agent in shared-sandbox mode.
     if (useCredentialFile) {
       try {
         await sandbox.exec('rm', ['-f', TRANSIENT_GIT_CREDENTIALS_PATH]);
@@ -340,11 +339,6 @@ async function cloneRepository(
         });
       }
     }
-    return { ok: true };
-  } catch (err) {
-    const msg = errorMessage(err);
-    log.warn('Failed to clone repository', { error: msg });
-    return { ok: false, error: msg };
   }
 }
 

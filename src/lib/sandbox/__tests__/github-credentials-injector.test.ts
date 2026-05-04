@@ -131,4 +131,28 @@ describe('GitHubCredentialsInjector', () => {
     expect(rm?.args.some((a) => a.endsWith('/hosts.yml'))).toBe(true);
     expect(rm?.args.some((a) => a.endsWith('/.gitconfig'))).toBe(false);
   });
+
+  it('remove() targets the canonical user-home paths so prior tenant creds cannot leak', async () => {
+    // codex P1: in shared/reused sandboxes, scrubbing must hit the same paths
+    // that inject() writes to, otherwise a previous run's ~/.git-credentials
+    // and ~/.config/gh/hosts.yml remain readable to the next tenant agent.
+    const { sandbox: writeSandbox, writeCalls } = createMockSandbox();
+    const writeInjector = new GitHubCredentialsInjector();
+    await writeInjector.inject(writeSandbox, { token: 'ghs_prior_tenant_token' });
+    const writePaths = new Set(writeCalls.map((w) => w.path));
+
+    const { sandbox: rmSandbox, execCalls } = createMockSandbox();
+    const rmInjector = new GitHubCredentialsInjector();
+    await rmInjector.remove(rmSandbox);
+
+    const rmCall = execCalls.find((c) => c.cmd === 'rm');
+    const rmTargets = new Set(rmCall?.args.filter((a) => a.startsWith('/')) ?? []);
+
+    // Every path inject() writes that contains the token MUST be a path
+    // remove() rm's. .gitconfig has no token so it is exempt by design.
+    for (const p of writePaths) {
+      if (p.endsWith('/.gitconfig')) continue;
+      expect(rmTargets.has(p)).toBe(true);
+    }
+  });
 });

@@ -860,10 +860,26 @@ export class ContainerExecService {
     }
 
     // Inject GitHub credentials (PAT or App installation token) into the
-    // sandbox the same way: file-based via writeFile so the token never
-    // appears in argv or env. Failure is non-fatal — agents may still
-    // operate on local files even without GitHub auth, and codespaces
-    // without a configured remote skip injection entirely.
+    // sandbox: file-based via writeFile so the token never appears in argv
+    // or env. Failure is non-fatal — agents may still operate on local files
+    // even without GitHub auth.
+    //
+    // Always scrub any pre-existing GitHub credential files first, BEFORE
+    // deciding whether to write new ones. In shared/reused sandboxes the
+    // previous tenant's ~/.git-credentials and ~/.config/gh/hosts.yml may
+    // still be on disk; if the current run has no repo configured or token
+    // resolution fails, we must not let the next agent inherit the prior
+    // tenant's credentials.
+    const githubInjector = new GitHubCredentialsInjector();
+    {
+      const removeResult = await githubInjector.remove(sandbox);
+      if (!removeResult.ok) {
+        log.warn('Failed to scrub stale GitHub credentials (continuing)', {
+          data: { taskId, sandboxId: sandbox.id, error: removeResult.error.message },
+        });
+      }
+    }
+
     if (codespace.githubOwner && codespace.githubRepo) {
       try {
         const gitToken = await resolveGitToken(
@@ -876,7 +892,6 @@ export class ContainerExecService {
           { db, githubTokenService: this.deps.githubTokenService }
         );
         if (gitToken) {
-          const githubInjector = new GitHubCredentialsInjector();
           const ghResult = await githubInjector.inject(sandbox, {
             token: gitToken.token,
           });
@@ -887,6 +902,9 @@ export class ContainerExecService {
                 data: { taskId, sandboxId: sandbox.id, error: ghResult.error.message },
               }
             );
+            // Best-effort scrub on failure so a partial write does not
+            // leave readable token fragments behind.
+            await githubInjector.remove(sandbox).catch(() => undefined);
           } else {
             log.info('GitHub credentials injected', {
               data: { taskId, owner: gitToken.owner, repo: gitToken.repo },
@@ -904,6 +922,8 @@ export class ContainerExecService {
             error: ghErr instanceof Error ? ghErr.message : String(ghErr),
           },
         });
+        // Same reason — scrub anything we might have written before throwing.
+        await githubInjector.remove(sandbox).catch(() => undefined);
       }
     }
 
