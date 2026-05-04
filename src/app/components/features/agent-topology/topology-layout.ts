@@ -25,8 +25,18 @@ const SKILL_NODE_HEIGHT = 50;
  */
 const GENERIC_AGENT_TYPES = new Set(['local_agent', 'general-purpose']);
 
-/** Pixel padding around the bounding box of a same-type cluster. */
-const GROUP_BOX_PADDING = 18;
+/**
+ * Pixel padding around the bounding box of a same-type cluster.
+ *
+ * `GROUP_BOX_TOP` is larger to leave room for the type label without it
+ * sitting on top of the first node. The horizontal padding is kept small
+ * so adjacent clusters under the same parent don't overlap (ELK's
+ * `nodeNode` spacing is 60px; with `GROUP_BOX_SIDE = 10` each side we
+ * leave a clean 40px channel between cluster boundaries).
+ */
+const GROUP_BOX_TOP = 24;
+const GROUP_BOX_SIDE = 10;
+const GROUP_BOX_BOTTOM = 14;
 /**
  * Minimum number of sibling nodes that share an agent_type to draw a box.
  * 1 means even singletons get a labelled box, which is visually noisy
@@ -248,10 +258,10 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
       id: `group::${key}`,
       agentType: cluster.agentType,
       nodeCount: cluster.nodeIds.length,
-      x: minX - GROUP_BOX_PADDING,
-      y: minY - GROUP_BOX_PADDING,
-      width: maxX - minX + GROUP_BOX_PADDING * 2,
-      height: maxY - minY + GROUP_BOX_PADDING * 2,
+      x: minX - GROUP_BOX_SIDE,
+      y: minY - GROUP_BOX_TOP,
+      width: maxX - minX + GROUP_BOX_SIDE * 2,
+      height: maxY - minY + GROUP_BOX_TOP + GROUP_BOX_BOTTOM,
     });
   }
 
