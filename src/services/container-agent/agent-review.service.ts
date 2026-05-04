@@ -241,8 +241,19 @@ export class AgentReviewService {
     const isOAuthToken = apiKey.startsWith('sk-ant-oat');
     let reviewResult: AgentReviewResult;
     try {
+      // OAuth tokens (Claude Max subscription / `claude login`) need an
+      // explicit beta opt-in for the messages API — without it the API
+      // returns 401 with `OAuth authentication is currently not
+      // supported`. The header value matches what the Claude Code CLI
+      // itself sends for its inference calls.
       const client = new Anthropic({
-        ...(isOAuthToken ? { authToken: apiKey, apiKey: null } : { apiKey }),
+        ...(isOAuthToken
+          ? {
+              authToken: apiKey,
+              apiKey: null,
+              defaultHeaders: { 'anthropic-beta': 'oauth-2025-04-20' },
+            }
+          : { apiKey }),
         maxRetries: 2,
       });
       const requestBody: Anthropic.MessageCreateParamsNonStreaming = {
