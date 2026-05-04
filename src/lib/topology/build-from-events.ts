@@ -228,17 +228,6 @@ export function buildTopologyFromEvents(
   let seenPlanReady = false;
   /** Maps planning root agentId → execution node ID for child routing */
   const executionPhaseRoots = new Map<string, string>();
-  /**
-   * Maps `${parentId}::${agentType}` → synthetic group node ID.
-   * When multiple agents share the same agentType under the same parent,
-   * a synthetic intermediate node is created so the topology shows:
-   *   parent → agentType-group → [agent1, agent2, ...]
-   */
-  const agentTypeGroupNodes = new Map<string, string>();
-  /** Track agentType counts per parent to know when to create group nodes.
-   *  Key: `${parentId}::${agentType}`, Value: array of agent IDs */
-  // agentTypeGroupNodes tracks which agent-type group parent nodes exist
-
   for (const rawEvent of events) {
     // Cast to the known discriminated union so TypeScript narrows `data`
     // in each branch. Unknown event types fall through without processing.
@@ -338,78 +327,21 @@ export function buildTopologyFromEvents(
             ? (executionPhaseRoots.get(d.parentId) ?? d.parentId)
             : d.parentId;
 
-        // --- Agent-type grouping ---
-        // When multiple agents share the same dedicated agentType under the
-        // same parent, insert a synthetic group parent node so the topology
-        // renders a hierarchy: parent → group → [agent1, agent2, ...]
-        const isGroupableType =
-          agentType && agentType !== 'general-purpose' && agentType !== 'local_agent';
-        const groupKey = isGroupableType ? `${effectiveParentId}::${agentType}` : null;
-
-        if (groupKey) {
-          // Get or create the agent-type parent node
-          let groupNodeId = agentTypeGroupNodes.get(groupKey);
-          if (!groupNodeId) {
-            // First agent of this type — create the group parent node immediately
-            groupNodeId = `agent-type-${effectiveParentId}-${agentType}`;
-            const groupMeta = resolveAgentMeta(agentType, context.knownAgents);
-            const typeName = agentType as string;
-            const groupNode: TopologyNode = {
-              id: groupNodeId,
-              name: typeName,
-              role: typeName,
-              ...defaultNodeFields(),
-              agentType,
-              agentMeta: groupMeta,
-              status: 'running',
-              parentId: effectiveParentId,
-              childIds: [],
-              progress: 0,
-              tokens: 0,
-              cost: 0,
-              turns: 0,
-              messages: 0,
-              startedAt: d.timestamp ?? event.timestamp,
-              completedAt: null,
-              verified: false,
-              verificationScore: 0,
-              decisions: [],
-            };
-            nodes.set(groupNodeId, groupNode);
-            agentTypeGroupNodes.set(groupKey, groupNodeId);
-
-            // Connect parent → group
-            const parentNode = nodes.get(effectiveParentId);
-            if (parentNode) {
-              parentNode.childIds.push(groupNodeId);
-            }
-            edges.push({
-              id: `${effectiveParentId}->${groupNodeId}`,
-              sourceId: effectiveParentId,
-              targetId: groupNodeId,
-            });
-          }
-
-          // Connect agent to its type group parent
-          const groupNode = nodes.get(groupNodeId);
-          node.parentId = groupNodeId;
-          if (groupNode) groupNode.childIds.push(d.agentId);
-          edges.push({
-            id: `${groupNodeId}->${d.agentId}`,
-            sourceId: groupNodeId,
-            targetId: d.agentId,
-          });
-        } else {
-          // No groupable agentType — connect directly to parent
-          node.parentId = effectiveParentId;
-          edges.push({
-            id: `${effectiveParentId}->${d.agentId}`,
-            sourceId: effectiveParentId,
-            targetId: d.agentId,
-          });
-          const parent = nodes.get(effectiveParentId);
-          if (parent) parent.childIds.push(d.agentId);
-        }
+        // Connect the spawned agent directly to its parent. Agent-type
+        // grouping is now handled visually via `TopologyGroupOverlay`
+        // boxes drawn behind same-type sibling clusters — synthesising an
+        // intermediate "group" parent node here would create the box
+        // *and* a duplicate hierarchical level (one synthetic node per
+        // type, plus the real subagents), which is exactly what the
+        // overlay was meant to replace.
+        node.parentId = effectiveParentId;
+        edges.push({
+          id: `${effectiveParentId}->${d.agentId}`,
+          sourceId: effectiveParentId,
+          targetId: d.agentId,
+        });
+        const parent = nodes.get(effectiveParentId);
+        if (parent) parent.childIds.push(d.agentId);
       }
     } else if (event.type === 'container-agent:started' && nodes.size === 0) {
       const d = event.data;
@@ -641,17 +573,16 @@ export function buildTopologyFromEvents(
     }
   }
 
-  // Group consecutive siblings that share the same parent.
-  // Skip nodes that are already children of agent-type group parents —
-  // those are already grouped hierarchically and shouldn't also be in
-  // compound horizontal groups (conflicting layout mechanisms).
-  const agentTypeGroupNodeIds = new Set(agentTypeGroupNodes.values());
+  // Group consecutive siblings that share the same parent. Sets the
+  // `group` field on each node — the legacy `layered` ELK path used this
+  // for compound nodes; the current `mrtree` layout ignores it but it's
+  // still set for downstream consumers (analytics, etc.).
   let groupIndex = 0;
   let i = 0;
   while (i < spawnOrder.length) {
     const spawnId = spawnOrder[i] as string;
     const nodeA = nodes.get(spawnId);
-    if (!nodeA?.parentId || agentTypeGroupNodeIds.has(nodeA.parentId)) {
+    if (!nodeA?.parentId) {
       i++;
       continue;
     }
