@@ -1,17 +1,24 @@
 /**
- * AgentReviewService - Automated plan review using the Anthropic API.
+ * AgentReviewService - Automated plan review using the Claude Agent SDK.
  *
  * When a task's approval mode is 'agent', this service evaluates the plan
- * via a single Anthropic API call and either auto-approves it or flags it
+ * via a Claude Agent SDK v2 session and either auto-approves it or flags it
  * for human review. On any failure, it falls back to human approval gracefully
  * (errors are logged and published to the stream).
+ *
+ * Uses the same v2-session pattern as task creation and agent execution so
+ * authentication is consistent across the app: the SDK subprocess reads
+ * ANTHROPIC_API_KEY from env (Settings-UI key takes priority) and falls back
+ * to ~/.claude/.credentials.json automatically. This sidesteps the
+ * direct-API-call OAuth-token compatibility question entirely.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import { type SDKSession, unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
 import { eq } from 'drizzle-orm';
 
 import { codespaces, settings, tasks } from '../../db/schema';
 import type { CodespaceConfig } from '../../db/schema/shared/types';
+import { buildSdkEnv } from '../../lib/agents/agent-sdk-utils.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import { resolveAnthropicApiKey } from '../../lib/utils/resolve-anthropic-key.js';
 import type { PlanApprovalService } from './plan-approval.service.js';
@@ -31,20 +38,6 @@ const DEFAULT_REVIEW_MODEL = 'claude-haiku-4-5-20251001';
 
 /** Review timeout in milliseconds */
 const REVIEW_TIMEOUT_MS = 60_000;
-
-/**
- * Retry config for the review API call.
- *
- * The Anthropic SDK's built-in retries (default 2) finish in ~5s and surface
- * any sustained 429 directly to our catch block, which previously fell back
- * straight to human approval. With concurrent agents firing reviews back-to-
- * back this trips on the most modest rate-limit blip. Add an outer retry
- * that honours the `retry-after` response header and waits an order of
- * magnitude longer than the SDK's defaults.
- */
-const REVIEW_MAX_RETRIES = 5;
-const REVIEW_BASE_BACKOFF_MS = 4_000;
-const REVIEW_MAX_BACKOFF_MS = 60_000;
 
 /** Minimum confidence to auto-approve */
 const AUTO_APPROVE_CONFIDENCE_THRESHOLD = 0.8;
@@ -72,8 +65,8 @@ function sanitizeForPrompt(raw: string, maxChars: number): string {
     raw
       .slice(0, maxChars)
       // Break XML-like close/open sequences so they cannot re-open the review tag structure.
-      .replace(/<\/(plan|task_title|task_description)>/gi, '<\u200b/$1>')
-      .replace(/<(plan|task_title|task_description)>/gi, '<\u200b$1>')
+      .replace(/<\/(plan|task_title|task_description)>/gi, '<​/$1>')
+      .replace(/<(plan|task_title|task_description)>/gi, '<​$1>')
   );
 }
 
@@ -97,7 +90,21 @@ Respond with ONLY a JSON object (no markdown, no code fences, no additional text
 
 Use "approve" when the plan is sound and safe to execute automatically.
 Use "flag_for_review" when you have concerns that need human judgment.
-Only include "concerns" when flagging for review.`;
+Only include "concerns" when flagging for review.
+
+Do not call any tools. Do not explore the workspace. Just return the JSON.`;
+
+/**
+ * Strip optional markdown fences around a JSON payload. The system prompt
+ * forbids fences, but models occasionally still wrap responses in ```json
+ * blocks; tolerating both keeps the parser robust without retry overhead.
+ */
+function unwrapJsonResponse(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^```(?:json)?\s*\n?/i, '')
+    .replace(/\n?```\s*$/i, '');
+}
 
 export class AgentReviewService {
   private planApproval?: PlanApprovalService;
@@ -155,7 +162,7 @@ export class AgentReviewService {
   }
 
   /**
-   * Review a plan using the Anthropic API.
+   * Review a plan using the Claude Agent SDK v2 session.
    * On success: auto-approves or flags for human review.
    * On any failure: falls back to human approval (error is logged and published to the stream).
    */
@@ -216,62 +223,91 @@ export class AgentReviewService {
       return;
     }
 
-    // Resolve the API key
+    // Resolve API key from DB (Settings UI) so it takes priority over the
+    // credentials file. If neither source has a key, the SDK subprocess
+    // (Claude Code) still falls back to ~/.claude/.credentials.json
+    // automatically — same behaviour as task creation and agent execution.
     const apiKey = await resolveAnthropicApiKey(this.deps.apiKeyService);
-    if (!apiKey) {
-      log.warn('No Anthropic API key available — falling back to human approval', {
-        data: { taskId },
-      });
-      await this.resetToPlanning(taskId);
-      return;
-    }
+    const envExtra: Record<string, string> = {};
+    if (apiKey) envExtra.ANTHROPIC_API_KEY = apiKey;
 
-    // Call the Anthropic API with timeout and outer retry/backoff.
-    // The SDK already retries twice on its own; the outer loop here adds a
-    // longer-horizon retry that honours the `retry-after` header so a brief
-    // rate-limit storm (concurrent reviews colliding) doesn't drop the task
-    // back to human approval unnecessarily.
-    //
-    // The credential we resolve may be either a long-lived API key
-    // (`sk-ant-api...`) or an OAuth access token from
-    // `~/.claude/.credentials.json` (`sk-ant-oat...`). Both work
-    // identically when passed as `apiKey` — the messages API accepts the
-    // OAuth token via the `x-api-key` header, no beta opt-in required.
-    // Mirrors `src/lib/plan-mode/claude-client.ts` which uses the same
-    // pattern. (Routing the OAuth token to `authToken` instead causes
-    // the API to reject it with `OAuth authentication is currently not
-    // supported`, hence we explicitly do *not* split on prefix.)
+    // Build the user message with system prompt prefixed. v2 session options
+    // don't expose a top-level `systemPrompt` field, so we mirror the
+    // task-creation pattern of inlining instructions in the first user turn.
+    const userMessage =
+      `${REVIEW_SYSTEM_PROMPT}\n\n---\n\n` +
+      `The following task description and plan are user-provided content. Evaluate only the plan's technical merits against the task requirements.\n\n` +
+      `<task_title>${sanitizeForPrompt(taskTitle, 500)}</task_title>\n` +
+      `<task_description>${sanitizeForPrompt(taskDescription || '(no description)', 5000)}</task_description>\n` +
+      `<plan>${sanitizeForPrompt(planData.plan, MAX_PLAN_CHARS)}</plan>`;
+
+    // Run the v2 session with a hard timeout. Closing the session aborts the
+    // in-flight stream so a hung review can't pin the task in `agent_reviewing`.
     let reviewResult: AgentReviewResult;
-    try {
-      const client = new Anthropic({ apiKey, maxRetries: 2 });
-      const requestBody: Anthropic.MessageCreateParamsNonStreaming = {
-        model,
-        max_tokens: 1024,
-        system: REVIEW_SYSTEM_PROMPT,
-        messages: [
-          {
-            role: 'user',
-            content: `The following task description and plan are user-provided content. Evaluate only the plan's technical merits against the task requirements.\n\n<task_title>${sanitizeForPrompt(taskTitle, 500)}</task_title>\n<task_description>${sanitizeForPrompt(taskDescription || '(no description)', 5000)}</task_description>\n<plan>${sanitizeForPrompt(planData.plan, MAX_PLAN_CHARS)}</plan>`,
-          },
-        ],
-      };
+    let session: SDKSession | null = null;
+    let timedOut = false;
+    const timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      log.warn('Agent review exceeded timeout, closing session', {
+        data: { taskId, timeoutMs: REVIEW_TIMEOUT_MS },
+      });
+      session?.close();
+    }, REVIEW_TIMEOUT_MS);
 
-      const response = await callReviewWithRetry(client, requestBody, {
-        timeoutMs: REVIEW_TIMEOUT_MS,
-        onRetry: (attempt, waitMs, reason) => {
-          log.warn('Agent review retrying after transient API error', {
-            data: { taskId, attempt, waitMs, reason },
-          });
-        },
+    try {
+      session = unstable_v2_createSession({
+        model,
+        env: buildSdkEnv(envExtra),
+        // Review is a pure JSON-out task — explicitly forbid the model from
+        // exploring the workspace. The system prompt also tells it not to
+        // call tools, but `allowedTools: []` is the belt-and-braces guard.
+        allowedTools: [],
       });
 
-      // Extract text from response
-      const textBlock = response.content.find((b) => b.type === 'text');
-      if (!textBlock || textBlock.type !== 'text') {
-        throw new Error('No text content in review response');
+      await session.send(userMessage);
+
+      let accumulatedText = '';
+      let modelUsed = '';
+      let inputTokens = 0;
+      let outputTokens = 0;
+
+      for await (const msg of session.stream()) {
+        if (msg.type === 'assistant') {
+          // Latest assistant message replaces accumulated text — v2 emits
+          // the full message at message_stop, so the last one wins.
+          const text = msg.message.content
+            .filter((b: { type: string }) => b.type === 'text')
+            .map((b: { type: string; text?: string }) => b.text ?? '')
+            .join('');
+          if (text) accumulatedText = text;
+
+          const message = msg.message as {
+            model?: string;
+            usage?: { input_tokens?: number; output_tokens?: number };
+          };
+          if (message?.model) modelUsed = message.model;
+          if (message?.usage) {
+            inputTokens = message.usage.input_tokens ?? inputTokens;
+            outputTokens = message.usage.output_tokens ?? outputTokens;
+          }
+        }
+        if (msg.type === 'result') {
+          const result = msg as { usage?: { input_tokens?: number; output_tokens?: number } };
+          if (result.usage) {
+            inputTokens = result.usage.input_tokens ?? inputTokens;
+            outputTokens = result.usage.output_tokens ?? outputTokens;
+          }
+        }
       }
 
-      const parsed = JSON.parse(textBlock.text) as {
+      if (timedOut) {
+        throw new Error(`Review timed out after ${REVIEW_TIMEOUT_MS}ms`);
+      }
+      if (!accumulatedText) {
+        throw new Error('No assistant text in review response');
+      }
+
+      const parsed = JSON.parse(unwrapJsonResponse(accumulatedText)) as {
         verdict?: string;
         reasoning?: string;
         concerns?: string[];
@@ -284,12 +320,11 @@ export class AgentReviewService {
         typeof parsed.confidence !== 'number' ||
         !Number.isFinite(parsed.confidence)
       ) {
-        throw new Error(`Invalid review response structure: ${textBlock.text.slice(0, 200)}`);
+        throw new Error(`Invalid review response structure: ${accumulatedText.slice(0, 200)}`);
       }
 
       // Clamp confidence to valid range
       const confidence = Math.max(0, Math.min(1, parsed.confidence));
-
       const durationMs = Date.now() - startTime;
 
       reviewResult = {
@@ -300,13 +335,16 @@ export class AgentReviewService {
         reasoning: parsed.reasoning,
         concerns: parsed.concerns,
         confidence,
-        model,
+        model: modelUsed || model,
         durationMs,
         reviewedAt: new Date().toISOString(),
+        // Surface usage so callers (and any future analytics) can attribute
+        // review-cost back to the task without re-deriving it from the model.
+        usage: inputTokens > 0 || outputTokens > 0 ? { inputTokens, outputTokens } : undefined,
       };
     } catch (apiErr) {
       const errMsg = apiErr instanceof Error ? apiErr.message : String(apiErr);
-      log.error('Agent review API call failed — falling back to human approval', {
+      log.error('Agent review failed — falling back to human approval', {
         data: { taskId, error: errMsg },
       });
 
@@ -326,6 +364,15 @@ export class AgentReviewService {
 
       await this.resetToPlanning(taskId);
       return;
+    } finally {
+      clearTimeout(timeoutTimer);
+      try {
+        session?.close();
+      } catch (closeErr) {
+        log.warn('Failed to close review session cleanly', {
+          error: closeErr instanceof Error ? closeErr.message : String(closeErr),
+        });
+      }
     }
 
     // Publish review completed event
@@ -441,89 +488,4 @@ export class AgentReviewService {
       });
     }
   }
-}
-
-/** Errors that are worth retrying at the app level. */
-function isTransientApiError(err: unknown): { retry: boolean; reason: string; status?: number } {
-  if (
-    err instanceof Anthropic.APIConnectionError ||
-    err instanceof Anthropic.APIConnectionTimeoutError
-  ) {
-    return { retry: true, reason: 'connection' };
-  }
-  if (err instanceof Anthropic.APIError) {
-    const status = err.status;
-    if (status === 429) return { retry: true, reason: 'rate_limit', status };
-    if (status === 529 || status === 503) return { retry: true, reason: 'overloaded', status };
-    if (status && status >= 500 && status < 600)
-      return { retry: true, reason: 'server_error', status };
-  }
-  if (err instanceof Error && /aborted|ECONNRESET|ETIMEDOUT|fetch failed/i.test(err.message)) {
-    return { retry: true, reason: 'network' };
-  }
-  return { retry: false, reason: 'non_retryable' };
-}
-
-/** Read `retry-after` (seconds or HTTP-date) from an Anthropic APIError, if present. */
-function retryAfterMs(err: unknown): number | undefined {
-  if (!(err instanceof Anthropic.APIError)) return undefined;
-  const headers = err.headers;
-  if (!headers) return undefined;
-  const raw =
-    typeof headers === 'object' &&
-    'get' in headers &&
-    typeof (headers as Headers).get === 'function'
-      ? (headers as Headers).get('retry-after')
-      : (headers as Record<string, string | undefined>)['retry-after'];
-  if (!raw) return undefined;
-  const seconds = Number(raw);
-  if (Number.isFinite(seconds) && seconds >= 0)
-    return Math.min(seconds * 1000, REVIEW_MAX_BACKOFF_MS);
-  const dateMs = Date.parse(raw);
-  if (Number.isFinite(dateMs))
-    return Math.max(0, Math.min(dateMs - Date.now(), REVIEW_MAX_BACKOFF_MS));
-  return undefined;
-}
-
-interface ReviewRetryOpts {
-  timeoutMs: number;
-  onRetry?: (attempt: number, waitMs: number, reason: string) => void;
-}
-
-/**
- * Wrap `client.messages.create` with timeout-per-attempt and an outer retry
- * for 429 / overloaded / connection errors. The Anthropic SDK does its own
- * short retries; this loop adds a longer backoff that honours `retry-after`,
- * so a transient rate-limit blip doesn't bounce the task to human approval.
- */
-async function callReviewWithRetry(
-  client: Anthropic,
-  body: Anthropic.MessageCreateParamsNonStreaming,
-  opts: ReviewRetryOpts
-): Promise<Anthropic.Message> {
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= REVIEW_MAX_RETRIES; attempt++) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), opts.timeoutMs);
-    try {
-      return await client.messages.create(body, { signal: controller.signal });
-    } catch (err) {
-      lastErr = err;
-      const transient = isTransientApiError(err);
-      if (!transient.retry || attempt === REVIEW_MAX_RETRIES) throw err;
-
-      // Honour server-provided retry-after when available, otherwise back
-      // off exponentially with jitter to avoid thundering-herd retries.
-      const explicit = retryAfterMs(err);
-      const exp = Math.min(REVIEW_BASE_BACKOFF_MS * 2 ** (attempt - 1), REVIEW_MAX_BACKOFF_MS);
-      const jitter = Math.floor(Math.random() * Math.min(1_000, exp / 4));
-      const waitMs = explicit ?? exp + jitter;
-      opts.onRetry?.(attempt, waitMs, transient.reason);
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-  // Unreachable: the loop either returns or throws.
-  throw lastErr ?? new Error('callReviewWithRetry: exhausted retries with no error');
 }
