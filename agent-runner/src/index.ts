@@ -32,6 +32,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import {
   type CanUseTool,
   type HookCallbackMatcher,
+  type PreToolUseHookInput,
   type SDKSession,
   type SubagentStartHookInput,
   unstable_v2_createSession,
@@ -788,12 +789,20 @@ async function runPlanningPhase(): Promise<void> {
   try {
     log.error('[agent-runner] Creating SDK session in plan mode...');
 
-    // Create canUseTool callback to capture ExitPlanMode options
-    // This is the official SDK mechanism for intercepting tool calls
-    const canUseTool: CanUseTool = async (toolName, input, options) => {
-      log.error(`[agent-runner] canUseTool: ${toolName}`);
+    /**
+     * Side-effect-only tracking for a tool invocation. Idempotent on
+     * `toolUseId`: safe to call from both `canUseTool` (which may not
+     * fire when `permissionMode: 'bypassPermissions'` is set) and the
+     * `PreToolUse` hook (which always fires). Whichever path runs first
+     * records; subsequent calls are no-ops.
+     */
+    const trackToolInvocation = (
+      toolName: string,
+      input: unknown,
+      toolUseId: string | undefined
+    ) => {
+      if (!toolUseId || activeTools.has(toolUseId)) return;
 
-      // Track tool start
       const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
         toolName,
         startTime: Date.now(),
@@ -807,7 +816,7 @@ async function runPlanningPhase(): Promise<void> {
           toolEntry.skillName = sName;
         } else {
           log.error(
-            `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${options.toolUseID})`
+            `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${toolUseId})`
           );
         }
       }
@@ -822,28 +831,33 @@ async function runPlanningPhase(): Promise<void> {
         }
       }
 
-      activeTools.set(options.toolUseID, toolEntry);
+      activeTools.set(toolUseId, toolEntry);
 
-      // Emit tool start event for all tools
       events.toolStart({
         toolName,
-        toolId: options.toolUseID,
+        toolId: toolUseId,
         input: (input as Record<string, unknown>) ?? {},
       });
 
-      // Detect file-modifying tools and emit file_changed event + accumulate
-      {
-        const fileChange = sharedExtractFileChange(
-          toolName,
-          (input as Record<string, unknown>) ?? {}
-        );
-        if (fileChange) {
-          events.fileChanged(fileChange);
-          tracking.fileChangeSet.add(fileChange.path);
-          if (fileChange.additions) tracking.totalLinesAdded += fileChange.additions;
-          if (fileChange.deletions) tracking.totalLinesRemoved += fileChange.deletions;
-        }
+      const fileChange = sharedExtractFileChange(
+        toolName,
+        (input as Record<string, unknown>) ?? {}
+      );
+      if (fileChange) {
+        events.fileChanged(fileChange);
+        tracking.fileChangeSet.add(fileChange.path);
+        if (fileChange.additions) tracking.totalLinesAdded += fileChange.additions;
+        if (fileChange.deletions) tracking.totalLinesRemoved += fileChange.deletions;
       }
+    };
+
+    // Create canUseTool callback. Permission decisions only — the actual
+    // tracking moved to `trackToolInvocation` so it works in both this
+    // path *and* the PreToolUse hook (which fires when bypass mode skips
+    // canUseTool entirely).
+    const canUseTool: CanUseTool = async (toolName, input, options) => {
+      log.error(`[agent-runner] canUseTool: ${toolName}`);
+      trackToolInvocation(toolName, input, options.toolUseID);
 
       // Capture ExitPlanMode options when the tool is called
       if (toolName === 'ExitPlanMode') {
@@ -922,6 +936,25 @@ async function runPlanningPhase(): Promise<void> {
         // Pushes into the same queue canUseTool uses (see TopologyTracker
         // hoisted below).
         SubagentStart: [buildSubagentStartHook(pendingSubagentTypesRef)],
+        // PreToolUse mirrors `canUseTool`'s tracking. Necessary because
+        // `permissionMode: 'bypassPermissions'` (used when AGENT_HAS_SKILL)
+        // skips the canUseTool callback entirely, and any tools that
+        // matched a `permissions.allow` rule in the workspace's
+        // `.claude/settings.local.json` (loaded by `settingSources:
+        // ['project']`) also bypass canUseTool. The hook fires
+        // unconditionally and `trackToolInvocation` is idempotent, so
+        // this just patches the gap without double-emitting.
+        PreToolUse: [
+          {
+            hooks: [
+              async (input) => {
+                const i = input as PreToolUseHookInput;
+                trackToolInvocation(i.tool_name, i.tool_input, i.tool_use_id);
+                return {};
+              },
+            ],
+          },
+        ],
       },
     });
     log.error('[agent-runner] SDK session created successfully');
@@ -1356,15 +1389,20 @@ async function runExecutionPhase(): Promise<void> {
     }
   };
 
-  // canUseTool callback to track tool executions (even in bypass mode)
-  const canUseTool: CanUseTool = async (toolName, input, options) => {
-    // Track tool start
+  /**
+   * Idempotent tool tracking — see the planning-phase variant for the
+   * full rationale. Called from both `canUseTool` (when the SDK invokes
+   * it) and the `PreToolUse` hook (which always fires, including when
+   * `permissionMode: 'bypassPermissions'` skips canUseTool).
+   */
+  const trackToolInvocation = (toolName: string, input: unknown, toolUseId: string | undefined) => {
+    if (!toolUseId || activeTools.has(toolUseId)) return;
+
     const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
       toolName,
       startTime: Date.now(),
     };
 
-    // Enrich Skill tool calls with the skill name for downstream tracking
     if (toolName === 'Skill') {
       const skillInput = input as Record<string, unknown> | undefined;
       const sName = typeof skillInput?.skill === 'string' ? skillInput.skill : undefined;
@@ -1372,13 +1410,11 @@ async function runExecutionPhase(): Promise<void> {
         toolEntry.skillName = sName;
       } else {
         log.error(
-          `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${options.toolUseID})`
+          `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${toolUseId})`
         );
       }
     }
 
-    // Capture subagent_type from Agent tool calls for topology grouping.
-    // The SDK reports task_type: "local_agent" — we substitute with the real name.
     if (toolName === 'Agent') {
       const agentInput = input as Record<string, unknown> | undefined;
       const subagentType =
@@ -1388,29 +1424,27 @@ async function runExecutionPhase(): Promise<void> {
       }
     }
 
-    activeTools.set(options.toolUseID, toolEntry);
+    activeTools.set(toolUseId, toolEntry);
 
-    // Emit tool start event
     events.toolStart({
       toolName,
-      toolId: options.toolUseID,
+      toolId: toolUseId,
       input: (input as Record<string, unknown>) ?? {},
     });
 
-    // Detect file-modifying tools and emit file_changed event + accumulate
-    {
-      const fileChange = sharedExtractFileChange(
-        toolName,
-        (input as Record<string, unknown>) ?? {}
-      );
-      if (fileChange) {
-        events.fileChanged(fileChange);
-        tracking.fileChangeSet.add(fileChange.path);
-        if (fileChange.additions) tracking.totalLinesAdded += fileChange.additions;
-        if (fileChange.deletions) tracking.totalLinesRemoved += fileChange.deletions;
-      }
+    const fileChange = sharedExtractFileChange(toolName, (input as Record<string, unknown>) ?? {});
+    if (fileChange) {
+      events.fileChanged(fileChange);
+      tracking.fileChangeSet.add(fileChange.path);
+      if (fileChange.additions) tracking.totalLinesAdded += fileChange.additions;
+      if (fileChange.deletions) tracking.totalLinesRemoved += fileChange.deletions;
     }
+  };
 
+  // canUseTool callback. Tracking moved to `trackToolInvocation` so it
+  // works in both this path and the PreToolUse hook below.
+  const canUseTool: CanUseTool = async (toolName, input, options) => {
+    trackToolInvocation(toolName, input, options.toolUseID);
     // Allow all tools in execution mode
     return { behavior: 'allow' as const, toolUseID: options.toolUseID };
   };
@@ -1447,6 +1481,19 @@ async function runExecutionPhase(): Promise<void> {
           canUseTool, // Track tools even in bypass mode
           hooks: {
             SubagentStart: [buildSubagentStartHook(pendingSubagentTypesRef)],
+            // Also track tools via PreToolUse — bypassPermissions skips
+            // canUseTool, so without this the Tools tab is empty.
+            PreToolUse: [
+              {
+                hooks: [
+                  async (input) => {
+                    const i = input as PreToolUseHookInput;
+                    trackToolInvocation(i.tool_name, i.tool_input, i.tool_use_id);
+                    return {};
+                  },
+                ],
+              },
+            ],
           },
         });
         sessionResumed = true;
@@ -1478,6 +1525,17 @@ async function runExecutionPhase(): Promise<void> {
         canUseTool, // Track tools even in bypass mode
         hooks: {
           SubagentStart: [buildSubagentStartHook(pendingSubagentTypesRef)],
+          PreToolUse: [
+            {
+              hooks: [
+                async (input) => {
+                  const i = input as PreToolUseHookInput;
+                  trackToolInvocation(i.tool_name, i.tool_input, i.tool_use_id);
+                  return {};
+                },
+              ],
+            },
+          ],
         },
       });
     }

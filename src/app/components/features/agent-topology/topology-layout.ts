@@ -28,15 +28,25 @@ const GENERIC_AGENT_TYPES = new Set(['local_agent', 'general-purpose']);
 /**
  * Pixel padding around the bounding box of a same-type cluster.
  *
- * `GROUP_BOX_TOP` is larger to leave room for the type label without it
- * sitting on top of the first node. The horizontal padding is kept small
- * so adjacent clusters under the same parent don't overlap (ELK's
- * `nodeNode` spacing is 60px; with `GROUP_BOX_SIDE = 10` each side we
- * leave a clean 40px channel between cluster boundaries).
+ * The AgentNode SVG renders with `overflow: visible`, so the name and
+ * metric labels (centred on a 120px container, font-size 12) can extend
+ * beyond the container width when text is long. With `MAX_NAME_CHARS = 22`
+ * in `agent-node.tsx`, a fully-truncated name at 12px renders ~190px wide
+ * — about 35px of overflow on each side of the 120px container. Side
+ * padding has to cover that overflow plus a little breathing room,
+ * otherwise the leftmost / rightmost cluster member shows label text
+ * outside the dashed cluster outline.
+ *
+ * Vertical padding leaves room for:
+ *   - top: the type label (~14px line height + a 6px gap)
+ *   - bottom: the metrics line (in running mode it sits at container
+ *     y≈132 with ~12px text height, just inside the 145px container, but
+ *     a little extra keeps it visually inside the box rather than flush
+ *     against the border)
  */
-const GROUP_BOX_TOP = 24;
-const GROUP_BOX_SIDE = 10;
-const GROUP_BOX_BOTTOM = 14;
+const GROUP_BOX_TOP = 26;
+const GROUP_BOX_SIDE = 44;
+const GROUP_BOX_BOTTOM = 28;
 /**
  * Minimum number of sibling nodes that share an agent_type to draw a box.
  * 1 means even singletons get a labelled box, which is visually noisy
