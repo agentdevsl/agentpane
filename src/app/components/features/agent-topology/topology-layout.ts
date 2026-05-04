@@ -151,86 +151,93 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     (child: ElkNode) => ({ id: child.id, x: child.x ?? 0, y: child.y ?? 0 })
   );
 
-  // Lift `local_bash` subagents onto their own row positioned *between*
-  // the orchestrator and the workflow-stage row. They're SDK-internal
-  // bash-runner subagents (one per `Bash` invocation) that share the
-  // orchestrator parent with the workflow-stage agents (research /
-  // design / developer / etc.). With mrtree they interleave with
-  // workflow-stage nodes in a single horizontal row, which makes the
-  // workflow stages harder to read at a glance.
-  //
-  // Slotting local_bash *above* the workflow row visually distinguishes
-  // "execution helpers" from "AI subagents" without pushing the workflow
-  // stages further from their parent. We push the entire workflow-stage
-  // row down by enough that the orchestrator→workflow edges have a
-  // clear channel above the bash row (top half) and below it (bottom
-  // half) so the lines don't visually overlap the bash nodes.
-  //
-  // ROW_GAP applies on both sides of the bash row: above it (between
-  // orchestrator and bash) and below it (between bash and workflow).
-  const ROW_GAP = 100;
-  const localBashByParent = new Map<string, string[]>();
-  for (const node of graph.nodes) {
-    if (node.agentType === 'local_bash' && node.parentId) {
-      const list = localBashByParent.get(node.parentId) ?? [];
-      list.push(node.id);
-      localBashByParent.set(node.parentId, list);
-    }
+  // Compute per-cluster horizontal extents (per `parentId + agentType`)
+  // and shift entire clusters apart so their padded boxes don't overlap.
+  // Different from the per-pair box-edge resolution further down: this
+  // shifts the underlying nodes too, so the visible nodes inside each
+  // cluster maintain mrtree's relative layout while different clusters
+  // get spread out enough that the surrounding boxes never touch.
+  const NON_GROUPABLE = new Set([...GENERIC_AGENT_TYPES]);
+  const positionById = new Map(flatChildren.map((c) => [c.id, c]));
+  const clusterKeyOf = (n: (typeof graph.nodes)[number]): string | null => {
+    if (n.type === 'skill') return null;
+    if (!n.agentType || NON_GROUPABLE.has(n.agentType)) return null;
+    return `${n.parentId ?? 'root'}::${n.agentType}`;
+  };
+  const clusterMembers = new Map<string, string[]>();
+  for (const n of graph.nodes) {
+    const key = clusterKeyOf(n);
+    if (!key || !positionById.has(n.id)) continue;
+    const list = clusterMembers.get(key) ?? [];
+    list.push(n.id);
+    clusterMembers.set(key, list);
   }
-  if (localBashByParent.size > 0) {
-    const positionById = new Map(flatChildren.map((c) => [c.id, c]));
-    for (const [parentId, bashIds] of localBashByParent) {
-      // Identify the workflow-stage row: siblings under this parent that
-      // aren't local_bash. They share a Y after mrtree's layout; we'll
-      // shift them down to make room for the bash row above them.
-      const workflowSiblings = graph.nodes.filter(
-        (n) => n.parentId === parentId && n.agentType !== 'local_bash'
-      );
-      if (workflowSiblings.length === 0) continue;
-      const workflowMinY = Math.min(
-        ...workflowSiblings
-          .map((n) => positionById.get(n.id)?.y)
-          .filter((y): y is number => typeof y === 'number')
-      );
-      if (!Number.isFinite(workflowMinY)) continue;
 
-      // The bash row will sit at `workflowMinY` (current top of the
-      // workflow row); the workflow row gets pushed down by
-      // NODE_HEIGHT + 2*ROW_GAP so there's visible breathing room both
-      // above the bash row (orchestrator → bash edges) and below it
-      // (bash row → workflow edges), preventing the long
-      // orchestrator→workflow edges from cutting through bash nodes.
-      const bashRowY = workflowMinY;
-      const workflowShift = NODE_HEIGHT + ROW_GAP * 2;
+  // Build per-cluster left/right extents grouped by the row they sit in.
+  // mrtree puts all siblings on one Y, but we tolerate small drift by
+  // bucketing on rounded y to handle sub-row jitter from mrtree's
+  // `verticalAlignment` heuristics.
+  const MIN_INTER_CLUSTER_GAP_X = 36;
+  const ROW_KEY_TOLERANCE = 30;
+  type ClusterExtent = {
+    key: string;
+    rowKey: number;
+    members: string[];
+    left: number;
+    right: number;
+  };
+  const extents: ClusterExtent[] = [];
+  for (const [key, members] of clusterMembers) {
+    if (members.length === 0) continue;
+    let left = Number.POSITIVE_INFINITY;
+    let right = Number.NEGATIVE_INFINITY;
+    let yMin = Number.POSITIVE_INFINITY;
+    for (const id of members) {
+      const pos = positionById.get(id);
+      if (!pos) continue;
+      const w = nodeById.get(id)?.node.type === 'skill' ? SKILL_NODE_WIDTH : NODE_WIDTH;
+      if (pos.x < left) left = pos.x;
+      if (pos.x + w > right) right = pos.x + w;
+      if (pos.y < yMin) yMin = pos.y;
+    }
+    if (!Number.isFinite(left)) continue;
+    extents.push({
+      key,
+      rowKey: Math.round(yMin / ROW_KEY_TOLERANCE) * ROW_KEY_TOLERANCE,
+      members,
+      left,
+      right,
+    });
+  }
 
-      // Push every workflow-stage node down by workflowShift. This also
-      // covers their descendants — though for the orchestrator's direct
-      // children, the workflow agents are usually leaf nodes anyway.
-      for (const n of workflowSiblings) {
-        const pos = positionById.get(n.id);
-        if (pos) pos.y += workflowShift;
+  // Sweep clusters left-to-right per row and push subsequent clusters
+  // far enough right that their padded boxes leave a clean
+  // MIN_INTER_CLUSTER_GAP_X channel between cluster outlines.
+  const extentsByRow = new Map<number, ClusterExtent[]>();
+  for (const e of extents) {
+    const list = extentsByRow.get(e.rowKey) ?? [];
+    list.push(e);
+    extentsByRow.set(e.rowKey, list);
+  }
+  for (const rowExtents of extentsByRow.values()) {
+    rowExtents.sort((a, b) => a.left - b.left);
+    for (let i = 1; i < rowExtents.length; i++) {
+      const prev = rowExtents[i - 1];
+      const cur = rowExtents[i];
+      if (!prev || !cur) continue;
+      // Padded right edge of prev cluster + padded left edge of cur cluster.
+      const prevRightPadded = prev.right + GROUP_BOX_SIDE;
+      const curLeftPadded = cur.left - GROUP_BOX_SIDE;
+      if (curLeftPadded - prevRightPadded >= MIN_INTER_CLUSTER_GAP_X) continue;
+      const shift = prevRightPadded + MIN_INTER_CLUSTER_GAP_X - curLeftPadded;
+      // Move every member of `cur` (and update its extent record so the
+      // next iteration sees the new position).
+      for (const id of cur.members) {
+        const pos = positionById.get(id);
+        if (pos) pos.x += shift;
       }
-
-      // Distribute bash nodes evenly along the bash row, centred on the
-      // parent's horizontal centre. Sort by current x so progressive
-      // re-layouts keep the same left-to-right order.
-      const bashEntries = bashIds
-        .map((id) => positionById.get(id))
-        .filter((c): c is { id: string; x: number; y: number } => Boolean(c))
-        .sort((a, b) => a.x - b.x);
-      if (bashEntries.length === 0) continue;
-      const parentPos = positionById.get(parentId);
-      const parentWidth =
-        nodeById.get(parentId)?.node.type === 'skill' ? SKILL_NODE_WIDTH : NODE_WIDTH;
-      const parentCenterX = parentPos ? parentPos.x + parentWidth / 2 : (bashEntries[0]?.x ?? 0);
-      const nodeNodeSpacing = 60;
-      const totalWidth =
-        bashEntries.length * NODE_WIDTH + (bashEntries.length - 1) * nodeNodeSpacing;
-      const rowStartX = parentCenterX - totalWidth / 2;
-      bashEntries.forEach((entry, i) => {
-        entry.x = rowStartX + i * (NODE_WIDTH + nodeNodeSpacing);
-        entry.y = bashRowY;
-      });
+      cur.left += shift;
+      cur.right += shift;
     }
   }
 
@@ -311,7 +318,8 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
   // Compute group bounding boxes — siblings sharing both `parentId` and
   // `agentType` (excluding generic SDK fallbacks) get a translucent box
   // drawn behind them so the user can see the workflow stage at a glance.
-  const positionById = new Map(flatChildren.map((c) => [c.id, { x: c.x, y: c.y }]));
+  // (Positions are read from the same `positionById` map populated above
+  // — the cluster-shift pass updates it in place.)
   const widthFor = (id: string) =>
     nodeById.get(id)?.node.type === 'skill' ? SKILL_NODE_WIDTH : NODE_WIDTH;
   const heightFor = (id: string) =>
@@ -358,62 +366,10 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     });
   }
 
-  // Resolve horizontal overlaps between adjacent groups by trimming
-  // *only* the side that's actually overlapping the neighbour's
-  // node-edge, not by shrinking both boxes to a midpoint. ELK lays out
-  // the nodes with `nodeNode` spacing but doesn't account for our
-  // cluster padding, so two clusters can end up with their padded
-  // boxes touching even when their underlying nodes have plenty of
-  // slack. We compute each box's "essential" inner extent (the bbox of
-  // its nodes alone, no padding) and pull the colliding edge back to
-  // that boundary plus half the desired gap.
-  const MIN_INTER_GROUP_GAP = 8;
-  // Recover each group's inner-node bbox (everything except the
-  // padding we just added) so we know how far we can shrink without
-  // clipping a node.
-  const innerBoxes = new Map<string, { left: number; right: number }>();
-  for (const g of groups) {
-    innerBoxes.set(g.id, {
-      left: g.x + GROUP_BOX_SIDE,
-      right: g.x + g.width - GROUP_BOX_SIDE,
-    });
-  }
-  groups.sort((a, b) => a.y - b.y || a.x - b.x);
-  for (let i = 0; i < groups.length; i++) {
-    for (let j = i + 1; j < groups.length; j++) {
-      const a = groups[i];
-      const b = groups[j];
-      if (!a || !b) continue;
-      // Only check pairs that share a vertical band — non-overlapping
-      // y-ranges can't visually collide regardless of x.
-      const aBottom = a.y + a.height;
-      const bBottom = b.y + b.height;
-      if (aBottom <= b.y || bBottom <= a.y) continue;
-      const aRight = a.x + a.width;
-      const bLeft = b.x;
-      if (aRight + MIN_INTER_GROUP_GAP <= bLeft) continue; // already clean
-      const innerA = innerBoxes.get(a.id);
-      const innerB = innerBoxes.get(b.id);
-      if (!innerA || !innerB) continue;
-      // Available channel between the two clusters' actual nodes.
-      const channel = innerB.left - innerA.right;
-      if (channel <= 0) continue; // nodes themselves overlap — let it be
-      // Split the channel between the two boxes, leaving a small visible
-      // gap. Each side's padding gets trimmed independently from its
-      // node-edge, so a tall multi-node box doesn't disappear into a
-      // sliver next to a single-node neighbour.
-      const halfChannel = (channel - MIN_INTER_GROUP_GAP) / 2;
-      const newARight = innerA.right + Math.max(0, halfChannel);
-      const newBLeft = innerB.left - Math.max(0, halfChannel);
-      a.width = Math.max(GROUP_BOX_SIDE, newARight - a.x);
-      const shift = newBLeft - b.x;
-      if (shift > 0) {
-        const newBRight = b.x + b.width;
-        b.x = newBLeft;
-        b.width = Math.max(GROUP_BOX_SIDE, newBRight - newBLeft);
-      }
-    }
-  }
+  // No box-edge resolution needed here — the earlier cluster-shift pass
+  // already pushed clusters apart at the node level, so each cluster's
+  // padded bbox naturally has a clean horizontal channel to its
+  // neighbour. Boxes are computed from the post-shift positions.
 
   return { nodes: rfNodes, edges: rfEdges, groups };
 }
