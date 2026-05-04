@@ -402,7 +402,12 @@ export const STREAM_ENTRY_TYPE_CONFIG: Record<
   },
   approval: {
     label: 'Approval',
-    textClass: 'text-secondary-emphasis',
+    // The approval row overrides this with a filled-chip treatment in
+    // the renderer (bg-secondary + fg-on-emphasis). The class here is
+    // a fallback for any consumer that reads STREAM_ENTRY_TYPE_CONFIG
+    // directly without applying the chip override — text-secondary
+    // (= --secondary-fg) is a real palette token.
+    textClass: 'text-secondary',
   },
 };
 
