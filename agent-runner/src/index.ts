@@ -857,11 +857,11 @@ async function runPlanningPhase(): Promise<void> {
 
   // Create Claude Agent SDK session in PLAN mode
   let session: SDKSession | undefined;
-  // Shared queue for subagent_type capture (planning phase). Both
-  // SubagentStart hook (SDK-authoritative) and canUseTool (legacy fallback
-  // when subagent_type is passed explicitly) push into this; task_started
-  // consumes from it. The same array reference is assigned to
-  // TopologyTracker.pendingSubagentTypes after the session is created.
+  // Shared queue for subagent_type capture (planning phase). The
+  // SubagentStart hook is the sole producer (SDK-authoritative for every
+  // subagent spawn); task_started consumes from it. The same array
+  // reference is assigned to TopologyTracker.pendingSubagentTypes after
+  // the session is created.
   const pendingSubagentTypesRef: string[] = [];
   try {
     log.error('[agent-runner] Creating SDK session in plan mode...');
@@ -898,15 +898,12 @@ async function runPlanningPhase(): Promise<void> {
         }
       }
 
-      // Capture subagent_type from Agent tool calls for topology grouping
-      if (toolName === 'Agent') {
-        const agentInput = input as Record<string, unknown> | undefined;
-        const subagentType =
-          typeof agentInput?.subagent_type === 'string' ? agentInput.subagent_type : null;
-        if (subagentType) {
-          topology.pendingSubagentTypes.push(subagentType);
-        }
-      }
+      // subagent_type is captured exclusively by `buildSubagentStartHook`
+      // (SubagentStart hook). Pushing here too would double-enqueue: both
+      // canUseTool/PreToolUse paths route through this function while the
+      // SDK also fires SubagentStart for the same spawn, but task_started
+      // only `.shift()`s once per subagent — leaving stale entries that
+      // misalign every subsequent subagent's topology label by one slot.
 
       activeTools.set(toolUseId, toolEntry);
 
@@ -1509,14 +1506,10 @@ async function runExecutionPhase(): Promise<void> {
       }
     }
 
-    if (toolName === 'Agent') {
-      const agentInput = input as Record<string, unknown> | undefined;
-      const subagentType =
-        typeof agentInput?.subagent_type === 'string' ? agentInput.subagent_type : null;
-      if (subagentType) {
-        topology.pendingSubagentTypes.push(subagentType);
-      }
-    }
+    // subagent_type is captured exclusively by `buildSubagentStartHook`
+    // (SubagentStart hook). See planning-phase comment for rationale: a
+    // duplicate push from canUseTool/PreToolUse here misaligns every
+    // subsequent subagent's topology label.
 
     activeTools.set(toolUseId, toolEntry);
 
