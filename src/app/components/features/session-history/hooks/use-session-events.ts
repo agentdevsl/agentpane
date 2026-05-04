@@ -448,7 +448,18 @@ export function parseEventsToStreamEntries(
         startTimeOffset,
         endTimeOffset: timeOffset,
         duration,
-        error: hasError ? (resultData.error ?? 'Tool execution failed') : undefined,
+        // When `isError` is set on a tool:result, the failure reason is
+        // commonly in the result/output text (the SDK and our synthetic
+        // orphan-flush emit both populate `result`, not a separate
+        // `error` field). Fall through to the output before the generic
+        // "Tool execution failed" sentinel so the UI surfaces the real
+        // message — e.g. "Agent runner terminated before this tool
+        // returned" — instead of swallowing it under a placeholder.
+        error: hasError
+          ? (resultData.error ??
+            (typeof resultData.output === 'string' ? resultData.output : null) ??
+            'Tool execution failed')
+          : undefined,
       };
 
       entries.push({
@@ -754,7 +765,18 @@ export function parseEventsToStreamEntries(
           startTimeOffset,
           endTimeOffset: timeOffset,
           duration,
-          error: hasError ? (resultData.error ?? 'Tool execution failed') : undefined,
+          // When `isError` is set on a tool:result, the failure reason is
+          // commonly in the result/output text (the SDK and our synthetic
+          // orphan-flush emit both populate `result`, not a separate
+          // `error` field). Fall through to the output before the generic
+          // "Tool execution failed" sentinel so the UI surfaces the real
+          // message — e.g. "Agent runner terminated before this tool
+          // returned" — instead of swallowing it under a placeholder.
+          error: hasError
+            ? (resultData.error ??
+              (typeof resultData.output === 'string' ? resultData.output : null) ??
+              'Tool execution failed')
+            : undefined,
         };
         break;
       }

@@ -387,6 +387,16 @@ export class SandboxController {
         volumes,
         serviceAccountName,
         ...(runtimeClassName ? { runtimeClassName } : {}),
+        // Give the agent runner a generous 60s window between SIGTERM
+        // and SIGKILL on pod deletion so its termination handler can
+        // emit synthetic tool:result events for in-flight tools and
+        // drain stdout (which the host reads via kubectl exec and
+        // forwards to durable streams) before the kernel kills it.
+        // K8s default of 30s is usually enough, but the durable-streams
+        // round trip can take a few seconds under load and we'd rather
+        // err on the side of clean tool tracking than the marginal
+        // teardown speed gain.
+        terminationGracePeriodSeconds: 60,
         // Pod-level security context for restricted PSS compliance
         securityContext: {
           runAsNonRoot: true,

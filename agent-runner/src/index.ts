@@ -491,7 +491,7 @@ function setRunFlushHook(hook: typeof currentRunFlush): void {
  * cleanly. Without this the host re-spawns or reconciles into an
  * inconsistent UI state where tools appear stuck running.
  */
-function handleTerminationSignal(signal: 'SIGTERM' | 'SIGINT'): void {
+async function handleTerminationSignal(signal: 'SIGTERM' | 'SIGINT'): Promise<never> {
   log.error(`[agent-runner] Received ${signal}, flushing in-flight tool tracking…`);
   try {
     currentRunFlush?.(signal);
@@ -500,12 +500,24 @@ function handleTerminationSignal(signal: 'SIGTERM' | 'SIGINT'): void {
       error: err instanceof Error ? err.message : String(err),
     });
   }
-  // Exit code 143 is the standard "killed by SIGTERM" convention; 130
-  // for SIGINT. K8s and most schedulers treat both as graceful.
-  process.exit(signal === 'SIGTERM' ? 143 : 130);
+  // Drain stdout before exiting. The runner emits events as JSON lines
+  // on stdout; the host reads them via kubectl exec and forwards to
+  // durable streams. A bare `process.exit` here lost the synthetic
+  // tool:result events the flush hook just wrote because Bun's stdout
+  // buffer hadn't drained yet — when the kubectl exec stdout pipe
+  // closed, the events never reached the host. flushAndExit awaits the
+  // stdout flush callback (and a 50ms kernel-buffer settle) before
+  // exiting, so events make it through within the K8s grace period.
+  // Exit codes 143 / 130 are the conventional "killed by SIGTERM /
+  // SIGINT" values that K8s and most schedulers treat as graceful.
+  await flushAndExit(signal === 'SIGTERM' ? 143 : 130);
 }
-process.on('SIGTERM', () => handleTerminationSignal('SIGTERM'));
-process.on('SIGINT', () => handleTerminationSignal('SIGINT'));
+process.on('SIGTERM', () => {
+  void handleTerminationSignal('SIGTERM');
+});
+process.on('SIGINT', () => {
+  void handleTerminationSignal('SIGINT');
+});
 
 // Global error handlers - catch EPIPE and other unhandled errors
 // These must be registered early, before any async operations

@@ -376,7 +376,13 @@ export class ContainerAgentService {
       });
 
       for (const orphan of orphanStarts) {
-        const durationMs = Math.max(0, Date.now() - orphan.startTimestamp);
+        // durationMs intentionally 0 — the tool's real runtime was a few
+        // ms before the agent runner died; the long delay until reconcile
+        // ran is wall-clock idle time, not tool execution time. Computing
+        // `Date.now() - startTimestamp` here gave bogus durations like
+        // "21m 46s" in the UI, which read as "the bash command hung for
+        // 21 minutes" rather than "the runner was offline for 21 minutes
+        // and we're cleaning up afterwards."
         await this.deps.streams
           .publish(sessionId, 'container-agent:tool:result', {
             taskId,
@@ -385,7 +391,7 @@ export class ContainerAgentService {
             toolName: orphan.toolName,
             result: 'Agent runner terminated before this tool returned',
             isError: true,
-            durationMs,
+            durationMs: 0,
           })
           .catch((publishErr) => {
             log.warn('Failed to publish synthetic tool:result', {
