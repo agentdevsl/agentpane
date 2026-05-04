@@ -90,6 +90,14 @@ export function TopologyGroupOverlay({
               position: 'absolute',
               top: 6,
               left: 12,
+              // Single-cluster boxes (one node) are only ~200px wide; long
+              // type names like `tf-module-validator` plus the count
+              // suffix used to wrap onto two lines and visually leave the
+              // box. nowrap lets the label overflow horizontally instead
+              // of wrapping; the cluster type is still readable on hover
+              // via the title tooltip even if it does extend past the
+              // node circle.
+              whiteSpace: 'nowrap',
               fontSize: 10,
               fontWeight: 600,
               letterSpacing: 0.4,
