@@ -234,7 +234,10 @@ const rawContainerAgentToolResultSchema = z.object({
 const rawContainerAgentMessageSchema = z.object({
   taskId: z.string(),
   sessionId: z.string(),
-  role: z.enum(['user', 'assistant', 'system']),
+  // 'approval' is reserved for the plan-approval flow (`Plan ready —
+  // waiting for human approval`, `Plan auto-approved by agent`, etc.)
+  // so the renderer can lift those out of the muted system pile.
+  role: z.enum(['user', 'assistant', 'system', 'approval']),
   content: z.string(),
 });
 
@@ -524,7 +527,7 @@ export interface ContainerAgentToolResult {
 export interface ContainerAgentMessage {
   taskId: string;
   sessionId: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'approval';
   content: string;
   timestamp: number;
 }

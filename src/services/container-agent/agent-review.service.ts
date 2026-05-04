@@ -177,13 +177,15 @@ export class AgentReviewService {
     // Resolve the review model
     const model = await this.resolveReviewModel();
 
-    // Publish review started event
+    // Publish review started event. Tagged role:'approval' so the session
+    // view can render approval-flow messages distinctly from plain system
+    // notes (sandbox status, skill injection, etc.).
     await streams
       .publish(planData.sessionId, 'container-agent:message', {
         taskId,
         sessionId: planData.sessionId,
-        role: 'system',
-        content: `Agent reviewing plan (model: ${model})...`,
+        role: 'approval',
+        content: `Agent reviewing plan against task description (model: ${model})...`,
       })
       .catch((err) =>
         log.warn('Failed to publish review started event', {
@@ -352,8 +354,8 @@ export class AgentReviewService {
         .publish(planData.sessionId, 'container-agent:message', {
           taskId,
           sessionId: planData.sessionId,
-          role: 'system',
-          content: `Agent review failed (${errMsg}). Plan requires human approval.`,
+          role: 'approval',
+          content: `Agent review failed: ${errMsg}. Falling back to human approval — please review the plan and Approve or Reject.`,
         })
         .catch((publishErr) => {
           log.warn('Failed to publish review failure message', {
@@ -375,13 +377,22 @@ export class AgentReviewService {
       }
     }
 
-    // Publish review completed event
+    // Publish review completed event. Phrased as "auto-approved" /
+    // "flagged for human review" so the action that follows is clear from
+    // the message text alone — `verdict: 'flag_for_review'` is unambiguous
+    // in code but reads as jargon in the UI.
+    const verdictLine =
+      reviewResult.verdict === 'approve'
+        ? `Plan auto-approved by agent (confidence ${reviewResult.confidence.toFixed(2)}, ${reviewResult.durationMs}ms). Starting execution.`
+        : `Plan flagged by agent for human review (confidence ${reviewResult.confidence.toFixed(2)}, ${reviewResult.durationMs}ms).${
+            reviewResult.concerns?.length ? ` Concerns: ${reviewResult.concerns.join('; ')}` : ''
+          }`;
     await streams
       .publish(planData.sessionId, 'container-agent:message', {
         taskId,
         sessionId: planData.sessionId,
-        role: 'system',
-        content: `Agent review complete: ${reviewResult.verdict} (confidence: ${reviewResult.confidence.toFixed(2)}, ${reviewResult.durationMs}ms)`,
+        role: 'approval',
+        content: verdictLine,
       })
       .catch((err) =>
         log.warn('Failed to publish review completed event', {
@@ -402,7 +413,11 @@ export class AgentReviewService {
       // Auto-approve: delegate to the existing approval flow
       log.info('Agent auto-approving plan', { data: { taskId } });
 
-      const approveResult = await this.planApproval.approvePlan(taskId);
+      // Pass 'agent-review' so the session-log message attributes the
+      // approval correctly. Without this the message defaults to "Plan
+      // approved by user" even when this auto-approval flow is what
+      // actually triggered the transition.
+      const approveResult = await this.planApproval.approvePlan(taskId, 'agent-review');
       if (approveResult.ok) {
         // Store review result and attribution AFTER successful approval
         try {

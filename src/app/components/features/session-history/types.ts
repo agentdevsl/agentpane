@@ -138,7 +138,7 @@ export interface SessionDetail extends SessionListItem {
 
 // ===== Stream Entry Types =====
 
-export type StreamEntryType = 'system' | 'user' | 'assistant' | 'tool';
+export type StreamEntryType = 'system' | 'user' | 'assistant' | 'tool' | 'approval';
 
 export interface StreamEntry {
   id: string;
@@ -399,6 +399,10 @@ export const STREAM_ENTRY_TYPE_CONFIG: Record<
   tool: {
     label: 'Tool Call',
     textClass: 'text-attention',
+  },
+  approval: {
+    label: 'Approval',
+    textClass: 'text-secondary-emphasis',
   },
 };
 

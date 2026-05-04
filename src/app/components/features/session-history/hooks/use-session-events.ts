@@ -504,9 +504,15 @@ export function parseEventsToStreamEntries(
       const msgData = event.data as { role?: string; content?: string };
       const msgContent = msgData.content ?? '';
 
-      // Map role to entry type
+      // Map role to entry type. The 'approval' role is reserved for the
+      // plan-approval flow (`Plan ready — waiting for human approval`,
+      // `Plan auto-approved by agent`, etc.) and renders as its own
+      // distinct entry type so the UI can lift these out of the muted
+      // "startup" pile and surface them as scannable state changes.
       if (msgData.role === 'user') {
         type = 'user';
+      } else if (msgData.role === 'approval') {
+        type = 'approval';
       } else if (msgData.role === 'system') {
         type = 'system';
       } else {
@@ -514,7 +520,9 @@ export function parseEventsToStreamEntries(
       }
       content = msgContent;
 
-      // System messages are startup/status messages
+      // Only true `system` messages are startup/status. Approval entries
+      // are state-change events and must NOT be marked startup, otherwise
+      // they get the same muted styling as `Sandbox container ready`.
       const isStartup = type === 'system';
       entries.push({
         id: event.id,

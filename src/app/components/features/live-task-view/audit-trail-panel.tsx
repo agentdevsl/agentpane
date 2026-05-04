@@ -45,7 +45,7 @@ interface TimelineEvent {
 
 interface StreamMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'approval';
   content: string;
   timestamp: number;
 }

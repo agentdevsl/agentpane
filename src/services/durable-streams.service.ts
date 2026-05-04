@@ -190,7 +190,9 @@ export interface ContainerAgentToolResultEvent {
 export interface ContainerAgentMessageEvent {
   taskId: string;
   sessionId: string;
-  role: 'user' | 'assistant' | 'system';
+  // 'approval' is reserved for plan-approval-flow messages so the
+  // session view can render them distinctly from plain system notes.
+  role: 'user' | 'assistant' | 'system' | 'approval';
   content: string;
 }
 

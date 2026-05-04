@@ -13,7 +13,7 @@ import { useAutoScroll } from '@/app/hooks/use-auto-scroll';
 import type { ContainerAgentStatus } from './container-agent-header';
 
 interface Message {
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'approval';
   content: string;
   timestamp: number;
 }

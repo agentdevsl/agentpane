@@ -4,6 +4,7 @@ import {
   CaretRight,
   CheckCircle,
   Code,
+  Gavel,
   Lightning,
   Spinner,
   Terminal,
@@ -27,6 +28,10 @@ const entryContainerVariants = cva(
         user: 'bg-accent/5 hover:bg-accent/10',
         assistant: 'bg-done/5 hover:bg-done/10',
         tool: 'bg-attention/5 hover:bg-attention/10',
+        // Approval entries are state changes in the plan-review flow —
+        // give them a distinct tint and a left accent so they stand out
+        // from the assistant chatter even when scrolling fast.
+        approval: 'bg-secondary/5 hover:bg-secondary/10 border-l-2 border-secondary-emphasis',
       },
       isCurrent: {
         true: 'bg-accent/10 border-l-2 border-accent pl-2',
@@ -45,6 +50,7 @@ const typeIcons = {
   user: User,
   assistant: Code,
   tool: Wrench,
+  approval: Gavel,
 } as const;
 
 const statusIcons = {

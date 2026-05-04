@@ -178,32 +178,72 @@ export class PlanApprovalService {
       },
     });
 
-    // Check if agent review is configured for this task
-    if (this.agentReview) {
-      const approvalMode = await this.agentReview.resolveApprovalMode(taskId);
-      if (approvalMode === 'agent') {
-        log.info('Agent approval mode enabled — starting automated review', { data: { taskId } });
-        const pendingPlan = this.state.getPendingPlan(taskId);
-        if (pendingPlan) {
-          this.agentReview.reviewPlan(taskId, pendingPlan).catch((reviewErr) => {
-            log.error('Agent review failed, falling back to human approval', {
+    // Check if agent review is configured for this task. The approval mode
+    // resolves through task → codespace → global settings → 'human'. Emit an
+    // explicit, prominent message either way so the session log makes the
+    // current approval state obvious instead of leaving it implicit in the
+    // task column transition (which the session view doesn't surface).
+    const approvalMode = this.agentReview
+      ? await this.agentReview.resolveApprovalMode(taskId)
+      : 'human';
+
+    if (approvalMode === 'agent') {
+      // Surface the imminent auto-review so users see the chain
+      // `plan_ready → agent reviewing → approve/flag` end-to-end.
+      streams
+        .publish(sessionId, 'container-agent:message', {
+          taskId,
+          sessionId,
+          role: 'approval',
+          content:
+            'Plan ready. Approval mode: agent — automated review will run next; ' +
+            'no human action needed unless the agent flags concerns.',
+        })
+        .catch((err) =>
+          log.warn('Failed to publish plan_ready/agent message', {
+            error: err instanceof Error ? err.message : String(err),
+          })
+        );
+
+      log.info('Agent approval mode enabled — starting automated review', { data: { taskId } });
+      const pendingPlan = this.state.getPendingPlan(taskId);
+      if (pendingPlan) {
+        this.agentReview?.reviewPlan(taskId, pendingPlan).catch((reviewErr) => {
+          log.error('Agent review failed, falling back to human approval', {
+            data: {
+              taskId,
+              error: reviewErr instanceof Error ? reviewErr.message : String(reviewErr),
+            },
+          });
+          // Safety net: ensure task is not stuck in 'agent_reviewing' status
+          this.agentReview?.resetToPlanning(taskId).catch((resetErr) => {
+            log.error('Failed to reset task status after review failure', {
               data: {
                 taskId,
-                error: reviewErr instanceof Error ? reviewErr.message : String(reviewErr),
+                error: resetErr instanceof Error ? resetErr.message : String(resetErr),
               },
             });
-            // Safety net: ensure task is not stuck in 'agent_reviewing' status
-            this.agentReview?.resetToPlanning(taskId).catch((resetErr) => {
-              log.error('Failed to reset task status after review failure', {
-                data: {
-                  taskId,
-                  error: resetErr instanceof Error ? resetErr.message : String(resetErr),
-                },
-              });
-            });
           });
-        }
+        });
       }
+    } else {
+      // Human approval is the default. Make the wait state explicit so the
+      // session log doesn't go silent — historically users would see plan
+      // text generated, then nothing, with no indication that the agent
+      // was now blocked on their click.
+      streams
+        .publish(sessionId, 'container-agent:message', {
+          taskId,
+          sessionId,
+          role: 'approval',
+          content:
+            'Plan ready. Approval mode: human — waiting for you to Approve or Reject the plan.',
+        })
+        .catch((err) =>
+          log.warn('Failed to publish plan_ready/human message', {
+            error: err instanceof Error ? err.message : String(err),
+          })
+        );
     }
   }
 
@@ -249,7 +289,10 @@ export class PlanApprovalService {
   /**
    * Approve a plan and start execution phase.
    */
-  async approvePlan(taskId: string): Promise<Result<void, SandboxError>> {
+  async approvePlan(
+    taskId: string,
+    approvedBy: 'user' | 'agent-review' = 'user'
+  ): Promise<Result<void, SandboxError>> {
     const planData = await this.getPendingPlan(taskId);
     if (!planData) {
       log.info('No pending plan found', { data: { taskId } });
@@ -451,6 +494,27 @@ export class PlanApprovalService {
       });
       return err(SandboxErrors.AGENT_START_FAILED(`DB update failed: ${errorMessage}`));
     }
+
+    // Surface the approval transition explicitly in the session log so
+    // the jump from `waiting_approval` to a running execution agent isn't
+    // silent. The attribution comes from the caller — the agent-review
+    // path passes 'agent-review', everywhere else (HTTP route handler,
+    // CLI) gets the default 'user'. We deliberately don't read
+    // `tasks.approvedBy` here because the agent-review service writes
+    // that column AFTER approvePlan returns, so the row would still be
+    // null at this point and the message would always claim 'user'.
+    streams
+      .publish(planData.sessionId, 'container-agent:message', {
+        taskId,
+        sessionId: planData.sessionId,
+        role: 'approval',
+        content: `Plan approved by ${approvedBy}. Starting execution phase.`,
+      })
+      .catch((err) =>
+        log.warn('Failed to publish approval message', {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      );
 
     const startResult = await this.startAgentFn({
       codespaceId: planData.codespaceId,
