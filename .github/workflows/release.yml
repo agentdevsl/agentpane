@@ -80,7 +80,7 @@ jobs:
 
       - name: Build and push (multi-arch)
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile
@@ -149,7 +149,7 @@ jobs:
 
       - name: Build and push (multi-arch)
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile.agent-sandbox
@@ -214,7 +214,7 @@ jobs:
 
       - name: Build and push (arm64)
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile.agentcore
