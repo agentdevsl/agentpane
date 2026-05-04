@@ -174,7 +174,7 @@ export class WorktreeInitService {
     });
 
     const tokenResult = await resolveGitToken(
-      { ...codespace, githubOwner, githubRepo },
+      { ...codespace, githubOwner, githubRepo, codespaceId: codespace.id },
       { db, githubTokenService }
     );
 

@@ -31,10 +31,16 @@ function createMockDb(findFirstResult: unknown = undefined) {
   } as unknown as GitTokenResolverDeps['db'];
 }
 
-/** Build a mock GitHubTokenService with controllable `getDecryptedToken`. */
-function createMockTokenService(getDecryptedTokenImpl?: () => Promise<string | null>) {
+/** Build a mock GitHubTokenService with controllable `getDecryptedToken`
+ * and `resolveGitHubTokenForCodespace`. The team-scoped resolver is exercised
+ * when callers pass a `codespaceId` through `resolveGitToken`. */
+function createMockTokenService(
+  getDecryptedTokenImpl?: () => Promise<string | null>,
+  resolveForCodespaceImpl?: (codespaceId: string) => Promise<string | null>
+) {
   return {
     getDecryptedToken: vi.fn(getDecryptedTokenImpl ?? (async () => null)),
+    resolveGitHubTokenForCodespace: vi.fn(resolveForCodespaceImpl ?? (async () => null)),
   } as unknown as NonNullable<GitTokenResolverDeps['githubTokenService']>;
 }
 
@@ -381,5 +387,63 @@ describe('resolveGitToken', () => {
     );
 
     expect(result).toBeNull();
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // Team-scoped PAT resolution
+  // ────────────────────────────────────────────────────────────────────
+  it('uses resolveGitHubTokenForCodespace when codespaceId is provided', async () => {
+    const db = createMockDb(undefined);
+    const teamScoped = vi.fn().mockResolvedValue('ghp_team_specific_token');
+    const global = vi.fn().mockResolvedValue('ghp_global_token');
+    const tokenService = {
+      getDecryptedToken: global,
+      resolveGitHubTokenForCodespace: teamScoped,
+    } as unknown as NonNullable<GitTokenResolverDeps['githubTokenService']>;
+
+    const result = await resolveGitToken(
+      {
+        githubOwner: 'org',
+        githubRepo: 'repo',
+        githubInstallationId: null,
+        codespaceId: 'codespace-abc',
+      },
+      { db, githubTokenService: tokenService }
+    );
+
+    expect(result).toEqual({
+      token: 'ghp_team_specific_token',
+      owner: 'org',
+      repo: 'repo',
+    });
+    expect(teamScoped).toHaveBeenCalledWith('codespace-abc');
+    expect(global).not.toHaveBeenCalled();
+  });
+
+  it('falls back to global getDecryptedToken when codespaceId is omitted', async () => {
+    const db = createMockDb(undefined);
+    const teamScoped = vi.fn().mockResolvedValue('ghp_team_specific_token');
+    const global = vi.fn().mockResolvedValue('ghp_global_token');
+    const tokenService = {
+      getDecryptedToken: global,
+      resolveGitHubTokenForCodespace: teamScoped,
+    } as unknown as NonNullable<GitTokenResolverDeps['githubTokenService']>;
+
+    const result = await resolveGitToken(
+      {
+        githubOwner: 'org',
+        githubRepo: 'repo',
+        githubInstallationId: null,
+      },
+      { db, githubTokenService: tokenService }
+    );
+
+    expect(result).toEqual({
+      token: 'ghp_global_token',
+      owner: 'org',
+      repo: 'repo',
+    });
+    expect(global).toHaveBeenCalled();
+    expect(teamScoped).not.toHaveBeenCalled();
   });
 });
