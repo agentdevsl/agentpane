@@ -97,8 +97,8 @@ Style Guide Checklist:
 
 Reference specific sections:
 
-- "See the [Naming Conventions](#naming-conventions) section for resource naming"
-- "Review [Variables and Outputs](#variables-and-outputs) for required attributes"
+- "See the [Naming Conventions](SKILL.md#naming-conventions) section for resource naming"
+- "Review [Variables and Outputs](SKILL.md#variables-and-outputs) for required attributes"
 
 ### Scenario 2: Writing New Code
 
