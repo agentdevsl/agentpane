@@ -207,6 +207,23 @@ bun install --no-cache                       # bypass resolver shortcut
 
 After regeneration, verify with `bun install --frozen-lockfile` (must succeed with "no changes").
 
+### Dependabot PRs always need bun.lock regeneration
+
+Dependabot bumps only update `package.json` and `package-lock.json` (npm format). They never touch `bun.lock`, so CI's `bun install --frozen-lockfile` fails at the `install` step on every Dependabot npm/yarn PR.
+
+Fix workflow for each Dependabot PR:
+
+```bash
+gh pr checkout <number>
+git rebase origin/main          # resolve any package-lock.json conflicts with --theirs
+rm -f bun.lock && bun install
+bun install --frozen-lockfile   # must report "no changes"
+git add bun.lock && git commit -m "chore: regenerate bun.lock for <dep> bump"
+git push --force-with-lease
+```
+
+Wait for CI to pass, then `gh pr merge <number> --squash`. When merging multiple Dependabot PRs sequentially, rebase each onto the freshly updated `main` before regenerating — the previous merge moves main forward and causes bun.lock conflicts otherwise.
+
 ### Removing a dependency that was supplying types via a peer
 
 When you drop a dep that was a transitive supplier of TypeScript types (e.g. dropping `@testing-library/react` v16+ would lose `screen`/`fireEvent` types because they live in `@testing-library/dom`), `tsc` may pass locally because `node_modules/` still has the old transitive resolution. CI fails on fresh `--frozen-lockfile` install.
