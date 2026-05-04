@@ -71,37 +71,143 @@ const VALID_TOPOLOGY_STATUSES = new Set(['completed', 'failed', 'stopped']);
  * fail validation are logged and skipped — one bad file never aborts the
  * whole load, matching the prior behaviour.
  */
-async function loadAgentDefinitions(cwd: string): Promise<Record<string, AgentDefinition>> {
-  const agentsDir = join(cwd, '.claude', 'agents');
+/**
+ * Read all `.md` agent definitions from `dir`, parsing frontmatter and
+ * indexing by `name`. Files with invalid frontmatter are skipped (logged).
+ * Returns an empty map when the directory does not exist — the caller is
+ * responsible for combining results from multiple directories.
+ */
+async function readAgentDefinitionsFromDir(
+  dir: string,
+  source: 'bundle' | 'workspace'
+): Promise<Record<string, AgentDefinition>> {
   const agents: Record<string, AgentDefinition> = {};
-
+  let files: string[];
   try {
     const { readdir } = await import('node:fs/promises');
-    const files = await readdir(agentsDir);
-    for (const file of files) {
-      if (!file.endsWith('.md')) continue;
+    files = await readdir(dir);
+  } catch {
+    log.error(`[agent-runner] No agent directory at ${dir} (${source})`);
+    return agents;
+  }
+  for (const file of files) {
+    if (!file.endsWith('.md')) continue;
+    try {
+      const content = await readFile(join(dir, file), 'utf-8');
+      const parsed = parseAgentFrontmatter(content);
+      if (!parsed) {
+        log.error(`[agent-runner] Skipped agent file (invalid frontmatter): ${dir}/${file}`);
+        continue;
+      }
+      agents[parsed.name] = parsed.definition;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.error(`[agent-runner] Failed to read agent file ${dir}/${file}: ${errMsg}`);
+    }
+  }
+  log.error(
+    `[agent-runner] Loaded ${Object.keys(agents).length} agent definitions from ${dir} (${source})`
+  );
+  return agents;
+}
+
+/**
+ * Mirror image-baked subagent `.md` files into the workspace's
+ * `.claude/agents/` directory, skipping files that already exist (workspace
+ * wins). The Claude Agent SDK builds Claude's system-prompt list of
+ * available subagents from `.claude/agents/*.md` on disk in the working
+ * directory; passing `agents:` programmatically registers the type but
+ * does not always make Claude aware of it. Mirroring the bundle files
+ * gives Claude a concrete listing to reference without forcing every
+ * codespace template to enumerate them.
+ *
+ * Idempotent: re-running on an existing worktree leaves user-authored
+ * agents intact and just adds anything missing.
+ */
+async function syncBundleAgentsIntoWorkspace(cwd: string): Promise<void> {
+  const bundleDir = process.env.AGENT_BUNDLE_DIR;
+  if (!bundleDir) return;
+  const workspaceDir = join(cwd, '.claude', 'agents');
+  try {
+    await mkdir(workspaceDir, { recursive: true });
+  } catch (err) {
+    log.error(
+      `[agent-runner] Could not ensure ${workspaceDir}: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return;
+  }
+  let bundleFiles: string[];
+  try {
+    const { readdir } = await import('node:fs/promises');
+    bundleFiles = await readdir(bundleDir);
+  } catch {
+    log.error(`[agent-runner] No bundle dir at ${bundleDir} to sync`);
+    return;
+  }
+  let copied = 0;
+  let skipped = 0;
+  for (const file of bundleFiles) {
+    if (!file.endsWith('.md')) continue;
+    const target = join(workspaceDir, file);
+    try {
+      await access(target);
+      skipped++;
+    } catch {
       try {
-        const content = await readFile(join(agentsDir, file), 'utf-8');
-        const parsed = parseAgentFrontmatter(content);
-        if (!parsed) {
-          log.error(`[agent-runner] Skipped agent file (invalid frontmatter): ${file}`);
-          continue;
-        }
-        agents[parsed.name] = parsed.definition;
+        const content = await readFile(join(bundleDir, file), 'utf-8');
+        await writeFile(target, content, 'utf-8');
+        copied++;
       } catch (err) {
-        // Skip individual file parse errors but log so we don't lose visibility.
-        const errMsg = err instanceof Error ? err.message : String(err);
-        log.error(`[agent-runner] Failed to read agent file ${file}: ${errMsg}`);
+        log.error(
+          `[agent-runner] Failed to copy ${file} into workspace: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
     }
-    log.error(
-      `[agent-runner] Loaded ${Object.keys(agents).length} agent definitions from ${agentsDir}`
-    );
-  } catch {
-    log.error(`[agent-runner] No .claude/agents/ directory found at ${agentsDir}`);
   }
+  log.error(
+    `[agent-runner] Bundle agents synced into ${workspaceDir}: ${copied} copied, ${skipped} already present`
+  );
+}
 
-  return agents;
+/**
+ * Build the SDK `agents` registry by merging two sources:
+ *
+ * 1. **Bundle directory** (`AGENT_BUNDLE_DIR`, e.g. `/opt/agents-cache` in
+ *    the Docker image) — image-baked subagent definitions like
+ *    `tf-module-research`, `tf-module-design`, etc. that ship with the
+ *    sandbox so skill prompts referencing them just work without
+ *    per-codespace template configuration.
+ * 2. **Workspace directory** (`${cwd}/.claude/agents/`) — codespace- or
+ *    user-supplied overrides. Wins on name collision.
+ *
+ * The workspace directory is also synced to disk first via
+ * `syncBundleAgentsIntoWorkspace` so the SDK's project-aware discovery
+ * sees the bundle agents alongside the in-memory registration we pass to
+ * `unstable_v2_createSession`.
+ *
+ * If `AGENT_BUNDLE_DIR` is unset (e.g. local dev), only the workspace
+ * directory is read — backwards compatible.
+ */
+async function loadAgentDefinitions(cwd: string): Promise<Record<string, AgentDefinition>> {
+  await syncBundleAgentsIntoWorkspace(cwd);
+
+  const bundleDir = process.env.AGENT_BUNDLE_DIR;
+  const workspaceDir = join(cwd, '.claude', 'agents');
+
+  const merged: Record<string, AgentDefinition> = {};
+  if (bundleDir) {
+    Object.assign(merged, await readAgentDefinitionsFromDir(bundleDir, 'bundle'));
+  }
+  Object.assign(merged, await readAgentDefinitionsFromDir(workspaceDir, 'workspace'));
+
+  // Surface the merged registry on stderr so it shows in the host log AND
+  // (when AGENT_DEBUG_AGENTS=1) emit each registered name. Helps diagnose
+  // why the orchestrator might think a subagent type isn't available.
+  const names = Object.keys(merged);
+  log.error(
+    `[agent-runner] Total registered agent definitions: ${names.length} (bundle=${bundleDir ?? '(unset)'} workspace=${workspaceDir}) — names: ${names.sort().join(', ')}`
+  );
+  return merged;
 }
 
 /** Normalize SDK status to a value the client Zod schema accepts */
@@ -801,6 +907,13 @@ async function runPlanningPhase(): Promise<void> {
       ...(planPermissionMode !== 'bypassPermissions' ? { allowedTools } : {}),
       ...(Object.keys(agentDefs).length > 0 ? { agents: agentDefs } : {}),
       ...(claudeCodePath ? { pathToClaudeCodeExecutable: claudeCodePath } : {}),
+      // Tell the SDK to surface project-scoped settings — most importantly
+      // `.claude/agents/*.md` files in the cwd — to Claude. Without this,
+      // the SDK defaults `settingSources` to `[]` and Claude never sees
+      // the workspace agents in its system-prompt list of available
+      // subagent types, even though we register them programmatically via
+      // the `agents:` option above.
+      settingSources: ['project'],
       permissionMode: planPermissionMode,
       canUseTool, // Use official SDK callback for tool interception
       hooks: {
@@ -1328,6 +1441,8 @@ async function runExecutionPhase(): Promise<void> {
           env: { ...process.env }, // Teams GA: env passed through for agent swarm support
           ...agentsOpt,
           ...(claudeCodePath ? { pathToClaudeCodeExecutable: claudeCodePath } : {}),
+          // See planning-phase comment for why settingSources is needed.
+          settingSources: ['project'],
           permissionMode: 'bypassPermissions',
           canUseTool, // Track tools even in bypass mode
           hooks: {
@@ -1357,6 +1472,8 @@ async function runExecutionPhase(): Promise<void> {
         env: { ...process.env }, // Teams GA: env passed through for agent swarm support
         ...agentsOpt,
         ...(claudeCodePath ? { pathToClaudeCodeExecutable: claudeCodePath } : {}),
+        // See planning-phase comment for why settingSources is needed.
+        settingSources: ['project'],
         permissionMode: 'bypassPermissions',
         canUseTool, // Track tools even in bypass mode
         hooks: {

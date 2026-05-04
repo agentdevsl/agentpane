@@ -103,6 +103,15 @@ RUN rm -rf src tsconfig.json node_modules && \
 ENV CLAUDE_CODE_LIBC=glibc
 ENV CLAUDE_CODE_SDK_ROOT=/opt/agent-runner/node_modules/@anthropic-ai
 
+# Tell agent-runner where the image-baked subagent definitions live so
+# `loadAgentDefinitions` registers them with the SDK alongside the
+# workspace's `.claude/agents/`. Without this, skill prompts that
+# reference subagents like `tf-module-research` cannot dispatch to those
+# agents — the SDK falls back to its built-in `general-purpose` /
+# `local_agent` and the topology shows generic types instead of the real
+# template names. Workspace agents still win on name collision.
+ENV AGENT_BUNDLE_DIR=/opt/agents-cache
+
 # Configure git for mounted volumes (prevents "dubious ownership" errors)
 RUN git config --system --add safe.directory '*' && \
     git config --system user.email "agent@sandbox.local" && \
