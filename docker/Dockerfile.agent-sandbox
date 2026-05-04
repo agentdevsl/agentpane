@@ -60,10 +60,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash -s "bun-v${BUN_VERSION}" \
     && /usr/local/bin/bun --version
 
-# F11-19: Install Claude Code CLI globally pinned to ${CLAUDE_CODE_VERSION}.
-# The SDK spawns the CLI process and communicates with it. Reproducibility
-# requires an exact pin — `latest` would silently drift on every rebuild.
-RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+# Note: Pre-SDK-0.2.113, we installed @anthropic-ai/claude-code globally via
+# npm so the SDK could spawn the CLI subprocess. Since 0.2.113 the SDK ships
+# its own per-platform native binary as an optional dependency, and we point
+# the SDK at the glibc variant explicitly via CLAUDE_CODE_PATH (set below)
+# to bypass the SDK's runtime libc auto-detection — Bun is statically linked
+# to musl, so the SDK incorrectly resolves to the musl binary on this
+# Debian/glibc image without the override. The global install is therefore
+# redundant and removed; bun is the single package manager in this image.
 
 # Create directory for agent runner
 RUN mkdir -p /opt/agent-runner
@@ -88,6 +92,16 @@ RUN bun run build
 # only and reuses the locked versions from bun.lock.
 RUN rm -rf src tsconfig.json node_modules && \
     bun install --frozen-lockfile --production --ignore-scripts
+
+# SDK ≥0.2.113 spawns a per-platform native binary (one of the
+# `@anthropic-ai/claude-agent-sdk-<platform>-<libc>` optional deps).
+# Bun is statically linked to musl libc, so its built-in libc detection
+# resolves to the `*-musl` variant even on glibc systems like this one.
+# Tell agent-runner that this image runs glibc; at session creation time it
+# resolves the matching SDK native binary and passes
+# `pathToClaudeCodeExecutable` to the SDK (the documented escape hatch).
+ENV CLAUDE_CODE_LIBC=glibc
+ENV CLAUDE_CODE_SDK_ROOT=/opt/agent-runner/node_modules/@anthropic-ai
 
 # Configure git for mounted volumes (prevents "dubious ownership" errors)
 RUN git config --system --add safe.directory '*' && \

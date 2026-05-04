@@ -25,12 +25,15 @@
  * The OAuth token is written to ~/.claude/.credentials.json before starting the SDK.
  * This is required because OAuth tokens passed via ANTHROPIC_API_KEY env var are blocked.
  */
+import { statSync } from 'node:fs';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import {
   type CanUseTool,
+  type HookCallbackMatcher,
   type SDKSession,
+  type SubagentStartHookInput,
   unstable_v2_createSession,
   unstable_v2_resumeSession,
 } from '@anthropic-ai/claude-agent-sdk';
@@ -143,12 +146,78 @@ function deriveAgentName(agentType?: string, description?: string): string {
   return agentType || 'Agent';
 }
 
+/**
+ * Resolve `pathToClaudeCodeExecutable` per the SDK's documented escape hatch.
+ *
+ * The SDK (≥0.2.113) spawns a per-platform native binary installed as an
+ * optional dependency. Auto-detection inside this Docker image is wrong
+ * because Bun (used to install) is statically linked to musl libc, so the
+ * SDK resolves to the `*-musl` binary on a glibc host and fails with
+ * "Claude Code native binary not found". We override explicitly:
+ *
+ * 1. `CLAUDE_CODE_PATH` — full path to the binary, takes precedence
+ * 2. `CLAUDE_CODE_LIBC` + `CLAUDE_CODE_SDK_ROOT` — set by the Dockerfile
+ *    so the runtime can compose the path for the current arch + libc
+ * 3. Otherwise return undefined and let the SDK auto-detect (works on
+ *    macOS / npm-installed environments)
+ */
+function resolveClaudeCodeBinaryPath(): string | undefined {
+  if (process.env.CLAUDE_CODE_PATH) return process.env.CLAUDE_CODE_PATH;
+
+  const libc = process.env.CLAUDE_CODE_LIBC;
+  const sdkRoot = process.env.CLAUDE_CODE_SDK_ROOT;
+  if (!libc || !sdkRoot) return undefined;
+
+  const archSegment =
+    process.arch === 'arm64' ? 'linux-arm64' : process.arch === 'x64' ? 'linux-x64' : null;
+  if (!archSegment) return undefined;
+
+  // glibc package: claude-agent-sdk-linux-arm64
+  // musl package:  claude-agent-sdk-linux-arm64-musl
+  const suffix = libc === 'musl' ? '-musl' : '';
+  const candidate = `${sdkRoot}/claude-agent-sdk-${archSegment}${suffix}/claude`;
+  return statSync(candidate, { throwIfNoEntry: false })?.isFile() ? candidate : undefined;
+}
+
 /** Tracks subagent topology state. Maps SDK task_id → generated node id. */
 interface TopologyTracker {
   taskToNodeId: Map<string, string>;
   rootEmitted: boolean;
   /** Queue of subagent_type values from Agent tool calls, consumed by task_started events */
   pendingSubagentTypes: string[];
+}
+
+/**
+ * Build a SubagentStart hook matcher that captures the SDK-resolved
+ * `agent_type` and queues it for the next `task_started` system message
+ * to consume. Provides a reliable agent_type even when the orchestrator
+ * invokes the `Agent` tool without an explicit `subagent_type` (in which
+ * case `canUseTool` cannot capture one).
+ *
+ * SubagentStart fires when the subagent process begins; canUseTool fires
+ * when the orchestrator calls the Agent tool. To avoid double-pushing the
+ * same value (when both paths fire for the same subagent), we skip pushing
+ * if the queue's tail already matches what SubagentStart wants to add.
+ *
+ * The queue reference is captured once and remains valid because tracker
+ * objects assign the same array; mutating the array updates both views.
+ */
+function buildSubagentStartHook(pendingSubagentTypes: string[]): HookCallbackMatcher {
+  return {
+    hooks: [
+      async (input) => {
+        const subagentInput = input as SubagentStartHookInput;
+        const agentType = subagentInput.agent_type;
+        if (typeof agentType !== 'string' || agentType.length === 0) {
+          return {};
+        }
+        if (pendingSubagentTypes[pendingSubagentTypes.length - 1] !== agentType) {
+          pendingSubagentTypes.push(agentType);
+        }
+        return {};
+      },
+    ],
+  };
 }
 
 /** Handle SDK system messages for subagent lifecycle */
@@ -604,6 +673,12 @@ async function runPlanningPhase(): Promise<void> {
 
   // Create Claude Agent SDK session in PLAN mode
   let session: SDKSession | undefined;
+  // Shared queue for subagent_type capture (planning phase). Both
+  // SubagentStart hook (SDK-authoritative) and canUseTool (legacy fallback
+  // when subagent_type is passed explicitly) push into this; task_started
+  // consumes from it. The same array reference is assigned to
+  // TopologyTracker.pendingSubagentTypes after the session is created.
+  const pendingSubagentTypesRef: string[] = [];
   try {
     log.error('[agent-runner] Creating SDK session in plan mode...');
 
@@ -715,6 +790,9 @@ async function runPlanningPhase(): Promise<void> {
     // Load custom agent definitions from .claude/agents/ for SDK subagent support
     const agentDefs = await loadAgentDefinitions(config.cwd);
 
+    const claudeCodePath = resolveClaudeCodeBinaryPath();
+    if (claudeCodePath) log.error(`[agent-runner] pathToClaudeCodeExecutable=${claudeCodePath}`);
+
     session = unstable_v2_createSession({
       model: config.model,
       env: { ...process.env }, // Teams GA: env passed through for agent swarm support
@@ -722,8 +800,16 @@ async function runPlanningPhase(): Promise<void> {
       // In bypassPermissions mode, don't restrict tools — allow all including Agent
       ...(planPermissionMode !== 'bypassPermissions' ? { allowedTools } : {}),
       ...(Object.keys(agentDefs).length > 0 ? { agents: agentDefs } : {}),
+      ...(claudeCodePath ? { pathToClaudeCodeExecutable: claudeCodePath } : {}),
       permissionMode: planPermissionMode,
       canUseTool, // Use official SDK callback for tool interception
+      hooks: {
+        // SubagentStart provides authoritative agent_type from the SDK
+        // even when the orchestrator omits subagent_type from Agent calls.
+        // Pushes into the same queue canUseTool uses (see TopologyTracker
+        // hoisted below).
+        SubagentStart: [buildSubagentStartHook(pendingSubagentTypesRef)],
+      },
     });
     log.error('[agent-runner] SDK session created successfully');
   } catch (sessionError) {
@@ -745,12 +831,15 @@ async function runPlanningPhase(): Promise<void> {
   let accumulatedText = '';
   let sdkSessionId: string | undefined;
 
-  // Topology tracker for subagent lifecycle events during planning
-  // Skills can spawn subagents via the Agent tool when AGENT_HAS_SKILL=true
+  // Topology tracker for subagent lifecycle events during planning.
+  // Skills can spawn subagents via the Agent tool when AGENT_HAS_SKILL=true.
+  // pendingSubagentTypes references the same array the SubagentStart hook
+  // pushes into, so SDK-emitted agent_type values flow through the existing
+  // task_started consumer.
   const topology: TopologyTracker = {
     taskToNodeId: new Map(),
     rootEmitted: false,
-    pendingSubagentTypes: [],
+    pendingSubagentTypes: pendingSubagentTypesRef,
   };
   const rootAgentId = `agent-${config.taskId}`;
 
@@ -1089,11 +1178,15 @@ async function runExecutionPhase(): Promise<void> {
     ...(config.skillName ? { skillName: config.skillName } : {}),
   });
 
-  // Topology tracker for subagent lifecycle events
+  // Topology tracker for subagent lifecycle events.
+  // pendingSubagentTypes is shared with the SubagentStart hook below so
+  // SDK-emitted agent_type values populate the queue alongside the legacy
+  // canUseTool path.
+  const pendingSubagentTypesRef: string[] = [];
   const topology: TopologyTracker = {
     taskToNodeId: new Map(),
     rootEmitted: true,
-    pendingSubagentTypes: [],
+    pendingSubagentTypes: pendingSubagentTypesRef,
   };
   const rootAgentId = `agent-${config.taskId}`;
 
@@ -1223,6 +1316,9 @@ async function runExecutionPhase(): Promise<void> {
     const agentDefs = await loadAgentDefinitions(config.cwd);
     const agentsOpt = Object.keys(agentDefs).length > 0 ? { agents: agentDefs } : {};
 
+    const claudeCodePath = resolveClaudeCodeBinaryPath();
+    if (claudeCodePath) log.error(`[agent-runner] pathToClaudeCodeExecutable=${claudeCodePath}`);
+
     if (config.sdkSessionId) {
       // Try to resume existing session — may fail if session state is corrupted or stale
       // (primary container-change detection is in approvePlan; this is defense-in-depth)
@@ -1231,8 +1327,12 @@ async function runExecutionPhase(): Promise<void> {
           model: config.model,
           env: { ...process.env }, // Teams GA: env passed through for agent swarm support
           ...agentsOpt,
+          ...(claudeCodePath ? { pathToClaudeCodeExecutable: claudeCodePath } : {}),
           permissionMode: 'bypassPermissions',
           canUseTool, // Track tools even in bypass mode
+          hooks: {
+            SubagentStart: [buildSubagentStartHook(pendingSubagentTypesRef)],
+          },
         });
         sessionResumed = true;
         log.error('[agent-runner] SDK session resumed successfully');
@@ -1256,8 +1356,12 @@ async function runExecutionPhase(): Promise<void> {
         model: config.model,
         env: { ...process.env }, // Teams GA: env passed through for agent swarm support
         ...agentsOpt,
+        ...(claudeCodePath ? { pathToClaudeCodeExecutable: claudeCodePath } : {}),
         permissionMode: 'bypassPermissions',
         canUseTool, // Track tools even in bypass mode
+        hooks: {
+          SubagentStart: [buildSubagentStartHook(pendingSubagentTypesRef)],
+        },
       });
     }
     log.error('[agent-runner] SDK session ready');
