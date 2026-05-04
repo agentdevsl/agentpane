@@ -234,28 +234,16 @@ export class AgentReviewService {
     //
     // The credential we resolve may be either a long-lived API key
     // (`sk-ant-api...`) or an OAuth access token from
-    // `~/.claude/.credentials.json` (`sk-ant-oat...`). They authenticate via
-    // different headers — `x-api-key` vs `Authorization: Bearer` — so route
-    // each to the matching SDK option. Using `apiKey` with an OAuth token
-    // sends the wrong header and the API rejects it.
-    const isOAuthToken = apiKey.startsWith('sk-ant-oat');
+    // `~/.claude/.credentials.json` (`sk-ant-oat...`). Both work
+    // identically when passed as `apiKey` — the messages API accepts the
+    // OAuth token via the `x-api-key` header, no beta opt-in required.
+    // Mirrors `src/lib/plan-mode/claude-client.ts` which uses the same
+    // pattern. (Routing the OAuth token to `authToken` instead causes
+    // the API to reject it with `OAuth authentication is currently not
+    // supported`, hence we explicitly do *not* split on prefix.)
     let reviewResult: AgentReviewResult;
     try {
-      // OAuth tokens (Claude Max subscription / `claude login`) need an
-      // explicit beta opt-in for the messages API — without it the API
-      // returns 401 with `OAuth authentication is currently not
-      // supported`. The header value matches what the Claude Code CLI
-      // itself sends for its inference calls.
-      const client = new Anthropic({
-        ...(isOAuthToken
-          ? {
-              authToken: apiKey,
-              apiKey: null,
-              defaultHeaders: { 'anthropic-beta': 'oauth-2025-04-20' },
-            }
-          : { apiKey }),
-        maxRetries: 2,
-      });
+      const client = new Anthropic({ apiKey, maxRetries: 2 });
       const requestBody: Anthropic.MessageCreateParamsNonStreaming = {
         model,
         max_tokens: 1024,
