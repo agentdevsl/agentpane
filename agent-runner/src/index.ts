@@ -461,6 +461,52 @@ const config = {
   skillName: process.env.AGENT_SKILL_NAME,
 };
 
+/**
+ * Module-level reference to the currently-running phase's event emitter
+ * and active-tools map. Set by `runAgentPlanning` / `runAgentExecution`
+ * at the start of a run and cleared on graceful exit. Signal handlers
+ * read this so a SIGTERM (e.g. K8s pod eviction or `kill` from the
+ * host) can flush a `tool:result` for any in-flight tool before the
+ * process terminates — without it, the host sees orphan tool:start
+ * events and the UI shows tools stuck on "running" indefinitely.
+ */
+let currentRunFlush:
+  | ((reason: 'SIGTERM' | 'SIGINT' | 'uncaughtException' | 'unhandledRejection') => void)
+  | null = null;
+
+/**
+ * Register or clear the in-flight flush hook for the current phase.
+ * Phases call this at start (with their own emitter + activeTools) and
+ * at end (with `null`) so signal handlers always see the live state.
+ */
+function setRunFlushHook(hook: typeof currentRunFlush): void {
+  currentRunFlush = hook;
+}
+
+/**
+ * SIGTERM/SIGINT handler. The phase loops have their own
+ * `emitAllToolResults` helper closed over the local `activeTools` —
+ * we delegate to that via `currentRunFlush` so the in-flight tools
+ * get a tool:result with isError=true and the agent runner exits
+ * cleanly. Without this the host re-spawns or reconciles into an
+ * inconsistent UI state where tools appear stuck running.
+ */
+function handleTerminationSignal(signal: 'SIGTERM' | 'SIGINT'): void {
+  log.error(`[agent-runner] Received ${signal}, flushing in-flight tool tracking…`);
+  try {
+    currentRunFlush?.(signal);
+  } catch (err) {
+    log.error('[agent-runner] Flush hook threw during shutdown', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  // Exit code 143 is the standard "killed by SIGTERM" convention; 130
+  // for SIGINT. K8s and most schedulers treat both as graceful.
+  process.exit(signal === 'SIGTERM' ? 143 : 130);
+}
+process.on('SIGTERM', () => handleTerminationSignal('SIGTERM'));
+process.on('SIGINT', () => handleTerminationSignal('SIGINT'));
+
 // Global error handlers - catch EPIPE and other unhandled errors
 // These must be registered early, before any async operations
 process.on('uncaughtException', (error: Error & { code?: string }) => {
@@ -777,6 +823,24 @@ async function runPlanningPhase(): Promise<void> {
       emitToolResult(toolId, false, 'completed');
     }
   };
+
+  // Register flush hook so a SIGTERM mid-run (pod eviction, dev server
+  // restart, etc.) can flag every in-flight tool as terminated before
+  // exiting. Without this, the host sees orphan tool:start events and
+  // the UI keeps the tools stuck on "running" forever.
+  setRunFlushHook((signal) => {
+    for (const [toolId, tool] of activeTools) {
+      const durationMs = Date.now() - tool.startTime;
+      events.toolResult({
+        toolName: tool.toolName,
+        toolId,
+        result: `Agent runner terminated by ${signal} mid-tool`,
+        isError: true,
+        durationMs,
+      });
+    }
+    activeTools.clear();
+  });
 
   // Create Claude Agent SDK session in PLAN mode
   let session: SDKSession | undefined;
@@ -1388,6 +1452,23 @@ async function runExecutionPhase(): Promise<void> {
       emitToolResult(toolId, false, 'completed');
     }
   };
+
+  // Same flush hook as the planning phase — see comment there for why.
+  // Re-registering on every phase entry is fine because the previous
+  // registration was cleared in the phase's `finally` block.
+  setRunFlushHook((signal) => {
+    for (const [toolId, tool] of activeTools) {
+      const durationMs = Date.now() - tool.startTime;
+      events.toolResult({
+        toolName: tool.toolName,
+        toolId,
+        result: `Agent runner terminated by ${signal} mid-tool`,
+        isError: true,
+        durationMs,
+      });
+    }
+    activeTools.clear();
+  });
 
   /**
    * Idempotent tool tracking — see the planning-phase variant for the
