@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "codex-cli-runtime": {
+      "source": "openai/codex-plugin-cc",
+      "sourceType": "github",
+      "skillPath": "plugins/codex/skills/codex-cli-runtime/SKILL.md",
+      "computedHash": "03b09f8ad5721f1d33d830cff54637656c58920befcb32835c6f003e625a7a54"
+    },
     "vercel-react-best-practices": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",

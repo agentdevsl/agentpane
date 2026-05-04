@@ -29,17 +29,11 @@ const WORKTREES_DIR = `${CONTAINER_WORKSPACE_PATH}/.worktrees`;
 /**
  * Build the value of `http.extraHeader` for GitHub PAT auth.
  *
- * arch29-W2-I (F04-12): replaces the previous `https://x-access-token:TOKEN@github.com/...`
- * URL form. Git applies `http.extraHeader` for matching URLs only when the
- * value is set via `-c` (per-invocation) or the file at $HOME/.gitconfig with
- * a `[http "https://github.com/"]` section. We use the per-invocation form so
- * the token never lands in any persistent config and `git remote -v` cannot
- * recover it.
- *
- * The token DOES appear once in argv during the single `git fetch` invocation
- * — that is unavoidable until git supports stdin credential helpers in this
- * exact shape. The win is that the URL stored in `.git/config` (visible to
- * any later command) is clean.
+ * Legacy fallback for sandboxes that do NOT implement `writeFile`. When
+ * `writeFile` is available (K8s/Nomad/Docker) we prefer the file-based
+ * `credential.helper=store` path — see `cloneRepository` — which keeps the
+ * token entirely out of argv (and therefore out of the kube-apiserver
+ * audit log for K8s exec requests).
  */
 export function buildGitAuthHeaderArg(token: string): string {
   const credentials = Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64');
@@ -48,11 +42,21 @@ export function buildGitAuthHeaderArg(token: string): string {
 }
 
 /**
- * Minimal sandbox interface for workspace initialization.
+ * Sandbox capability surface required for workspace initialization.
+ *
+ * `writeFile` is optional but recommended: when present, the GitHub token
+ * is delivered to the pod via an out-of-band tar (no argv exposure) and
+ * `git fetch` reads it via `credential.helper=store`. When absent we fall
+ * back to the legacy `-c http.extraHeader=...` path (single argv exposure
+ * during fetch).
  */
 export interface SandboxExec {
   exec(cmd: string, args?: string[]): Promise<ExecResult>;
+  writeFile?(path: string, content: string | Buffer, mode?: number): Promise<void>;
 }
+
+/** Path to the transient credential file used by `credential.helper=store`. */
+const TRANSIENT_GIT_CREDENTIALS_PATH = '/tmp/.agentpane-git-credentials';
 
 export interface K8sWorkspaceOptions {
   readonly sandbox: SandboxExec;
@@ -111,15 +115,30 @@ async function cloneRepository(
     return { ok: false, error: `Invalid owner/repo format: ${owner}/${repo}` };
   }
 
-  // arch29-W2-I (F04-12): the remote URL is the public, token-free form. Auth
-  // is supplied per-invocation via `git -c http.extraHeader=...`. The token
-  // never lands in `.git/config`, so `git remote -v` after clone shows only
-  // the public URL — a sibling tenant in shared-sandbox mode cannot recover
-  // the token by reading the repo state. The token still appears in the
-  // single argv of the `git fetch` call below; that is unavoidable until git
-  // supports stdin credential injection in this exact shape.
+  // The remote URL is always the public, token-free form so `git remote -v`
+  // and `.git/config` never carry the secret. Auth is supplied either via
+  // a transient credential file + `credential.helper=store` (preferred —
+  // no argv exposure) or via `-c http.extraHeader=...` (fallback when the
+  // sandbox provider lacks writeFile).
   const remoteUrl = `https://github.com/${owner}/${repo}.git`;
-  const authHeaderArg = buildGitAuthHeaderArg(token);
+  const useCredentialFile = typeof sandbox.writeFile === 'function';
+  let authHeaderArg: string | null = null;
+  if (useCredentialFile && sandbox.writeFile) {
+    try {
+      await sandbox.writeFile(
+        TRANSIENT_GIT_CREDENTIALS_PATH,
+        `https://x-access-token:${token}@github.com\n`,
+        0o600
+      );
+    } catch (writeErr) {
+      log.warn('writeFile for transient git credentials failed; falling back to argv-token clone', {
+        error: errorMessage(writeErr),
+      });
+      authHeaderArg = buildGitAuthHeaderArg(token);
+    }
+  } else {
+    authHeaderArg = buildGitAuthHeaderArg(token);
+  }
 
   try {
     // Initialize git repo in /workspace if not already a repo.
@@ -190,12 +209,23 @@ async function cloneRepository(
       }
     }
 
-    // Fetch the requested branch (shallow). Auth via per-invocation
-    // `-c http.extraHeader=Authorization: Basic <b64(x-access-token:TOKEN)>`.
-    // If that fails, fetch the default branch.
+    // Build the per-invocation `-c` flags for fetch. Either:
+    //   credential.helper=store + credential.useHttpPath=false (file-based,
+    //   no argv exposure) — preferred when sandbox.writeFile is available
+    // OR:
+    //   http.extraHeader=Authorization: Basic <b64> (legacy, argv exposure
+    //   visible to /proc and kube-apiserver audit log)
+    const fetchAuthFlags = authHeaderArg
+      ? ['-c', authHeaderArg]
+      : [
+          '-c',
+          `credential.helper=store --file=${TRANSIENT_GIT_CREDENTIALS_PATH}`,
+          '-c',
+          'credential.useHttpPath=false',
+        ];
+
     let cloneResult = await sandbox.exec('git', [
-      '-c',
-      authHeaderArg,
+      ...fetchAuthFlags,
       '-C',
       CONTAINER_WORKSPACE_PATH,
       'fetch',
@@ -211,8 +241,7 @@ async function cloneRepository(
         data: { baseBranch, owner, repo },
       });
       cloneResult = await sandbox.exec('git', [
-        '-c',
-        authHeaderArg,
+        ...fetchAuthFlags,
         '-C',
         CONTAINER_WORKSPACE_PATH,
         'fetch',
@@ -294,6 +323,22 @@ async function cloneRepository(
     ]);
     if (credResult.exitCode !== 0) {
       log.debug('Failed to disable credential helper', { data: { exitCode: credResult.exitCode } });
+    }
+
+    // Best-effort: remove the transient credential file. The
+    // GitHubCredentialsInjector will write a persistent one at
+    // ~/.git-credentials later for the agent's own push/PR operations,
+    // but that lives at a different path under $HOME — clearing /tmp here
+    // ensures the clone-time token is not laying around for the rest of
+    // the run.
+    if (useCredentialFile) {
+      try {
+        await sandbox.exec('rm', ['-f', TRANSIENT_GIT_CREDENTIALS_PATH]);
+      } catch (rmErr) {
+        log.debug('Failed to remove transient credential file', {
+          error: errorMessage(rmErr),
+        });
+      }
     }
     return { ok: true };
   } catch (err) {
