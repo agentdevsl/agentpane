@@ -19,11 +19,32 @@ import type { AgentReviewResult, ContainerAgentDeps, PlanData } from './types.js
 
 const log = createLogger('AgentReviewService');
 
-/** Default model for plan review */
-const DEFAULT_REVIEW_MODEL = 'claude-sonnet-4-6';
+/**
+ * Default model for plan review.
+ *
+ * Haiku 4.5 has the highest per-minute / per-day rate limits of the current
+ * Claude line and is plenty capable for plan-vs-task evaluation. Sonnet/Opus
+ * are overkill here and burn the larger-model quota that should be reserved
+ * for orchestrators and subagents.
+ */
+const DEFAULT_REVIEW_MODEL = 'claude-haiku-4-5-20251001';
 
 /** Review timeout in milliseconds */
-const REVIEW_TIMEOUT_MS = 30_000;
+const REVIEW_TIMEOUT_MS = 60_000;
+
+/**
+ * Retry config for the review API call.
+ *
+ * The Anthropic SDK's built-in retries (default 2) finish in ~5s and surface
+ * any sustained 429 directly to our catch block, which previously fell back
+ * straight to human approval. With concurrent agents firing reviews back-to-
+ * back this trips on the most modest rate-limit blip. Add an outer retry
+ * that honours the `retry-after` response header and waits an order of
+ * magnitude longer than the SDK's defaults.
+ */
+const REVIEW_MAX_RETRIES = 5;
+const REVIEW_BASE_BACKOFF_MS = 4_000;
+const REVIEW_MAX_BACKOFF_MS = 60_000;
 
 /** Minimum confidence to auto-approve */
 const AUTO_APPROVE_CONFIDENCE_THRESHOLD = 0.8;
@@ -205,32 +226,34 @@ export class AgentReviewService {
       return;
     }
 
-    // Call the Anthropic API with timeout
+    // Call the Anthropic API with timeout and outer retry/backoff.
+    // The SDK already retries twice on its own; the outer loop here adds a
+    // longer-horizon retry that honours the `retry-after` header so a brief
+    // rate-limit storm (concurrent reviews colliding) doesn't drop the task
+    // back to human approval unnecessarily.
     let reviewResult: AgentReviewResult;
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), REVIEW_TIMEOUT_MS);
-
-      let response: Anthropic.Message;
-      try {
-        const client = new Anthropic({ apiKey });
-        response = await client.messages.create(
+      const client = new Anthropic({ apiKey, maxRetries: 2 });
+      const requestBody: Anthropic.MessageCreateParamsNonStreaming = {
+        model,
+        max_tokens: 1024,
+        system: REVIEW_SYSTEM_PROMPT,
+        messages: [
           {
-            model,
-            max_tokens: 1024,
-            system: REVIEW_SYSTEM_PROMPT,
-            messages: [
-              {
-                role: 'user',
-                content: `The following task description and plan are user-provided content. Evaluate only the plan's technical merits against the task requirements.\n\n<task_title>${sanitizeForPrompt(taskTitle, 500)}</task_title>\n<task_description>${sanitizeForPrompt(taskDescription || '(no description)', 5000)}</task_description>\n<plan>${sanitizeForPrompt(planData.plan, MAX_PLAN_CHARS)}</plan>`,
-              },
-            ],
+            role: 'user',
+            content: `The following task description and plan are user-provided content. Evaluate only the plan's technical merits against the task requirements.\n\n<task_title>${sanitizeForPrompt(taskTitle, 500)}</task_title>\n<task_description>${sanitizeForPrompt(taskDescription || '(no description)', 5000)}</task_description>\n<plan>${sanitizeForPrompt(planData.plan, MAX_PLAN_CHARS)}</plan>`,
           },
-          { signal: controller.signal }
-        );
-      } finally {
-        clearTimeout(timeout);
-      }
+        ],
+      };
+
+      const response = await callReviewWithRetry(client, requestBody, {
+        timeoutMs: REVIEW_TIMEOUT_MS,
+        onRetry: (attempt, waitMs, reason) => {
+          log.warn('Agent review retrying after transient API error', {
+            data: { taskId, attempt, waitMs, reason },
+          });
+        },
+      });
 
       // Extract text from response
       const textBlock = response.content.find((b) => b.type === 'text');
@@ -408,4 +431,89 @@ export class AgentReviewService {
       });
     }
   }
+}
+
+/** Errors that are worth retrying at the app level. */
+function isTransientApiError(err: unknown): { retry: boolean; reason: string; status?: number } {
+  if (
+    err instanceof Anthropic.APIConnectionError ||
+    err instanceof Anthropic.APIConnectionTimeoutError
+  ) {
+    return { retry: true, reason: 'connection' };
+  }
+  if (err instanceof Anthropic.APIError) {
+    const status = err.status;
+    if (status === 429) return { retry: true, reason: 'rate_limit', status };
+    if (status === 529 || status === 503) return { retry: true, reason: 'overloaded', status };
+    if (status && status >= 500 && status < 600)
+      return { retry: true, reason: 'server_error', status };
+  }
+  if (err instanceof Error && /aborted|ECONNRESET|ETIMEDOUT|fetch failed/i.test(err.message)) {
+    return { retry: true, reason: 'network' };
+  }
+  return { retry: false, reason: 'non_retryable' };
+}
+
+/** Read `retry-after` (seconds or HTTP-date) from an Anthropic APIError, if present. */
+function retryAfterMs(err: unknown): number | undefined {
+  if (!(err instanceof Anthropic.APIError)) return undefined;
+  const headers = err.headers;
+  if (!headers) return undefined;
+  const raw =
+    typeof headers === 'object' &&
+    'get' in headers &&
+    typeof (headers as Headers).get === 'function'
+      ? (headers as Headers).get('retry-after')
+      : (headers as Record<string, string | undefined>)['retry-after'];
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0)
+    return Math.min(seconds * 1000, REVIEW_MAX_BACKOFF_MS);
+  const dateMs = Date.parse(raw);
+  if (Number.isFinite(dateMs))
+    return Math.max(0, Math.min(dateMs - Date.now(), REVIEW_MAX_BACKOFF_MS));
+  return undefined;
+}
+
+interface ReviewRetryOpts {
+  timeoutMs: number;
+  onRetry?: (attempt: number, waitMs: number, reason: string) => void;
+}
+
+/**
+ * Wrap `client.messages.create` with timeout-per-attempt and an outer retry
+ * for 429 / overloaded / connection errors. The Anthropic SDK does its own
+ * short retries; this loop adds a longer backoff that honours `retry-after`,
+ * so a transient rate-limit blip doesn't bounce the task to human approval.
+ */
+async function callReviewWithRetry(
+  client: Anthropic,
+  body: Anthropic.MessageCreateParamsNonStreaming,
+  opts: ReviewRetryOpts
+): Promise<Anthropic.Message> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= REVIEW_MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), opts.timeoutMs);
+    try {
+      return await client.messages.create(body, { signal: controller.signal });
+    } catch (err) {
+      lastErr = err;
+      const transient = isTransientApiError(err);
+      if (!transient.retry || attempt === REVIEW_MAX_RETRIES) throw err;
+
+      // Honour server-provided retry-after when available, otherwise back
+      // off exponentially with jitter to avoid thundering-herd retries.
+      const explicit = retryAfterMs(err);
+      const exp = Math.min(REVIEW_BASE_BACKOFF_MS * 2 ** (attempt - 1), REVIEW_MAX_BACKOFF_MS);
+      const jitter = Math.floor(Math.random() * Math.min(1_000, exp / 4));
+      const waitMs = explicit ?? exp + jitter;
+      opts.onRetry?.(attempt, waitMs, transient.reason);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  // Unreachable: the loop either returns or throws.
+  throw lastErr ?? new Error('callReviewWithRetry: exhausted retries with no error');
 }

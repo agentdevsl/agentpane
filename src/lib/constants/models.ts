@@ -21,16 +21,22 @@ export function getAnthropicBaseUrl(): string {
  */
 export const AVAILABLE_MODELS = [
   {
+    id: 'claude-opus-4-7',
+    name: 'Claude Opus 4.7',
+    fullId: 'claude-opus-4-7',
+    description: 'Latest and most capable, best for complex tasks',
+  },
+  {
     id: 'claude-opus-4-6',
     name: 'Claude Opus 4.6',
     fullId: 'claude-opus-4-6',
-    description: 'Latest and most capable, best for complex tasks',
+    description: 'Highly capable Opus, broad availability',
   },
   {
     id: 'claude-opus-4-5',
     name: 'Claude Opus 4.5',
     fullId: 'claude-opus-4-5-20251101',
-    description: 'Highly capable, great for complex tasks',
+    description: 'Earlier Opus, kept for compatibility',
   },
   {
     id: 'claude-sonnet-4-6',
@@ -47,7 +53,7 @@ export const AVAILABLE_MODELS = [
 ] as const;
 
 /** Default model for agent execution */
-export const DEFAULT_AGENT_MODEL = 'claude-opus-4-6';
+export const DEFAULT_AGENT_MODEL = 'claude-opus-4-7';
 
 /** Default model for workflow designer AI */
 export const DEFAULT_WORKFLOW_MODEL = 'claude-haiku-4-5';
