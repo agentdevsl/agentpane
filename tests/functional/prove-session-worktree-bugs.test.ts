@@ -379,107 +379,73 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
   // Test 4: Session event persist failure — stream still publishes
   // ═══════════════════════════════════════════════════════════════════
 
-  describe('Test 4: RS-013 ordering — persist BEFORE stream publish', () => {
-    it('publish() persists to DB first, then publishes to stream', async () => {
-      const codespace = await createTestProject({ name: 'RS-013 Test' });
+  describe('Test 4: outbox-based publish — persists to DB + outbox, no direct stream call', () => {
+    it('publish() persists event and enqueues outbox row, never calling streams.publish directly', async () => {
+      // The arch29 review moved session events onto the durable outbox: publish()
+      // writes (event, outbox-row) atomically and the outbox relay owns live
+      // delivery. The previous direct streams.publish path (RS-013) is gone, so
+      // this test proves the new contract: DB persist + outbox enqueue, with
+      // streams.publish never invoked from the publish path.
+      const codespace = await createTestProject({ name: 'Outbox Test' });
       const session = await createTestSession(codespace.id, {
         status: 'active',
       });
 
-      // Track call order
-      const callOrder: string[] = [];
-
-      const orderTrackingStreams: DurableStreamsServer = {
+      const trackingStreams: DurableStreamsServer = {
         createStream: vi.fn(),
-        publish: vi.fn().mockImplementation(async () => {
-          callOrder.push('stream:publish');
-          return 0;
-        }),
+        publish: vi.fn(),
         subscribe: vi.fn(),
       };
 
-      const streamService = new SessionStreamService(db, orderTrackingStreams);
-
-      // Monkey-patch persistEvent to track when DB write happens
-      const originalPersist = streamService.persistEvent.bind(streamService);
-      streamService.persistEvent = async (...args) => {
-        const result = await originalPersist(...args);
-        callOrder.push('db:persist');
-        return result;
-      };
+      const streamService = new SessionStreamService(db, trackingStreams);
 
       const event = buildSessionEvent(session.id, 'chunk');
       const result = await streamService.publish(session.id, event);
 
       expect(result.ok).toBe(true);
+      expect(trackingStreams.publish).not.toHaveBeenCalled();
 
-      /**
-       * FINDING: RS-013 pattern is correctly implemented.
-       * The publish() method calls persistEvent() FIRST (awaited),
-       * then calls streams.publish().
-       *
-       * Order: db:persist -> stream:publish
-       *
-       * If persistEvent fails, streams.publish is still called
-       * (best-effort delivery for live subscribers). This means a
-       * transient DB error won't block real-time delivery, but the
-       * event won't be durable. The comment says "Still attempt
-       * real-time delivery even if DB persistence fails."
-       */
-      expect(callOrder).toEqual(['db:persist', 'stream:publish']);
-
-      // Verify DB has the event
+      // Event is persisted
       const dbEvent = await db.query.sessionEvents.findFirst({
         where: eq(sessionEvents.id, event.id),
       });
       expect(dbEvent).toBeTruthy();
+
+      // Outbox row exists for the relay to pick up
+      const { eventOutbox } = await import('../../src/db/schema/sqlite/event-outbox.js');
+      const outboxRows = await db
+        .select()
+        .from(eventOutbox)
+        .where(eq(eventOutbox.streamId, session.id));
+      expect(outboxRows.length).toBeGreaterThan(0);
+      expect(outboxRows.some((r) => r.status === 'pending')).toBe(true);
     });
 
-    it('publish() still sends to stream even when DB persist fails', async () => {
-      const codespace = await createTestProject({ name: 'RS-013 Fail' });
+    it('publish() returns err and does NOT touch the stream when persist fails', async () => {
+      // The legacy RS-013 path called streams.publish even when DB persistence
+      // failed. With the outbox model, persist failure short-circuits the entire
+      // publish path: no outbox row, no stream call, err propagated to caller.
+      const codespace = await createTestProject({ name: 'Persist Fail' });
       const session = await createTestSession(codespace.id, {
         status: 'active',
       });
 
-      let streamPublished = false;
       const trackingStreams: DurableStreamsServer = {
         createStream: vi.fn(),
-        publish: vi.fn().mockImplementation(async () => {
-          streamPublished = true;
-          return 0;
-        }),
+        publish: vi.fn(),
         subscribe: vi.fn(),
       };
 
-      const _streamService = new SessionStreamService(db, trackingStreams);
-
-      // TEST-SETUP: proving that publish() still contacts the stream even
-      // when persist fails due to a missing session. The delete simulates
-      // out-of-band corruption (another process removed the session);
-      // routing through SessionService would be wrong — we need the DB
-      // gone but the service's cache still hot.
+      // TEST-SETUP: simulate out-of-band session deletion. The fresh service
+      // bypasses any existence cache so the DB miss is felt immediately.
       const freshService = new SessionStreamService(db, trackingStreams);
       await db.delete(sessions).where(eq(sessions.id, session.id));
 
       const event = buildSessionEvent(session.id, 'chunk');
       const result = await freshService.publish(session.id, event);
 
-      /**
-       * FINDING: When the session doesn't exist (no cache hit),
-       * persistEvent returns NOT_FOUND error. The publish() method
-       * still attempts stream delivery because it only checks
-       * `if (!persistResult.ok)` without returning early.
-       *
-       * However, the stream.publish call is wrapped in its own
-       * try-catch that swallows errors. So the event gets sent
-       * to live subscribers even though it's not persisted.
-       *
-       * The final return is ok({ offset: 0 }) because offset
-       * defaults to 0 when persist fails — this masks the failure
-       * from the caller.
-       */
-      expect(result.ok).toBe(true);
-      expect(streamPublished).toBe(true);
+      expect(result.ok).toBe(false);
+      expect(trackingStreams.publish).not.toHaveBeenCalled();
     });
   });
 

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ok } from '../../src/lib/utils/result';
 import { TaskService } from '../../src/services/task.service';
 import { createTestAgent } from '../factories/agent.factory';
+import { createMockContainerAgent } from '../factories/container-agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestSession } from '../factories/session.factory';
 import { createTestTask } from '../factories/task.factory';
@@ -44,6 +45,7 @@ describe('Task Workflow Integration', () => {
     };
 
     const taskService = new TaskService(db, mockWorktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
 
     // Move from backlog to in_progress
     const moveResult1 = await taskService.moveColumn(task.id, 'in_progress');
@@ -131,6 +133,7 @@ describe('Task Workflow Integration', () => {
     };
 
     const taskService = new TaskService(db, mockWorktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
 
     const rejectResult = await taskService.reject(task.id, { reason: 'Needs more tests' });
 
@@ -160,6 +163,7 @@ describe('Task Workflow Integration', () => {
     };
 
     const taskService = new TaskService(db, mockWorktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
 
     const backlogTasks = await taskService.getByColumn(project.id, 'backlog');
     const inProgressTasks = await taskService.getByColumn(project.id, 'in_progress');

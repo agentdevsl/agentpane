@@ -3,6 +3,7 @@ import type { TaskColumn } from '../../src/db/schema';
 import { ok } from '../../src/lib/utils/result';
 import { TaskService } from '../../src/services/task.service';
 import { VALID_TRANSITIONS } from '../../src/services/task-transitions';
+import { createMockContainerAgent } from '../factories/container-agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestTask } from '../factories/task.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
@@ -29,6 +30,8 @@ describe('Task State Transitions (IT-007)', () => {
     await setupTestDatabase();
     const db = getTestDb();
     taskService = new TaskService(db, mockWorktreeService);
+    // MAY-04 guard requires a container agent for in_progress moves.
+    taskService.setContainerAgentService(createMockContainerAgent());
     const project = await createTestProject({ name: 'Transition Test' });
     codespaceId = project.id;
   });

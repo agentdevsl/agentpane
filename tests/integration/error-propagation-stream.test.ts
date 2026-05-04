@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sessionEvents } from '../../src/db/schema';
 import { TaskService } from '../../src/services/task.service';
+import { createMockContainerAgent } from '../factories/container-agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestSession } from '../factories/session.factory';
 import { createTestTask } from '../factories/task.factory';
@@ -60,6 +61,7 @@ describe('Error Propagation: Stream (IT-209 to IT-210)', () => {
     };
 
     const taskService = new TaskService(db as never, mockWorktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
 
     // First move: backlog → in_progress (valid)
     const move1 = await taskService.moveColumn(task.id, 'in_progress');

@@ -203,9 +203,11 @@ describe('SandboxService (IT-1550)', () => {
 
       expect(result.ok).toBe(true);
 
-      // Verify DB record
+      // Verify DB record. SandboxService generates the sandbox id via createId()
+      // and passes it to the provider, so we query by the codespace (unique per
+      // active sandbox) rather than the mock's static id.
       const dbSandbox = await db.query.sandboxInstances.findFirst({
-        where: eq(sandboxInstances.id, mockSandbox.id),
+        where: eq(sandboxInstances.codespaceId, 'proj-db-1'),
       });
       expect(dbSandbox).toBeDefined();
       expect(dbSandbox?.codespaceId).toBe('proj-db-1');

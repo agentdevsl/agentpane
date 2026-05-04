@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { agents, codespaces, sessionEvents } from '../../src/db/schema';
 import { TaskService } from '../../src/services/task.service';
 import { createTestAgent } from '../factories/agent.factory';
+import { createMockContainerAgent } from '../factories/container-agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestSession } from '../factories/session.factory';
 import { createTestTask } from '../factories/task.factory';
@@ -26,6 +27,7 @@ describe('Concurrency: Race Conditions (IT-211 to IT-215)', () => {
     await setupTestDatabase();
     db = getTestDb();
     taskService = new TaskService(db as never, mockWorktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
   });
 
   afterEach(async () => {

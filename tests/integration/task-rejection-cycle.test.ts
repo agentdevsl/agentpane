@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tasks } from '../../src/db/schema';
 import { TaskService } from '../../src/services/task.service';
+import { createMockContainerAgent } from '../factories/container-agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestTask } from '../factories/task.factory';
 import { createTestWorktree } from '../factories/worktree.factory';
@@ -44,6 +45,7 @@ describe('IT-005: Task Rejection Cycle', () => {
 
     const worktreeService = createMockWorktreeService();
     const taskService = new TaskService(db as any, worktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
 
     const result = await taskService.reject(task.id, { reason: 'Tests are failing' });
 
@@ -66,6 +68,7 @@ describe('IT-005: Task Rejection Cycle', () => {
 
     const worktreeService = createMockWorktreeService();
     const taskService = new TaskService(db as any, worktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
 
     // First rejection: waiting_approval -> backlog
     const reject1 = await taskService.reject(task.id, { reason: 'First issue' });
@@ -101,6 +104,7 @@ describe('IT-005: Task Rejection Cycle', () => {
 
     const worktreeService = createMockWorktreeService();
     const taskService = new TaskService(db as any, worktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
 
     const result = await taskService.reject(task.id, { reason: 'Should fail' });
 
@@ -116,6 +120,7 @@ describe('IT-005: Task Rejection Cycle', () => {
 
     const worktreeService = createMockWorktreeService();
     const taskService = new TaskService(db as any, worktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
 
     const result = await taskService.reject(task.id, { reason: '' });
 
@@ -128,6 +133,7 @@ describe('IT-005: Task Rejection Cycle', () => {
 
     const worktreeService = createMockWorktreeService();
     const taskService = new TaskService(db as any, worktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
 
     const result = await taskService.moveColumn(task.id, 'in_progress');
     expect(result.ok).toBe(true);

@@ -147,6 +147,7 @@ describe('State Machine Guard Vulnerabilities', () => {
     streams = createMockStreams();
     mockWorktreeService = createMockWorktreeService();
     taskService = new TaskService(db, mockWorktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
     stateManager = new SandboxStateManager();
   });
 

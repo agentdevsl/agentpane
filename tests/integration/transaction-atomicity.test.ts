@@ -5,6 +5,7 @@ import { agentRuns, agents, sessionEvents, settings, tasks } from '../../src/db/
 import { TaskService } from '../../src/services/task.service';
 import { createTestAgent } from '../factories/agent.factory';
 import { createTestAgentRun } from '../factories/agent-run.factory';
+import { createMockContainerAgent } from '../factories/container-agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestSession } from '../factories/session.factory';
 import { createTestTask } from '../factories/task.factory';
@@ -38,6 +39,7 @@ describe('Transaction & Atomicity (IT-191 to IT-195)', () => {
     };
 
     const taskService = new TaskService(db as never, mockWorktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
 
     const result = await taskService.moveColumn(task.id, 'in_progress');
     expect(result.ok).toBe(true);
@@ -75,6 +77,7 @@ describe('Transaction & Atomicity (IT-191 to IT-195)', () => {
     };
 
     const taskService = new TaskService(db as never, mockWorktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
     const result = await taskService.approve(task.id, { approvedBy: 'user' });
 
     // Should fail

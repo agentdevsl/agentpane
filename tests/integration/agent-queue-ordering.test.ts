@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { tasks } from '../../src/db/schema';
 import { ok } from '../../src/lib/utils/result';
 import { TaskService } from '../../src/services/task.service';
+import { createMockContainerAgent } from '../factories/container-agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestTask } from '../factories/task.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
@@ -21,6 +22,7 @@ describe('Agent Queue Ordering (IT-011)', () => {
     await setupTestDatabase();
     const db = getTestDb();
     taskService = new TaskService(db, mockWorktreeService);
+    taskService.setContainerAgentService(createMockContainerAgent());
     const project = await createTestProject({ name: 'Queue Test' });
     codespaceId = project.id;
   });

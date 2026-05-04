@@ -94,7 +94,10 @@ describe('IT-001: Task Agent Trigger on moveColumn', () => {
     expect(callArgs.taskId).toBe(task.id);
   });
 
-  it('moves to in_progress without creating session when containerAgentService is NOT set', async () => {
+  it('rejects move to in_progress with EXECUTION_NOT_READY when containerAgentService is NOT set', async () => {
+    // MAY-04: moving to in_progress is an execution request — without an agent
+    // runner wired up there is no one to pick the task up, so the move must
+    // fail with a typed retryable error instead of silently succeeding.
     const codespace = await createTestProject();
     const task = await createTestTask(codespace.id, { column: 'backlog' });
 
@@ -104,14 +107,16 @@ describe('IT-001: Task Agent Trigger on moveColumn', () => {
 
     const result = await taskService.moveColumn(task.id, 'in_progress');
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('TASK_EXECUTION_NOT_READY');
 
-    const { task: movedTask } = result.value;
-    expect(movedTask.column).toBe('in_progress');
-    expect(movedTask.startedAt).toBeTruthy();
-    // No session should be created
-    expect(movedTask.sessionId).toBeNull();
+    // Task must remain in backlog and gain no session.
+    const reread = await db.query.tasks.findFirst({
+      where: (tasks, { eq }) => eq(tasks.id, task.id),
+    });
+    expect(reread?.column).toBe('backlog');
+    expect(reread?.sessionId).toBeNull();
   });
 
   it('returns agentError when containerAgentService.startAgent fails', async () => {
