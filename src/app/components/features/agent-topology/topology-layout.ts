@@ -14,10 +14,47 @@ const NODE_HEIGHT = 145;
 const SKILL_NODE_WIDTH = 160;
 const SKILL_NODE_HEIGHT = 50;
 
-export async function layoutTopology(
-  graph: TopologyGraph
-): Promise<{ nodes: ReactFlowNode[]; edges: ReactFlowEdge[] }> {
-  if (graph.nodes.length === 0) return { nodes: [], edges: [] };
+/**
+ * Agent types that are *not* worth grouping on visually. These are the
+ * SDK's catch-all fallbacks emitted when the orchestrator invokes the
+ * Agent tool without a `subagent_type` (or before the registry was loaded
+ * — see `agent-runner` history). Boxing them would lump unrelated calls
+ * together under a misleading label. `local_bash` and `Explore` are
+ * intentionally NOT in this list — they are real, distinct built-in
+ * helpers and deserve their own clusters.
+ */
+const GENERIC_AGENT_TYPES = new Set(['local_agent', 'general-purpose']);
+
+/** Pixel padding around the bounding box of a same-type cluster. */
+const GROUP_BOX_PADDING = 18;
+/**
+ * Minimum number of sibling nodes that share an agent_type to draw a box.
+ * 1 means even singletons get a labelled box, which is visually noisy
+ * for one-off Design / Synth nodes; 2+ keeps boxes only for actual fan-
+ * outs. Tunable as a hint to the user what the workflow stage is.
+ */
+const GROUP_MIN_SIZE = 1;
+
+export interface TopologyGroupBox {
+  /** Stable id derived from parent + agent_type, safe for React keys. */
+  id: string;
+  /** SDK-resolved agent_type used as the cluster label. */
+  agentType: string;
+  /** Number of nodes inside this cluster. */
+  nodeCount: number;
+  /** Top-left corner in ReactFlow coordinates. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export async function layoutTopology(graph: TopologyGraph): Promise<{
+  nodes: ReactFlowNode[];
+  edges: ReactFlowEdge[];
+  groups: TopologyGroupBox[];
+}> {
+  if (graph.nodes.length === 0) return { nodes: [], edges: [], groups: [] };
 
   const elk = await getElk();
 
@@ -168,5 +205,55 @@ export async function layoutTopology(
     };
   });
 
-  return { nodes: rfNodes, edges: rfEdges };
+  // Compute group bounding boxes — siblings sharing both `parentId` and
+  // `agentType` (excluding generic SDK fallbacks) get a translucent box
+  // drawn behind them so the user can see the workflow stage at a glance.
+  const positionById = new Map(flatChildren.map((c) => [c.id, { x: c.x, y: c.y }]));
+  const widthFor = (id: string) =>
+    nodeById.get(id)?.node.type === 'skill' ? SKILL_NODE_WIDTH : NODE_WIDTH;
+  const heightFor = (id: string) =>
+    nodeById.get(id)?.node.type === 'skill' ? SKILL_NODE_HEIGHT : NODE_HEIGHT;
+
+  const clusters = new Map<string, { agentType: string; nodeIds: string[] }>();
+  for (const n of graph.nodes) {
+    if (n.type === 'skill') continue;
+    const agentType = n.agentType;
+    if (!agentType || GENERIC_AGENT_TYPES.has(agentType)) continue;
+    if (!positionById.has(n.id)) continue;
+    const key = `${n.parentId ?? 'root'}::${agentType}`;
+    const existing = clusters.get(key);
+    if (existing) existing.nodeIds.push(n.id);
+    else clusters.set(key, { agentType, nodeIds: [n.id] });
+  }
+
+  const groups: TopologyGroupBox[] = [];
+  for (const [key, cluster] of clusters) {
+    if (cluster.nodeIds.length < GROUP_MIN_SIZE) continue;
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (const id of cluster.nodeIds) {
+      const pos = positionById.get(id);
+      if (!pos) continue;
+      const w = widthFor(id);
+      const h = heightFor(id);
+      if (pos.x < minX) minX = pos.x;
+      if (pos.y < minY) minY = pos.y;
+      if (pos.x + w > maxX) maxX = pos.x + w;
+      if (pos.y + h > maxY) maxY = pos.y + h;
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) continue;
+    groups.push({
+      id: `group::${key}`,
+      agentType: cluster.agentType,
+      nodeCount: cluster.nodeIds.length,
+      x: minX - GROUP_BOX_PADDING,
+      y: minY - GROUP_BOX_PADDING,
+      width: maxX - minX + GROUP_BOX_PADDING * 2,
+      height: maxY - minY + GROUP_BOX_PADDING * 2,
+    });
+  }
+
+  return { nodes: rfNodes, edges: rfEdges, groups };
 }

@@ -13,11 +13,12 @@ import { TopologyDetailPanel } from './detail-panel/topology-detail-panel';
 import { AgentEdge } from './edges/agent-edge';
 import { AgentEdgeMarkers } from './edges/agent-edge-markers';
 import { SkillEdge } from './edges/skill-edge';
+import { TopologyGroupOverlay } from './groups/topology-group-overlay';
 import { TopologyLegend } from './legend/topology-legend';
 import { AgentNode, type AgentNodeData } from './nodes/agent-node';
 import { SkillNode } from './nodes/skill-node';
 import { useTopology } from './topology-context';
-import { layoutTopology } from './topology-layout';
+import { layoutTopology, type TopologyGroupBox } from './topology-layout';
 
 const nodeTypes = { agentNode: AgentNode, skillNode: SkillNode };
 const edgeTypes = { agentEdge: AgentEdge, skillEdge: SkillEdge };
@@ -28,6 +29,7 @@ function TopologyInner(): React.JSX.Element {
   const { fitView, zoomIn, zoomOut } = useReactFlow();
   const [nodes, setNodes] = useState<ReactFlowNode[]>([]);
   const [edges, setEdges] = useState<ReactFlowEdge[]>([]);
+  const [groups, setGroups] = useState<TopologyGroupBox[]>([]);
   const layoutInFlight = useRef(false);
   const lastStructureVersion = useRef(-1);
 
@@ -43,6 +45,7 @@ function TopologyInner(): React.JSX.Element {
       const result = await layoutTopology(graphRef.current);
       setNodes(result.nodes);
       setEdges(result.edges);
+      setGroups(result.groups);
       // Re-fit after the new positions render so the view stays centered
       // when nodes are added/removed.
       requestAnimationFrame(() => {
@@ -60,6 +63,7 @@ function TopologyInner(): React.JSX.Element {
     if (state.graph.nodes.length === 0) {
       setNodes([]);
       setEdges([]);
+      setGroups([]);
       lastStructureVersion.current = state.structureVersion;
       return;
     }
@@ -214,6 +218,7 @@ function TopologyInner(): React.JSX.Element {
             minZoom={0.3}
             maxZoom={3}
           >
+            <TopologyGroupOverlay groups={groups} />
             <AgentEdgeMarkers />
           </ReactFlow>
         </div>
