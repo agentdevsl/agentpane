@@ -501,20 +501,20 @@ describe('Sessions API Routes', () => {
 
       expect(res.status).toBe(200);
       expect(sessionService.getEventsBySession).toHaveBeenCalledWith('sess-1', {
-        limit: 100,
+        limit: 1000,
         fromOffset: 1,
         toOffset: 5,
       });
     });
 
-    it('defaults to limit=100 and offset=0', async () => {
+    it('defaults to limit=1000 and offset=0', async () => {
       const { app, sessionService } = createTestApp();
       sessionService.getEventsBySession.mockResolvedValue({ ok: true, value: [] });
 
       await request(app, 'GET', '/api/sessions/sess-1/events');
 
       expect(sessionService.getEventsBySession).toHaveBeenCalledWith('sess-1', {
-        limit: 100,
+        limit: 1000,
         offset: 0,
       });
     });

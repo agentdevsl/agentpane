@@ -142,6 +142,7 @@ export interface AgentReviewResult {
   model: string;
   durationMs: number;
   reviewedAt: string;
+  usage?: { inputTokens: number; outputTokens: number };
 }
 
 /** TTL for pending plans in milliseconds (1 hour) */

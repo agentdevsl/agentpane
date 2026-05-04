@@ -4,6 +4,7 @@ import {
   CaretRight,
   CheckCircle,
   Code,
+  Gavel,
   Lightning,
   Spinner,
   Terminal,
@@ -27,6 +28,16 @@ const entryContainerVariants = cva(
         user: 'bg-accent/5 hover:bg-accent/10',
         assistant: 'bg-done/5 hover:bg-done/10',
         tool: 'bg-attention/5 hover:bg-attention/10',
+        // Approval entries are state changes in the plan-review flow.
+        // The other types (user/assistant/tool) sit at /5 and /10 — we
+        // run approval at ~3× that intensity so the four-step flow
+        // (`plan ready → reviewing → approved/flagged → executing`)
+        // pops while scrolling, and the left accent is bumped to 4px
+        // (vs the 2px elsewhere) so the rail reads as a distinct
+        // section divider rather than a hover hint. Filled label chip
+        // gives the row a header-style anchor.
+        approval:
+          'bg-secondary/20 hover:bg-secondary/30 border-l-4 border-secondary ring-1 ring-inset ring-secondary/30',
       },
       isCurrent: {
         true: 'bg-accent/10 border-l-2 border-accent pl-2',
@@ -45,6 +56,7 @@ const typeIcons = {
   user: User,
   assistant: Code,
   tool: Wrench,
+  approval: Gavel,
 } as const;
 
 const statusIcons = {
@@ -119,7 +131,16 @@ export function StreamEntry({ entry, isCurrent = false }: StreamEntryProps): Rea
             <span
               className={cn(
                 'flex items-center gap-1 text-xs font-medium uppercase tracking-wide',
-                config.textClass
+                // Approval rows render the label as a filled chip so the
+                // row reads like a state-change header rather than a
+                // sibling of the muted system/user/tool labels. The
+                // chip uses bg-secondary (= --secondary-fg) with
+                // bg-canvas text for readable contrast on top of the
+                // saturated pink. Other types keep their existing
+                // inline-text treatment.
+                entry.type === 'approval'
+                  ? 'rounded bg-secondary px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-fg-on-emphasis'
+                  : config.textClass
               )}
             >
               <Icon className="h-3 w-3" weight="bold" />

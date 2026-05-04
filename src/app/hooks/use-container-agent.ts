@@ -103,7 +103,11 @@ export interface ContainerAgentState {
   /** Files changed by the agent */
   fileChanges: FileChange[];
   /** Messages from the agent */
-  messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string; timestamp: number }>;
+  messages: Array<{
+    role: 'user' | 'assistant' | 'system' | 'approval';
+    content: string;
+    timestamp: number;
+  }>;
   /** Final result if completed */
   result?: string;
   /** Error message if failed */
@@ -217,7 +221,7 @@ function buildStateFromHistoricalEvents(events: TopologyEvent[]): HistoricalLoad
 
       case 'container-agent:message':
         messages.push({
-          role: (data.role as 'user' | 'assistant' | 'system') ?? 'assistant',
+          role: (data.role as 'user' | 'assistant' | 'system' | 'approval') ?? 'assistant',
           content: (data.content as string) ?? '',
           timestamp: event.timestamp,
         });
@@ -362,7 +366,11 @@ type ContainerAgentAction =
   | { type: 'TOOL_RESULT'; data: ContainerAgentToolResult }
   | {
       type: 'MESSAGE';
-      data: { role: 'user' | 'assistant' | 'system'; content: string; timestamp: number };
+      data: {
+        role: 'user' | 'assistant' | 'system' | 'approval';
+        content: string;
+        timestamp: number;
+      };
     }
   | { type: 'COMPLETE'; data: ContainerAgentComplete }
   | { type: 'ERROR'; data: ContainerAgentError }

@@ -14,9 +14,9 @@
  * - PlanApprovalService:    plan ready/approve/reject handlers
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
-import { codespaces, tasks } from '../../db/schema';
+import { codespaces, sessionEvents, sessions, tasks } from '../../db/schema';
 import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
@@ -278,7 +278,10 @@ export class ContainerAgentService {
    *
    * After a server restart no agents are running in memory, so any task
    * still marked `in_progress` is orphaned. Move them back to `backlog`
-   * so they can be re-queued.
+   * so they can be re-queued, and emit synthetic `tool:result` events
+   * for any in-flight `tool:start`s on the orphan's sessions — without
+   * the synthetic results, the topology view keeps the tools stuck on
+   * "running" forever and "Tool tracking is broken" reports follow.
    */
   async reconcile(): Promise<void> {
     const orphaned = await this.deps.db.query.tasks.findMany({
@@ -299,6 +302,107 @@ export class ContainerAgentService {
         .where(eq(tasks.id, task.id));
 
       log.info('Moved orphaned task to backlog', { data: { taskId: task.id } });
+
+      // Flush orphan tool starts for every session attached to this task.
+      // Best-effort — failures are logged and the reconcile loop continues
+      // so one stuck session doesn't block the whole startup.
+      try {
+        await this.flushOrphanToolStartsForTask(task.id);
+      } catch (err) {
+        log.warn('Failed to flush orphan tool starts for reconciled task', {
+          data: { taskId: task.id },
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  /**
+   * For every session belonging to `taskId`, emit a synthetic
+   * `tool:result` for any `tool:start` event that has no matching
+   * `tool:result` (paired by `toolId`). Used by `reconcile()` to clean
+   * up the visual tail-end of an abruptly-terminated agent run.
+   *
+   * Persists each synthetic result via the durable streams pipeline so
+   * the row lands in `session_events` and survives a future page
+   * refresh — the UI looks up tool start/result pairs from the same
+   * table and this is the only way to flip a `RUNNING` chip to
+   * `terminated` after the process is gone.
+   */
+  private async flushOrphanToolStartsForTask(taskId: string): Promise<void> {
+    const taskSessions = await this.deps.db.query.sessions.findMany({
+      where: eq(sessions.taskId, taskId),
+      columns: { id: true },
+    });
+    for (const { id: sessionId } of taskSessions) {
+      const allToolEvents = await this.deps.db.query.sessionEvents.findMany({
+        where: and(
+          eq(sessionEvents.sessionId, sessionId),
+          inArray(sessionEvents.type, ['container-agent:tool:start', 'container-agent:tool:result'])
+        ),
+        columns: { type: true, data: true, timestamp: true },
+      });
+
+      const seenResultIds = new Set<string>();
+      const orphanStarts: Array<{
+        toolId: string;
+        toolName: string;
+        startTimestamp: number;
+      }> = [];
+      for (const event of allToolEvents) {
+        if (event.type === 'container-agent:tool:result') {
+          const data = event.data as { toolId?: string; id?: string };
+          const id = data.toolId ?? data.id;
+          if (id) seenResultIds.add(id);
+        }
+      }
+      for (const event of allToolEvents) {
+        if (event.type !== 'container-agent:tool:start') continue;
+        const data = event.data as {
+          toolId?: string;
+          id?: string;
+          toolName?: string;
+          tool?: string;
+        };
+        const toolId = data.toolId ?? data.id;
+        if (!toolId || seenResultIds.has(toolId)) continue;
+        orphanStarts.push({
+          toolId,
+          toolName: data.toolName ?? data.tool ?? 'Unknown',
+          startTimestamp: typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
+        });
+      }
+
+      if (orphanStarts.length === 0) continue;
+      log.info('Flushing orphan tool starts for reconciled session', {
+        data: { taskId, sessionId, count: orphanStarts.length },
+      });
+
+      for (const orphan of orphanStarts) {
+        // durationMs intentionally 0 — the tool's real runtime was a few
+        // ms before the agent runner died; the long delay until reconcile
+        // ran is wall-clock idle time, not tool execution time. Computing
+        // `Date.now() - startTimestamp` here gave bogus durations like
+        // "21m 46s" in the UI, which read as "the bash command hung for
+        // 21 minutes" rather than "the runner was offline for 21 minutes
+        // and we're cleaning up afterwards."
+        await this.deps.streams
+          .publish(sessionId, 'container-agent:tool:result', {
+            taskId,
+            sessionId,
+            toolId: orphan.toolId,
+            toolName: orphan.toolName,
+            result: 'Agent runner terminated before this tool returned',
+            isError: true,
+            durationMs: 0,
+          })
+          .catch((publishErr) => {
+            log.warn('Failed to publish synthetic tool:result', {
+              data: { taskId, sessionId, toolId: orphan.toolId },
+              error: publishErr instanceof Error ? publishErr.message : String(publishErr),
+            });
+          });
+      }
     }
   }
 

@@ -77,9 +77,25 @@ export class SandboxController {
   async start(): Promise<void> {
     this.running = true;
 
-    // Start watching sandbox CRD events
+    // Start watching sandbox CRD events.
+    // The watch handle exposes a `done` promise that rejects when the
+    // long-poll connection dies (TLS handshake failure on a stale
+    // minikube cert, network blip, server-side timeout, etc). We don't
+    // await it — the watch is meant to run for the controller's
+    // lifetime — but it MUST be `.catch()`d, otherwise a single
+    // connection failure becomes an unhandled rejection that bricks
+    // bootstrap: the readiness gate waits for `sandboxState.reconciled
+    // = true`, and an unhandled rejection raised mid-init throws off
+    // the surrounding async chain in the bootstrap path. The periodic
+    // `statusSyncTimer.reconcileExisting()` below already serves as a
+    // watch fallback, so logging-and-continuing here is the right call.
     this.sandboxWatch = this.client.watchSandboxes((event) => this.onSandboxEvent(event), {
       namespace: this.namespace,
+    });
+    this.sandboxWatch.done.catch((err) => {
+      log.warn('Sandbox watch connection ended with error (periodic reconciliation will recover)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
 
     // Periodic status sync: push pod status into Sandbox CRD status.
@@ -371,6 +387,16 @@ export class SandboxController {
         volumes,
         serviceAccountName,
         ...(runtimeClassName ? { runtimeClassName } : {}),
+        // Give the agent runner a generous 60s window between SIGTERM
+        // and SIGKILL on pod deletion so its termination handler can
+        // emit synthetic tool:result events for in-flight tools and
+        // drain stdout (which the host reads via kubectl exec and
+        // forwards to durable streams) before the kernel kills it.
+        // K8s default of 30s is usually enough, but the durable-streams
+        // round trip can take a few seconds under load and we'd rather
+        // err on the side of clean tool tracking than the marginal
+        // teardown speed gain.
+        terminationGracePeriodSeconds: 60,
         // Pod-level security context for restricted PSS compliance
         securityContext: {
           runAsNonRoot: true,

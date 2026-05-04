@@ -42,12 +42,18 @@ const PULSE_R = RADIUS + 8; // 36
 const SELECTION_R = RADIUS + 10; // 38
 const CIRCUMFERENCE = 2 * Math.PI * ARC_R;
 const ICON_SIZE = Math.max(14, RADIUS * 0.6);
+const MAX_NAME_CHARS = 22;
 
 function formatTokens(n: number): string {
   if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return '0';
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
   return String(Math.round(n));
+}
+
+function truncateName(name: string): string {
+  if (name.length <= MAX_NAME_CHARS) return name;
+  return `${name.slice(0, MAX_NAME_CHARS - 1).trimEnd()}…`;
 }
 
 function AgentNodeComponent({ data, selected }: NodeProps) {
@@ -72,6 +78,17 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
   const pct = Math.min(1, Math.max(0, progress / 100));
   const isRunning = status === 'running';
   const isVerifying = status === 'verifying';
+  const isCompleted = status === 'completed';
+  const isQueued = status === 'queued';
+  const displayName = truncateName(name);
+  const isTruncated = displayName !== name;
+  const circleFill = isCompleted ? statusColor : isQueued ? 'var(--bg-subtle)' : roleColor;
+  const iconChar = isCompleted ? '✓' : roleConfig.icon;
+  const iconColor = isCompleted
+    ? 'var(--bg-canvas)'
+    : isQueued
+      ? 'var(--fg-muted)'
+      : 'var(--bg-canvas)';
 
   const lastDecision = decisions.length > 0 ? decisions[decisions.length - 1] : null;
   const decisionConfig = lastDecision ? DECISION_TYPE_CONFIG[lastDecision.type] : null;
@@ -85,15 +102,23 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
   const safeCost = typeof cost === 'number' && Number.isFinite(cost) ? cost : 0;
   const safeTokens = typeof tokens === 'number' && Number.isFinite(tokens) ? tokens : 0;
   const safeTurns = typeof turns === 'number' && Number.isFinite(turns) ? turns : 0;
-  const metricsText = `${safeTurns}t · ${formatTokens(safeTokens)} · $${safeCost.toFixed(2)}`;
+  const hasMetrics = safeTurns > 0 || safeTokens > 0 || safeCost > 0;
+  const metricsText = isCompleted
+    ? hasMetrics
+      ? `${safeTurns}t · $${safeCost.toFixed(2)}`
+      : ''
+    : `${safeTurns}t · ${formatTokens(safeTokens)} · $${safeCost.toFixed(2)}`;
 
   return (
-    <div style={{ width: 120, height: 145, overflow: 'visible' }}>
+    <div style={{ width: 120, height: 145, overflow: 'visible', position: 'relative' }}>
+      {/* Handles attach at the visible circle edges (top y=22, bottom y=78
+          relative to the 145px container) so edges land on the circle, not
+          on the labels below it. */}
       <Handle
         type="target"
         position={Position.Top}
         id="target"
-        style={{ opacity: 0, width: 1, height: 1 }}
+        style={{ opacity: 0, width: 1, height: 1, top: 22 }}
       />
 
       <svg
@@ -161,7 +186,7 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
           cx={0}
           cy={0}
           r={RADIUS}
-          fill={roleColor}
+          fill={circleFill}
           stroke={statusColor}
           strokeWidth={3}
           filter={glowFilter}
@@ -173,11 +198,12 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
           y={0}
           dominantBaseline="central"
           textAnchor="middle"
-          fontSize={ICON_SIZE}
-          fill="var(--bg-canvas)"
+          fontSize={isCompleted ? ICON_SIZE * 1.3 : ICON_SIZE}
+          fontWeight={isCompleted ? 700 : 400}
+          fill={iconColor}
           style={{ pointerEvents: 'none' }}
         >
-          {roleConfig.icon}
+          {iconChar}
         </text>
 
         {/* Status dot */}
@@ -200,37 +226,42 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
           fontWeight={500}
           style={{ pointerEvents: 'none' }}
         >
-          {name}
+          {displayName}
+          {isTruncated && <title>{name}</title>}
         </text>
 
-        {/* Sub-label */}
-        <text
-          x={0}
-          y={RADIUS + 42}
-          textAnchor="middle"
-          fontSize={10}
-          fill="var(--fg-muted)"
-          style={{ pointerEvents: 'none' }}
-        >
-          {phase
-            ? `${phase} · `
-            : agentType && agentType !== 'local_agent'
-              ? `${agentType} · `
-              : ''}
-          {status} &middot; {progress}%
-        </text>
+        {/* Sub-label — hidden for completed nodes (status is implied by checkmark) */}
+        {!isCompleted && (
+          <text
+            x={0}
+            y={RADIUS + 38}
+            textAnchor="middle"
+            fontSize={10}
+            fill="var(--fg-muted)"
+            style={{ pointerEvents: 'none' }}
+          >
+            {phase
+              ? `${phase} · `
+              : agentType && agentType !== 'local_agent'
+                ? `${agentType} · `
+                : ''}
+            {status} &middot; {progress}%
+          </text>
+        )}
 
         {/* Metrics row */}
-        <text
-          x={0}
-          y={RADIUS + 56}
-          textAnchor="middle"
-          fontSize={9}
-          fill="var(--fg-subtle)"
-          style={{ pointerEvents: 'none' }}
-        >
-          {metricsText}
-        </text>
+        {metricsText && (
+          <text
+            x={0}
+            y={RADIUS + (isCompleted ? 38 : 54)}
+            textAnchor="middle"
+            fontSize={isCompleted ? 10 : 9}
+            fill="var(--fg-subtle)"
+            style={{ pointerEvents: 'none' }}
+          >
+            {metricsText}
+          </text>
+        )}
 
         {/* Decision badge */}
         {decisionConfig && (
@@ -264,7 +295,7 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
         type="source"
         position={Position.Bottom}
         id="source"
-        style={{ opacity: 0, width: 1, height: 1 }}
+        style={{ opacity: 0, width: 1, height: 1, top: 78, bottom: 'auto' }}
       />
     </div>
   );

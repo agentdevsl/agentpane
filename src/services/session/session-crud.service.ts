@@ -153,6 +153,10 @@ export class SessionCrudService {
       items.map((s: Session) => ({
         ...s,
         presence: Array.from(this.presenceStore.get(s.id)?.values() ?? []),
+        // Mirror updatedAt as lastActivityAt for client UIs that group by
+        // recency rather than session creation time. See the equivalent
+        // mapping in `listSessionsWithFilters` for context.
+        lastActivityAt: (s.updatedAt ?? s.createdAt) as string | undefined,
       }))
     );
   }
@@ -229,18 +233,32 @@ export class SessionCrudService {
 
       const total = countResult[0]?.count ?? 0;
 
-      // Get paginated sessions
+      // Get paginated sessions, ordered by *latest activity* rather than
+      // session creation time. A session row is created once when its task
+      // first runs and is reused on every subsequent re-trigger of that
+      // task, so `sessions.createdAt` reflects the task's first run, not
+      // when an agent last did something. `sessions.updatedAt` is touched
+      // by the session lifecycle on every state change (status/agentId
+      // updates, etc.), and that's a reliable signal of recent activity
+      // already maintained for both SQLite and Postgres schemas — no need
+      // for a correlated subquery against session_events.
       const items = await this.db.query.sessions.findMany({
         where: and(...conditions),
-        orderBy: [desc(sessions.createdAt)],
+        orderBy: [desc(sessions.updatedAt)],
         limit,
         offset,
       });
 
-      // Add presence data to each session
+      // Add presence + lastActivityAt to each session. lastActivityAt
+      // mirrors updatedAt today; exposing it as a distinct field lets the
+      // UI render "Today" / "Yesterday" buckets without coupling to the
+      // server-side sort key, and leaves room to wire it to a more precise
+      // signal (e.g. MAX(session_events.timestamp)) later without breaking
+      // clients.
       const sessionsWithPresence: SessionWithPresence[] = items.map((s: Session) => ({
         ...s,
         presence: Array.from(this.presenceStore.get(s.id)?.values() ?? []),
+        lastActivityAt: (s.updatedAt ?? s.createdAt) as string | undefined,
       }));
 
       return ok({ sessions: sessionsWithPresence, total });

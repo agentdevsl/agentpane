@@ -647,102 +647,6 @@ export class ContainerExecService {
       }
     }
 
-    // Stage: Injecting Skills - materialize org/template skills into sandbox
-    const skillNames = [task.skillName, task.executionSkillName].filter(Boolean);
-    await streams.publish(sessionId, 'container-agent:status', {
-      taskId,
-      sessionId,
-      stage: 'injecting_skills',
-      message:
-        skillNames.length > 0
-          ? `Injecting skills: ${skillNames.join(', ')}...`
-          : 'Injecting skills...',
-    });
-
-    const templateService = new TemplateService(db);
-    let skillMessage = 'No template configuration to inject';
-
-    try {
-      const mergedResult = await templateService.getMergedConfig(codespaceId);
-
-      if (mergedResult.ok) {
-        const { skills, agents: agentTemplates } = mergedResult.value;
-        const messageParts: string[] = [];
-
-        // Inject skills
-        if (skills.length > 0) {
-          log.info('Injecting template skills into sandbox', {
-            data: { codespaceId, skillCount: skills.length },
-          });
-
-          const injectionResult = await injectSkills(sandbox, skills, CONTAINER_WORKSPACE_PATH);
-
-          if (injectionResult.injected === 0 && injectionResult.errors.length > 0) {
-            messageParts.push(
-              `WARNING: No skills could be injected (${injectionResult.errors.length} errors)`
-            );
-          } else {
-            messageParts.push(
-              `Skills: ${injectionResult.injected} new, ${injectionResult.skipped} already present${injectionResult.errors.length > 0 ? `, ${injectionResult.errors.length} errors` : ''}`
-            );
-          }
-
-          if (injectionResult.errors.length > 0) {
-            log.error('Some skills failed to inject', {
-              data: { errors: injectionResult.errors },
-            });
-          }
-        }
-
-        // Inject agents (.claude/agents/*.md)
-        if (agentTemplates.length > 0) {
-          log.info('Injecting template agents into sandbox', {
-            data: { codespaceId, agentCount: agentTemplates.length },
-          });
-
-          const agentResult = await injectAgents(sandbox, agentTemplates, CONTAINER_WORKSPACE_PATH);
-
-          if (agentResult.injected === 0 && agentResult.errors.length > 0) {
-            messageParts.push(
-              `WARNING: No agents could be injected (${agentResult.errors.length} errors)`
-            );
-          } else {
-            messageParts.push(
-              `Agents: ${agentResult.injected} new, ${agentResult.skipped} already present${agentResult.errors.length > 0 ? `, ${agentResult.errors.length} errors` : ''}`
-            );
-          }
-
-          if (agentResult.errors.length > 0) {
-            log.error('Some agents failed to inject', {
-              data: { errors: agentResult.errors },
-            });
-          }
-        }
-
-        if (messageParts.length > 0) {
-          skillMessage = messageParts.join(' | ');
-        } else {
-          skillMessage = 'No template skills or agents to inject';
-        }
-      } else {
-        log.debug('No template config to inject', { data: { codespaceId } });
-      }
-    } catch (skillErr) {
-      // Skill injection is non-fatal — log and continue
-      const errorMsg = skillErr instanceof Error ? skillErr.message : String(skillErr);
-      log.error('Skill injection failed (non-fatal)', {
-        data: { codespaceId, error: errorMsg },
-      });
-      skillMessage = `Skill injection skipped: ${errorMsg}`;
-    }
-
-    await streams.publish(sessionId, 'container-agent:message', {
-      taskId,
-      sessionId,
-      role: 'system',
-      content: skillMessage,
-    });
-
     // Stage: Creating Sandbox
     await streams.publish(sessionId, 'container-agent:status', {
       taskId,
@@ -799,6 +703,99 @@ export class ContainerExecService {
       worktreeId = resolved.worktreeId;
       worktreePath = resolved.worktreePath;
     }
+
+    // Stage: Injecting Skills - materialize org/template skills into the
+    // worktree's `.claude/` directory.
+    //
+    // This used to run BEFORE worktree creation against
+    // `CONTAINER_WORKSPACE_PATH` (= `/workspace`), which left skills at
+    // `/workspace/.claude/skills/<id>/SKILL.md`. The agent's cwd is the
+    // worktree (`/workspace/.worktrees/<branch>/`), so when the prompt
+    // told it to read `.claude/skills/<id>/SKILL.md` the path resolved
+    // INSIDE the worktree where nothing had been written — and the
+    // model would log "the skill file referenced doesn't exist" and
+    // improvise around the missing workflow. Inject into the worktree
+    // path so relative reads from the agent succeed.
+    const skillNames = [task.skillName, task.executionSkillName].filter(Boolean);
+    await streams.publish(sessionId, 'container-agent:status', {
+      taskId,
+      sessionId,
+      stage: 'injecting_skills',
+      message:
+        skillNames.length > 0
+          ? `Injecting skills: ${skillNames.join(', ')}...`
+          : 'Injecting skills...',
+    });
+
+    const templateService = new TemplateService(db);
+    let skillMessage = 'No template configuration to inject';
+
+    try {
+      const mergedResult = await templateService.getMergedConfig(codespaceId);
+
+      if (mergedResult.ok) {
+        const { skills, agents: agentTemplates } = mergedResult.value;
+        const messageParts: string[] = [];
+
+        if (skills.length > 0) {
+          log.info('Injecting template skills into worktree', {
+            data: { codespaceId, skillCount: skills.length, worktreePath },
+          });
+          const injectionResult = await injectSkills(sandbox, skills, worktreePath);
+          if (injectionResult.injected === 0 && injectionResult.errors.length > 0) {
+            messageParts.push(
+              `WARNING: No skills could be injected (${injectionResult.errors.length} errors)`
+            );
+          } else {
+            messageParts.push(
+              `Skills: ${injectionResult.injected} new, ${injectionResult.skipped} already present${injectionResult.errors.length > 0 ? `, ${injectionResult.errors.length} errors` : ''}`
+            );
+          }
+          if (injectionResult.errors.length > 0) {
+            log.error('Some skills failed to inject', { data: { errors: injectionResult.errors } });
+          }
+        }
+
+        if (agentTemplates.length > 0) {
+          log.info('Injecting template agents into worktree', {
+            data: { codespaceId, agentCount: agentTemplates.length, worktreePath },
+          });
+          const agentResult = await injectAgents(sandbox, agentTemplates, worktreePath);
+          if (agentResult.injected === 0 && agentResult.errors.length > 0) {
+            messageParts.push(
+              `WARNING: No agents could be injected (${agentResult.errors.length} errors)`
+            );
+          } else {
+            messageParts.push(
+              `Agents: ${agentResult.injected} new, ${agentResult.skipped} already present${agentResult.errors.length > 0 ? `, ${agentResult.errors.length} errors` : ''}`
+            );
+          }
+          if (agentResult.errors.length > 0) {
+            log.error('Some agents failed to inject', { data: { errors: agentResult.errors } });
+          }
+        }
+
+        skillMessage =
+          messageParts.length > 0
+            ? messageParts.join(' | ')
+            : 'No template skills or agents to inject';
+      } else {
+        log.debug('No template config to inject', { data: { codespaceId } });
+      }
+    } catch (skillErr) {
+      const errorMsg = skillErr instanceof Error ? skillErr.message : String(skillErr);
+      log.error('Skill injection failed (non-fatal)', {
+        data: { codespaceId, error: errorMsg },
+      });
+      skillMessage = `Skill injection skipped: ${errorMsg}`;
+    }
+
+    await streams.publish(sessionId, 'container-agent:message', {
+      taskId,
+      sessionId,
+      role: 'system',
+      content: skillMessage,
+    });
 
     // Read project-level env vars from settings (e.g., TFE_TOKEN, AWS keys)
     // Configured via Settings → sandbox.env and passed through to the container

@@ -22,6 +22,13 @@ export interface RawSession {
   status: string;
   createdAt?: string;
   updatedAt?: string;
+  /**
+   * Server-computed timestamp of the most recent agent activity. Sessions
+   * are reused across re-runs, so `createdAt` is the original creation
+   * time and `lastActivityAt` is what the UI groups/sorts by. Optional for
+   * backwards compatibility with API responses that pre-date this field.
+   */
+  lastActivityAt?: string;
   closedAt?: string | null;
   presence?: unknown[];
   // Summary fields (enriched from API)
@@ -97,6 +104,11 @@ function toSessionListItem(raw: RawSession, projectMap: Map<string, string>): Se
     taskTitle: null, // Would need join to populate
     status: raw.status as SessionStatus,
     createdAt,
+    // Pass through `lastActivityAt` so groupSessionsByDate / client-side
+    // sorts use it instead of `createdAt`. Older API responses may not
+    // include it; falling back to updatedAt and finally createdAt keeps
+    // the UI sensible during the rolling deploy window.
+    lastActivityAt: raw.lastActivityAt ?? raw.updatedAt ?? createdAt,
     closedAt,
     duration,
     turnsUsed: raw.turnsUsed ?? 0,

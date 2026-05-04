@@ -96,6 +96,17 @@ export function useSessions(codespaceId: string, filters?: SessionFilters, sort?
             let bVal: number;
 
             switch (sort.field) {
+              case 'lastActivityAt': {
+                // Falls back to createdAt if the server didn't include
+                // lastActivityAt (older API responses) so old clients
+                // still get a sensible order rather than treating
+                // missing fields as 0.
+                const aRecency = a.lastActivityAt ?? a.createdAt;
+                const bRecency = b.lastActivityAt ?? b.createdAt;
+                aVal = new Date(aRecency).getTime();
+                bVal = new Date(bRecency).getTime();
+                break;
+              }
               case 'createdAt':
                 aVal = new Date(a.createdAt).getTime();
                 bVal = new Date(b.createdAt).getTime();
@@ -108,9 +119,12 @@ export function useSessions(codespaceId: string, filters?: SessionFilters, sort?
                 aVal = a.duration ?? 0;
                 bVal = b.duration ?? 0;
                 break;
-              default:
-                aVal = new Date(a.createdAt).getTime();
-                bVal = new Date(b.createdAt).getTime();
+              default: {
+                const aRecency = a.lastActivityAt ?? a.createdAt;
+                const bRecency = b.lastActivityAt ?? b.createdAt;
+                aVal = new Date(aRecency).getTime();
+                bVal = new Date(bRecency).getTime();
+              }
             }
 
             return sort.direction === 'asc' ? aVal - bVal : bVal - aVal;
@@ -434,7 +448,18 @@ export function parseEventsToStreamEntries(
         startTimeOffset,
         endTimeOffset: timeOffset,
         duration,
-        error: hasError ? (resultData.error ?? 'Tool execution failed') : undefined,
+        // When `isError` is set on a tool:result, the failure reason is
+        // commonly in the result/output text (the SDK and our synthetic
+        // orphan-flush emit both populate `result`, not a separate
+        // `error` field). Fall through to the output before the generic
+        // "Tool execution failed" sentinel so the UI surfaces the real
+        // message — e.g. "Agent runner terminated before this tool
+        // returned" — instead of swallowing it under a placeholder.
+        error: hasError
+          ? (resultData.error ??
+            (typeof resultData.output === 'string' ? resultData.output : null) ??
+            'Tool execution failed')
+          : undefined,
       };
 
       entries.push({
@@ -490,9 +515,15 @@ export function parseEventsToStreamEntries(
       const msgData = event.data as { role?: string; content?: string };
       const msgContent = msgData.content ?? '';
 
-      // Map role to entry type
+      // Map role to entry type. The 'approval' role is reserved for the
+      // plan-approval flow (`Plan ready — waiting for human approval`,
+      // `Plan auto-approved by agent`, etc.) and renders as its own
+      // distinct entry type so the UI can lift these out of the muted
+      // "startup" pile and surface them as scannable state changes.
       if (msgData.role === 'user') {
         type = 'user';
+      } else if (msgData.role === 'approval') {
+        type = 'approval';
       } else if (msgData.role === 'system') {
         type = 'system';
       } else {
@@ -500,7 +531,9 @@ export function parseEventsToStreamEntries(
       }
       content = msgContent;
 
-      // System messages are startup/status messages
+      // Only true `system` messages are startup/status. Approval entries
+      // are state-change events and must NOT be marked startup, otherwise
+      // they get the same muted styling as `Sandbox container ready`.
       const isStartup = type === 'system';
       entries.push({
         id: event.id,
@@ -732,7 +765,18 @@ export function parseEventsToStreamEntries(
           startTimeOffset,
           endTimeOffset: timeOffset,
           duration,
-          error: hasError ? (resultData.error ?? 'Tool execution failed') : undefined,
+          // When `isError` is set on a tool:result, the failure reason is
+          // commonly in the result/output text (the SDK and our synthetic
+          // orphan-flush emit both populate `result`, not a separate
+          // `error` field). Fall through to the output before the generic
+          // "Tool execution failed" sentinel so the UI surfaces the real
+          // message — e.g. "Agent runner terminated before this tool
+          // returned" — instead of swallowing it under a placeholder.
+          error: hasError
+            ? (resultData.error ??
+              (typeof resultData.output === 'string' ? resultData.output : null) ??
+              'Tool execution failed')
+            : undefined,
         };
         break;
       }

@@ -22,6 +22,12 @@ function SkillNodeComponent({ data, selected }: NodeProps) {
         id="target"
         style={{ opacity: 0, width: 1, height: 1 }}
       />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="source"
+        style={{ opacity: 0, width: 1, height: 1 }}
+      />
 
       <div
         className="flex h-full w-full items-center justify-center gap-1.5 rounded-full border-2 px-2"

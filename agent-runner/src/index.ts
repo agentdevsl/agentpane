@@ -25,12 +25,16 @@
  * The OAuth token is written to ~/.claude/.credentials.json before starting the SDK.
  * This is required because OAuth tokens passed via ANTHROPIC_API_KEY env var are blocked.
  */
+import { statSync } from 'node:fs';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import {
   type CanUseTool,
+  type HookCallbackMatcher,
+  type PreToolUseHookInput,
   type SDKSession,
+  type SubagentStartHookInput,
   unstable_v2_createSession,
   unstable_v2_resumeSession,
 } from '@anthropic-ai/claude-agent-sdk';
@@ -68,37 +72,143 @@ const VALID_TOPOLOGY_STATUSES = new Set(['completed', 'failed', 'stopped']);
  * fail validation are logged and skipped — one bad file never aborts the
  * whole load, matching the prior behaviour.
  */
-async function loadAgentDefinitions(cwd: string): Promise<Record<string, AgentDefinition>> {
-  const agentsDir = join(cwd, '.claude', 'agents');
+/**
+ * Read all `.md` agent definitions from `dir`, parsing frontmatter and
+ * indexing by `name`. Files with invalid frontmatter are skipped (logged).
+ * Returns an empty map when the directory does not exist — the caller is
+ * responsible for combining results from multiple directories.
+ */
+async function readAgentDefinitionsFromDir(
+  dir: string,
+  source: 'bundle' | 'workspace'
+): Promise<Record<string, AgentDefinition>> {
   const agents: Record<string, AgentDefinition> = {};
-
+  let files: string[];
   try {
     const { readdir } = await import('node:fs/promises');
-    const files = await readdir(agentsDir);
-    for (const file of files) {
-      if (!file.endsWith('.md')) continue;
+    files = await readdir(dir);
+  } catch {
+    log.error(`[agent-runner] No agent directory at ${dir} (${source})`);
+    return agents;
+  }
+  for (const file of files) {
+    if (!file.endsWith('.md')) continue;
+    try {
+      const content = await readFile(join(dir, file), 'utf-8');
+      const parsed = parseAgentFrontmatter(content);
+      if (!parsed) {
+        log.error(`[agent-runner] Skipped agent file (invalid frontmatter): ${dir}/${file}`);
+        continue;
+      }
+      agents[parsed.name] = parsed.definition;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.error(`[agent-runner] Failed to read agent file ${dir}/${file}: ${errMsg}`);
+    }
+  }
+  log.error(
+    `[agent-runner] Loaded ${Object.keys(agents).length} agent definitions from ${dir} (${source})`
+  );
+  return agents;
+}
+
+/**
+ * Mirror image-baked subagent `.md` files into the workspace's
+ * `.claude/agents/` directory, skipping files that already exist (workspace
+ * wins). The Claude Agent SDK builds Claude's system-prompt list of
+ * available subagents from `.claude/agents/*.md` on disk in the working
+ * directory; passing `agents:` programmatically registers the type but
+ * does not always make Claude aware of it. Mirroring the bundle files
+ * gives Claude a concrete listing to reference without forcing every
+ * codespace template to enumerate them.
+ *
+ * Idempotent: re-running on an existing worktree leaves user-authored
+ * agents intact and just adds anything missing.
+ */
+async function syncBundleAgentsIntoWorkspace(cwd: string): Promise<void> {
+  const bundleDir = process.env.AGENT_BUNDLE_DIR;
+  if (!bundleDir) return;
+  const workspaceDir = join(cwd, '.claude', 'agents');
+  try {
+    await mkdir(workspaceDir, { recursive: true });
+  } catch (err) {
+    log.error(
+      `[agent-runner] Could not ensure ${workspaceDir}: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return;
+  }
+  let bundleFiles: string[];
+  try {
+    const { readdir } = await import('node:fs/promises');
+    bundleFiles = await readdir(bundleDir);
+  } catch {
+    log.error(`[agent-runner] No bundle dir at ${bundleDir} to sync`);
+    return;
+  }
+  let copied = 0;
+  let skipped = 0;
+  for (const file of bundleFiles) {
+    if (!file.endsWith('.md')) continue;
+    const target = join(workspaceDir, file);
+    try {
+      await access(target);
+      skipped++;
+    } catch {
       try {
-        const content = await readFile(join(agentsDir, file), 'utf-8');
-        const parsed = parseAgentFrontmatter(content);
-        if (!parsed) {
-          log.error(`[agent-runner] Skipped agent file (invalid frontmatter): ${file}`);
-          continue;
-        }
-        agents[parsed.name] = parsed.definition;
+        const content = await readFile(join(bundleDir, file), 'utf-8');
+        await writeFile(target, content, 'utf-8');
+        copied++;
       } catch (err) {
-        // Skip individual file parse errors but log so we don't lose visibility.
-        const errMsg = err instanceof Error ? err.message : String(err);
-        log.error(`[agent-runner] Failed to read agent file ${file}: ${errMsg}`);
+        log.error(
+          `[agent-runner] Failed to copy ${file} into workspace: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
     }
-    log.error(
-      `[agent-runner] Loaded ${Object.keys(agents).length} agent definitions from ${agentsDir}`
-    );
-  } catch {
-    log.error(`[agent-runner] No .claude/agents/ directory found at ${agentsDir}`);
   }
+  log.error(
+    `[agent-runner] Bundle agents synced into ${workspaceDir}: ${copied} copied, ${skipped} already present`
+  );
+}
 
-  return agents;
+/**
+ * Build the SDK `agents` registry by merging two sources:
+ *
+ * 1. **Bundle directory** (`AGENT_BUNDLE_DIR`, e.g. `/opt/agents-cache` in
+ *    the Docker image) — image-baked subagent definitions like
+ *    `tf-module-research`, `tf-module-design`, etc. that ship with the
+ *    sandbox so skill prompts referencing them just work without
+ *    per-codespace template configuration.
+ * 2. **Workspace directory** (`${cwd}/.claude/agents/`) — codespace- or
+ *    user-supplied overrides. Wins on name collision.
+ *
+ * The workspace directory is also synced to disk first via
+ * `syncBundleAgentsIntoWorkspace` so the SDK's project-aware discovery
+ * sees the bundle agents alongside the in-memory registration we pass to
+ * `unstable_v2_createSession`.
+ *
+ * If `AGENT_BUNDLE_DIR` is unset (e.g. local dev), only the workspace
+ * directory is read — backwards compatible.
+ */
+async function loadAgentDefinitions(cwd: string): Promise<Record<string, AgentDefinition>> {
+  await syncBundleAgentsIntoWorkspace(cwd);
+
+  const bundleDir = process.env.AGENT_BUNDLE_DIR;
+  const workspaceDir = join(cwd, '.claude', 'agents');
+
+  const merged: Record<string, AgentDefinition> = {};
+  if (bundleDir) {
+    Object.assign(merged, await readAgentDefinitionsFromDir(bundleDir, 'bundle'));
+  }
+  Object.assign(merged, await readAgentDefinitionsFromDir(workspaceDir, 'workspace'));
+
+  // Surface the merged registry on stderr so it shows in the host log AND
+  // (when AGENT_DEBUG_AGENTS=1) emit each registered name. Helps diagnose
+  // why the orchestrator might think a subagent type isn't available.
+  const names = Object.keys(merged);
+  log.error(
+    `[agent-runner] Total registered agent definitions: ${names.length} (bundle=${bundleDir ?? '(unset)'} workspace=${workspaceDir}) — names: ${names.sort().join(', ')}`
+  );
+  return merged;
 }
 
 /** Normalize SDK status to a value the client Zod schema accepts */
@@ -143,12 +253,79 @@ function deriveAgentName(agentType?: string, description?: string): string {
   return agentType || 'Agent';
 }
 
+/**
+ * Resolve `pathToClaudeCodeExecutable` per the SDK's documented escape hatch.
+ *
+ * The SDK (≥0.2.113) spawns a per-platform native binary installed as an
+ * optional dependency. Auto-detection inside this Docker image is wrong
+ * because Bun (used to install) is statically linked to musl libc, so the
+ * SDK resolves to the `*-musl` binary on a glibc host and fails with
+ * "Claude Code native binary not found". We override explicitly:
+ *
+ * 1. `CLAUDE_CODE_PATH` — full path to the binary, takes precedence
+ * 2. `CLAUDE_CODE_LIBC` + `CLAUDE_CODE_SDK_ROOT` — set by the Dockerfile
+ *    so the runtime can compose the path for the current arch + libc
+ * 3. Otherwise return undefined and let the SDK auto-detect (works on
+ *    macOS / npm-installed environments)
+ */
+function resolveClaudeCodeBinaryPath(): string | undefined {
+  if (process.env.CLAUDE_CODE_PATH) return process.env.CLAUDE_CODE_PATH;
+
+  const libc = process.env.CLAUDE_CODE_LIBC;
+  const sdkRoot = process.env.CLAUDE_CODE_SDK_ROOT;
+  if (!libc || !sdkRoot) return undefined;
+
+  const archSegment =
+    process.arch === 'arm64' ? 'linux-arm64' : process.arch === 'x64' ? 'linux-x64' : null;
+  if (!archSegment) return undefined;
+
+  // glibc package: claude-agent-sdk-linux-arm64
+  // musl package:  claude-agent-sdk-linux-arm64-musl
+  const suffix = libc === 'musl' ? '-musl' : '';
+  const candidate = `${sdkRoot}/claude-agent-sdk-${archSegment}${suffix}/claude`;
+  return statSync(candidate, { throwIfNoEntry: false })?.isFile() ? candidate : undefined;
+}
+
 /** Tracks subagent topology state. Maps SDK task_id → generated node id. */
 interface TopologyTracker {
   taskToNodeId: Map<string, string>;
   rootEmitted: boolean;
   /** Queue of subagent_type values from Agent tool calls, consumed by task_started events */
   pendingSubagentTypes: string[];
+}
+
+/**
+ * Build a SubagentStart hook matcher that captures the SDK-resolved
+ * `agent_type` and queues it for the next `task_started` system message
+ * to consume. Provides a reliable agent_type even when the orchestrator
+ * invokes the `Agent` tool without an explicit `subagent_type` (in which
+ * case `canUseTool` cannot capture one).
+ *
+ * SubagentStart fires when the subagent process begins; canUseTool fires
+ * when the orchestrator calls the Agent tool. Each SubagentStart corresponds
+ * to a distinct subagent that will have its own task_started event, so we
+ * always push — including when several subagents of the same type spawn
+ * back-to-back. A previous tail-check dedup dropped queue entries for
+ * concurrent same-type subagents, leaving the later ones to fall back to
+ * the SDK's "local_agent" raw type and showing the wrong label in topology.
+ *
+ * The queue reference is captured once and remains valid because tracker
+ * objects assign the same array; mutating the array updates both views.
+ */
+function buildSubagentStartHook(pendingSubagentTypes: string[]): HookCallbackMatcher {
+  return {
+    hooks: [
+      async (input) => {
+        const subagentInput = input as SubagentStartHookInput;
+        const agentType = subagentInput.agent_type;
+        if (typeof agentType !== 'string' || agentType.length === 0) {
+          return {};
+        }
+        pendingSubagentTypes.push(agentType);
+        return {};
+      },
+    ],
+  };
 }
 
 /** Handle SDK system messages for subagent lifecycle */
@@ -284,6 +461,64 @@ const config = {
   skillId: process.env.AGENT_SKILL_ID,
   skillName: process.env.AGENT_SKILL_NAME,
 };
+
+/**
+ * Module-level reference to the currently-running phase's event emitter
+ * and active-tools map. Set by `runAgentPlanning` / `runAgentExecution`
+ * at the start of a run and cleared on graceful exit. Signal handlers
+ * read this so a SIGTERM (e.g. K8s pod eviction or `kill` from the
+ * host) can flush a `tool:result` for any in-flight tool before the
+ * process terminates — without it, the host sees orphan tool:start
+ * events and the UI shows tools stuck on "running" indefinitely.
+ */
+let currentRunFlush:
+  | ((reason: 'SIGTERM' | 'SIGINT' | 'uncaughtException' | 'unhandledRejection') => void)
+  | null = null;
+
+/**
+ * Register or clear the in-flight flush hook for the current phase.
+ * Phases call this at start (with their own emitter + activeTools) and
+ * at end (with `null`) so signal handlers always see the live state.
+ */
+function setRunFlushHook(hook: typeof currentRunFlush): void {
+  currentRunFlush = hook;
+}
+
+/**
+ * SIGTERM/SIGINT handler. The phase loops have their own
+ * `emitAllToolResults` helper closed over the local `activeTools` —
+ * we delegate to that via `currentRunFlush` so the in-flight tools
+ * get a tool:result with isError=true and the agent runner exits
+ * cleanly. Without this the host re-spawns or reconciles into an
+ * inconsistent UI state where tools appear stuck running.
+ */
+async function handleTerminationSignal(signal: 'SIGTERM' | 'SIGINT'): Promise<void> {
+  log.error(`[agent-runner] Received ${signal}, flushing in-flight tool tracking…`);
+  try {
+    currentRunFlush?.(signal);
+  } catch (err) {
+    log.error('[agent-runner] Flush hook threw during shutdown', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  // Drain stdout before exiting. The runner emits events as JSON lines
+  // on stdout; the host reads them via kubectl exec and forwards to
+  // durable streams. A bare `process.exit` here lost the synthetic
+  // tool:result events the flush hook just wrote because Bun's stdout
+  // buffer hadn't drained yet — when the kubectl exec stdout pipe
+  // closed, the events never reached the host. flushAndExit awaits the
+  // stdout flush callback (and a 50ms kernel-buffer settle) before
+  // exiting, so events make it through within the K8s grace period.
+  // Exit codes 143 / 130 are the conventional "killed by SIGTERM /
+  // SIGINT" values that K8s and most schedulers treat as graceful.
+  await flushAndExit(signal === 'SIGTERM' ? 143 : 130);
+}
+process.on('SIGTERM', () => {
+  void handleTerminationSignal('SIGTERM');
+});
+process.on('SIGINT', () => {
+  void handleTerminationSignal('SIGINT');
+});
 
 // Global error handlers - catch EPIPE and other unhandled errors
 // These must be registered early, before any async operations
@@ -602,17 +837,49 @@ async function runPlanningPhase(): Promise<void> {
     }
   };
 
+  // Register flush hook so a SIGTERM mid-run (pod eviction, dev server
+  // restart, etc.) can flag every in-flight tool as terminated before
+  // exiting. Without this, the host sees orphan tool:start events and
+  // the UI keeps the tools stuck on "running" forever.
+  setRunFlushHook((signal) => {
+    for (const [toolId, tool] of activeTools) {
+      const durationMs = Date.now() - tool.startTime;
+      events.toolResult({
+        toolName: tool.toolName,
+        toolId,
+        result: `Agent runner terminated by ${signal} mid-tool`,
+        isError: true,
+        durationMs,
+      });
+    }
+    activeTools.clear();
+  });
+
   // Create Claude Agent SDK session in PLAN mode
   let session: SDKSession | undefined;
+  // Shared queue for subagent_type capture (planning phase). The
+  // SubagentStart hook is the sole producer (SDK-authoritative for every
+  // subagent spawn); task_started consumes from it. The same array
+  // reference is assigned to TopologyTracker.pendingSubagentTypes after
+  // the session is created.
+  const pendingSubagentTypesRef: string[] = [];
   try {
     log.error('[agent-runner] Creating SDK session in plan mode...');
 
-    // Create canUseTool callback to capture ExitPlanMode options
-    // This is the official SDK mechanism for intercepting tool calls
-    const canUseTool: CanUseTool = async (toolName, input, options) => {
-      log.error(`[agent-runner] canUseTool: ${toolName}`);
+    /**
+     * Side-effect-only tracking for a tool invocation. Idempotent on
+     * `toolUseId`: safe to call from both `canUseTool` (which may not
+     * fire when `permissionMode: 'bypassPermissions'` is set) and the
+     * `PreToolUse` hook (which always fires). Whichever path runs first
+     * records; subsequent calls are no-ops.
+     */
+    const trackToolInvocation = (
+      toolName: string,
+      input: unknown,
+      toolUseId: string | undefined
+    ) => {
+      if (!toolUseId || activeTools.has(toolUseId)) return;
 
-      // Track tool start
       const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
         toolName,
         startTime: Date.now(),
@@ -626,43 +893,45 @@ async function runPlanningPhase(): Promise<void> {
           toolEntry.skillName = sName;
         } else {
           log.error(
-            `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${options.toolUseID})`
+            `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${toolUseId})`
           );
         }
       }
 
-      // Capture subagent_type from Agent tool calls for topology grouping
-      if (toolName === 'Agent') {
-        const agentInput = input as Record<string, unknown> | undefined;
-        const subagentType =
-          typeof agentInput?.subagent_type === 'string' ? agentInput.subagent_type : null;
-        if (subagentType) {
-          topology.pendingSubagentTypes.push(subagentType);
-        }
-      }
+      // subagent_type is captured exclusively by `buildSubagentStartHook`
+      // (SubagentStart hook). Pushing here too would double-enqueue: both
+      // canUseTool/PreToolUse paths route through this function while the
+      // SDK also fires SubagentStart for the same spawn, but task_started
+      // only `.shift()`s once per subagent — leaving stale entries that
+      // misalign every subsequent subagent's topology label by one slot.
 
-      activeTools.set(options.toolUseID, toolEntry);
+      activeTools.set(toolUseId, toolEntry);
 
-      // Emit tool start event for all tools
       events.toolStart({
         toolName,
-        toolId: options.toolUseID,
+        toolId: toolUseId,
         input: (input as Record<string, unknown>) ?? {},
       });
 
-      // Detect file-modifying tools and emit file_changed event + accumulate
-      {
-        const fileChange = sharedExtractFileChange(
-          toolName,
-          (input as Record<string, unknown>) ?? {}
-        );
-        if (fileChange) {
-          events.fileChanged(fileChange);
-          tracking.fileChangeSet.add(fileChange.path);
-          if (fileChange.additions) tracking.totalLinesAdded += fileChange.additions;
-          if (fileChange.deletions) tracking.totalLinesRemoved += fileChange.deletions;
-        }
+      const fileChange = sharedExtractFileChange(
+        toolName,
+        (input as Record<string, unknown>) ?? {}
+      );
+      if (fileChange) {
+        events.fileChanged(fileChange);
+        tracking.fileChangeSet.add(fileChange.path);
+        if (fileChange.additions) tracking.totalLinesAdded += fileChange.additions;
+        if (fileChange.deletions) tracking.totalLinesRemoved += fileChange.deletions;
       }
+    };
+
+    // Create canUseTool callback. Permission decisions only — the actual
+    // tracking moved to `trackToolInvocation` so it works in both this
+    // path *and* the PreToolUse hook (which fires when bypass mode skips
+    // canUseTool entirely).
+    const canUseTool: CanUseTool = async (toolName, input, options) => {
+      log.error(`[agent-runner] canUseTool: ${toolName}`);
+      trackToolInvocation(toolName, input, options.toolUseID);
 
       // Capture ExitPlanMode options when the tool is called
       if (toolName === 'ExitPlanMode') {
@@ -715,6 +984,9 @@ async function runPlanningPhase(): Promise<void> {
     // Load custom agent definitions from .claude/agents/ for SDK subagent support
     const agentDefs = await loadAgentDefinitions(config.cwd);
 
+    const claudeCodePath = resolveClaudeCodeBinaryPath();
+    if (claudeCodePath) log.error(`[agent-runner] pathToClaudeCodeExecutable=${claudeCodePath}`);
+
     session = unstable_v2_createSession({
       model: config.model,
       env: { ...process.env }, // Teams GA: env passed through for agent swarm support
@@ -722,8 +994,42 @@ async function runPlanningPhase(): Promise<void> {
       // In bypassPermissions mode, don't restrict tools — allow all including Agent
       ...(planPermissionMode !== 'bypassPermissions' ? { allowedTools } : {}),
       ...(Object.keys(agentDefs).length > 0 ? { agents: agentDefs } : {}),
+      ...(claudeCodePath ? { pathToClaudeCodeExecutable: claudeCodePath } : {}),
+      // Tell the SDK to surface project-scoped settings — most importantly
+      // `.claude/agents/*.md` files in the cwd — to Claude. Without this,
+      // the SDK defaults `settingSources` to `[]` and Claude never sees
+      // the workspace agents in its system-prompt list of available
+      // subagent types, even though we register them programmatically via
+      // the `agents:` option above.
+      settingSources: ['project'],
       permissionMode: planPermissionMode,
       canUseTool, // Use official SDK callback for tool interception
+      hooks: {
+        // SubagentStart provides authoritative agent_type from the SDK
+        // even when the orchestrator omits subagent_type from Agent calls.
+        // Pushes into the same queue canUseTool uses (see TopologyTracker
+        // hoisted below).
+        SubagentStart: [buildSubagentStartHook(pendingSubagentTypesRef)],
+        // PreToolUse mirrors `canUseTool`'s tracking. Necessary because
+        // `permissionMode: 'bypassPermissions'` (used when AGENT_HAS_SKILL)
+        // skips the canUseTool callback entirely, and any tools that
+        // matched a `permissions.allow` rule in the workspace's
+        // `.claude/settings.local.json` (loaded by `settingSources:
+        // ['project']`) also bypass canUseTool. The hook fires
+        // unconditionally and `trackToolInvocation` is idempotent, so
+        // this just patches the gap without double-emitting.
+        PreToolUse: [
+          {
+            hooks: [
+              async (input) => {
+                const i = input as PreToolUseHookInput;
+                trackToolInvocation(i.tool_name, i.tool_input, i.tool_use_id);
+                return {};
+              },
+            ],
+          },
+        ],
+      },
     });
     log.error('[agent-runner] SDK session created successfully');
   } catch (sessionError) {
@@ -745,12 +1051,15 @@ async function runPlanningPhase(): Promise<void> {
   let accumulatedText = '';
   let sdkSessionId: string | undefined;
 
-  // Topology tracker for subagent lifecycle events during planning
-  // Skills can spawn subagents via the Agent tool when AGENT_HAS_SKILL=true
+  // Topology tracker for subagent lifecycle events during planning.
+  // Skills can spawn subagents via the Agent tool when AGENT_HAS_SKILL=true.
+  // pendingSubagentTypes references the same array the SubagentStart hook
+  // pushes into, so SDK-emitted agent_type values flow through the existing
+  // task_started consumer.
   const topology: TopologyTracker = {
     taskToNodeId: new Map(),
     rootEmitted: false,
-    pendingSubagentTypes: [],
+    pendingSubagentTypes: pendingSubagentTypesRef,
   };
   const rootAgentId = `agent-${config.taskId}`;
 
@@ -1089,11 +1398,15 @@ async function runExecutionPhase(): Promise<void> {
     ...(config.skillName ? { skillName: config.skillName } : {}),
   });
 
-  // Topology tracker for subagent lifecycle events
+  // Topology tracker for subagent lifecycle events.
+  // pendingSubagentTypes is shared with the SubagentStart hook below so
+  // SDK-emitted agent_type values populate the queue alongside the legacy
+  // canUseTool path.
+  const pendingSubagentTypesRef: string[] = [];
   const topology: TopologyTracker = {
     taskToNodeId: new Map(),
     rootEmitted: true,
-    pendingSubagentTypes: [],
+    pendingSubagentTypes: pendingSubagentTypesRef,
   };
   const rootAgentId = `agent-${config.taskId}`;
 
@@ -1150,15 +1463,37 @@ async function runExecutionPhase(): Promise<void> {
     }
   };
 
-  // canUseTool callback to track tool executions (even in bypass mode)
-  const canUseTool: CanUseTool = async (toolName, input, options) => {
-    // Track tool start
+  // Same flush hook as the planning phase — see comment there for why.
+  // Re-registering on every phase entry is fine because the previous
+  // registration was cleared in the phase's `finally` block.
+  setRunFlushHook((signal) => {
+    for (const [toolId, tool] of activeTools) {
+      const durationMs = Date.now() - tool.startTime;
+      events.toolResult({
+        toolName: tool.toolName,
+        toolId,
+        result: `Agent runner terminated by ${signal} mid-tool`,
+        isError: true,
+        durationMs,
+      });
+    }
+    activeTools.clear();
+  });
+
+  /**
+   * Idempotent tool tracking — see the planning-phase variant for the
+   * full rationale. Called from both `canUseTool` (when the SDK invokes
+   * it) and the `PreToolUse` hook (which always fires, including when
+   * `permissionMode: 'bypassPermissions'` skips canUseTool).
+   */
+  const trackToolInvocation = (toolName: string, input: unknown, toolUseId: string | undefined) => {
+    if (!toolUseId || activeTools.has(toolUseId)) return;
+
     const toolEntry: { toolName: string; startTime: number; skillName?: string } = {
       toolName,
       startTime: Date.now(),
     };
 
-    // Enrich Skill tool calls with the skill name for downstream tracking
     if (toolName === 'Skill') {
       const skillInput = input as Record<string, unknown> | undefined;
       const sName = typeof skillInput?.skill === 'string' ? skillInput.skill : undefined;
@@ -1166,45 +1501,37 @@ async function runExecutionPhase(): Promise<void> {
         toolEntry.skillName = sName;
       } else {
         log.error(
-          `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${options.toolUseID})`
+          `[agent-runner] Skill tool invoked but skill name could not be extracted (toolUseID: ${toolUseId})`
         );
       }
     }
 
-    // Capture subagent_type from Agent tool calls for topology grouping.
-    // The SDK reports task_type: "local_agent" — we substitute with the real name.
-    if (toolName === 'Agent') {
-      const agentInput = input as Record<string, unknown> | undefined;
-      const subagentType =
-        typeof agentInput?.subagent_type === 'string' ? agentInput.subagent_type : null;
-      if (subagentType) {
-        topology.pendingSubagentTypes.push(subagentType);
-      }
-    }
+    // subagent_type is captured exclusively by `buildSubagentStartHook`
+    // (SubagentStart hook). See planning-phase comment for rationale: a
+    // duplicate push from canUseTool/PreToolUse here misaligns every
+    // subsequent subagent's topology label.
 
-    activeTools.set(options.toolUseID, toolEntry);
+    activeTools.set(toolUseId, toolEntry);
 
-    // Emit tool start event
     events.toolStart({
       toolName,
-      toolId: options.toolUseID,
+      toolId: toolUseId,
       input: (input as Record<string, unknown>) ?? {},
     });
 
-    // Detect file-modifying tools and emit file_changed event + accumulate
-    {
-      const fileChange = sharedExtractFileChange(
-        toolName,
-        (input as Record<string, unknown>) ?? {}
-      );
-      if (fileChange) {
-        events.fileChanged(fileChange);
-        tracking.fileChangeSet.add(fileChange.path);
-        if (fileChange.additions) tracking.totalLinesAdded += fileChange.additions;
-        if (fileChange.deletions) tracking.totalLinesRemoved += fileChange.deletions;
-      }
+    const fileChange = sharedExtractFileChange(toolName, (input as Record<string, unknown>) ?? {});
+    if (fileChange) {
+      events.fileChanged(fileChange);
+      tracking.fileChangeSet.add(fileChange.path);
+      if (fileChange.additions) tracking.totalLinesAdded += fileChange.additions;
+      if (fileChange.deletions) tracking.totalLinesRemoved += fileChange.deletions;
     }
+  };
 
+  // canUseTool callback. Tracking moved to `trackToolInvocation` so it
+  // works in both this path and the PreToolUse hook below.
+  const canUseTool: CanUseTool = async (toolName, input, options) => {
+    trackToolInvocation(toolName, input, options.toolUseID);
     // Allow all tools in execution mode
     return { behavior: 'allow' as const, toolUseID: options.toolUseID };
   };
@@ -1223,6 +1550,9 @@ async function runExecutionPhase(): Promise<void> {
     const agentDefs = await loadAgentDefinitions(config.cwd);
     const agentsOpt = Object.keys(agentDefs).length > 0 ? { agents: agentDefs } : {};
 
+    const claudeCodePath = resolveClaudeCodeBinaryPath();
+    if (claudeCodePath) log.error(`[agent-runner] pathToClaudeCodeExecutable=${claudeCodePath}`);
+
     if (config.sdkSessionId) {
       // Try to resume existing session — may fail if session state is corrupted or stale
       // (primary container-change detection is in approvePlan; this is defense-in-depth)
@@ -1231,8 +1561,27 @@ async function runExecutionPhase(): Promise<void> {
           model: config.model,
           env: { ...process.env }, // Teams GA: env passed through for agent swarm support
           ...agentsOpt,
+          ...(claudeCodePath ? { pathToClaudeCodeExecutable: claudeCodePath } : {}),
+          // See planning-phase comment for why settingSources is needed.
+          settingSources: ['project'],
           permissionMode: 'bypassPermissions',
           canUseTool, // Track tools even in bypass mode
+          hooks: {
+            SubagentStart: [buildSubagentStartHook(pendingSubagentTypesRef)],
+            // Also track tools via PreToolUse — bypassPermissions skips
+            // canUseTool, so without this the Tools tab is empty.
+            PreToolUse: [
+              {
+                hooks: [
+                  async (input) => {
+                    const i = input as PreToolUseHookInput;
+                    trackToolInvocation(i.tool_name, i.tool_input, i.tool_use_id);
+                    return {};
+                  },
+                ],
+              },
+            ],
+          },
         });
         sessionResumed = true;
         log.error('[agent-runner] SDK session resumed successfully');
@@ -1256,8 +1605,25 @@ async function runExecutionPhase(): Promise<void> {
         model: config.model,
         env: { ...process.env }, // Teams GA: env passed through for agent swarm support
         ...agentsOpt,
+        ...(claudeCodePath ? { pathToClaudeCodeExecutable: claudeCodePath } : {}),
+        // See planning-phase comment for why settingSources is needed.
+        settingSources: ['project'],
         permissionMode: 'bypassPermissions',
         canUseTool, // Track tools even in bypass mode
+        hooks: {
+          SubagentStart: [buildSubagentStartHook(pendingSubagentTypesRef)],
+          PreToolUse: [
+            {
+              hooks: [
+                async (input) => {
+                  const i = input as PreToolUseHookInput;
+                  trackToolInvocation(i.tool_name, i.tool_input, i.tool_use_id);
+                  return {};
+                },
+              ],
+            },
+          ],
+        },
       });
     }
     log.error('[agent-runner] SDK session ready');
@@ -1551,6 +1917,12 @@ async function runExecutionPhase(): Promise<void> {
 
 /**
  * Main agent entry point - routes to planning or execution phase.
+ *
+ * Wraps the phase call in a try/finally so the SIGTERM/SIGINT flush hook
+ * (registered inside each phase) is always cleared on phase exit. Without
+ * this, a signal arriving after a phase returns but before the surrounding
+ * `runAgent().then(flushAndExit)` chain fires would invoke the prior
+ * phase's stale `events`/`activeTools` closures.
  */
 async function runAgent(): Promise<void> {
   validateConfig();
@@ -1561,10 +1933,14 @@ async function runAgent(): Promise<void> {
 
   log.error(`[agent-runner] Phase: ${config.phase}`);
 
-  if (config.phase === 'plan') {
-    await runPlanningPhase();
-  } else {
-    await runExecutionPhase();
+  try {
+    if (config.phase === 'plan') {
+      await runPlanningPhase();
+    } else {
+      await runExecutionPhase();
+    }
+  } finally {
+    setRunFlushHook(null);
   }
 }
 

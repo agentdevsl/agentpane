@@ -69,7 +69,7 @@ export interface SessionFilters {
 
 // ===== Sort Types =====
 
-export type SessionSortField = 'createdAt' | 'closedAt' | 'duration';
+export type SessionSortField = 'createdAt' | 'closedAt' | 'duration' | 'lastActivityAt';
 export type SortDirection = 'asc' | 'desc';
 
 export interface SessionSort {
@@ -88,6 +88,14 @@ export interface SessionListItem {
   taskTitle: string | null;
   status: SessionStatus;
   createdAt: string;
+  /**
+   * Timestamp of the most recent event in this session, or `createdAt` if
+   * the session has no events yet. The "Recent Sessions" UI sorts and
+   * groups by this — sessions are reused across re-runs of the same task,
+   * so `createdAt` no longer reflects "when did this session last do
+   * something". Optional for backwards-compat with cached responses.
+   */
+  lastActivityAt?: string;
   closedAt: string | null;
   /** Duration in milliseconds */
   duration: number | null;
@@ -130,7 +138,7 @@ export interface SessionDetail extends SessionListItem {
 
 // ===== Stream Entry Types =====
 
-export type StreamEntryType = 'system' | 'user' | 'assistant' | 'tool';
+export type StreamEntryType = 'system' | 'user' | 'assistant' | 'tool' | 'approval';
 
 export interface StreamEntry {
   id: string;
@@ -391,6 +399,15 @@ export const STREAM_ENTRY_TYPE_CONFIG: Record<
   tool: {
     label: 'Tool Call',
     textClass: 'text-attention',
+  },
+  approval: {
+    label: 'Approval',
+    // The approval row overrides this with a filled-chip treatment in
+    // the renderer (bg-secondary + fg-on-emphasis). The class here is
+    // a fallback for any consumer that reads STREAM_ENTRY_TYPE_CONFIG
+    // directly without applying the chip override — text-secondary
+    // (= --secondary-fg) is a real palette token.
+    textClass: 'text-secondary',
   },
 };
 

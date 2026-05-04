@@ -44,9 +44,17 @@ function getDateKey(dateStr: string): string {
 export function groupSessionsByDate(sessions: SessionListItem[]): SessionDateGroup[] {
   const groupMap = new Map<string, { label: string; sessions: SessionListItem[] }>();
 
+  // A session row is created once per task and reused on every re-run, so
+  // `createdAt` reflects when the task was first run, not the latest agent
+  // activity. Group/label/sort by `lastActivityAt` (server-provided) when
+  // available so the "Today" / "Yesterday" buckets reflect actual recent
+  // work; fall back to `createdAt` for backwards compatibility.
+  const recencyOf = (s: SessionListItem): string => s.lastActivityAt ?? s.createdAt;
+
   for (const session of sessions) {
-    const dateKey = getDateKey(session.createdAt);
-    const label = getDateLabel(session.createdAt);
+    const recency = recencyOf(session);
+    const dateKey = getDateKey(recency);
+    const label = getDateLabel(recency);
 
     const existing = groupMap.get(dateKey);
     if (existing) {
@@ -61,9 +69,9 @@ export function groupSessionsByDate(sessions: SessionListItem[]): SessionDateGro
     .map(([date, { label, sessions: groupSessions }]) => ({
       date,
       label,
-      // Sort sessions within group by createdAt (most recent first)
+      // Sort sessions within group by recency (most recent first)
       sessions: groupSessions.sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        (a, b) => new Date(recencyOf(b)).getTime() - new Date(recencyOf(a)).getTime()
       ),
     }))
     .sort((a, b) => b.date.localeCompare(a.date));
