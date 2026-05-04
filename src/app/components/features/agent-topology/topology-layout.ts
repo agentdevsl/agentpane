@@ -55,6 +55,84 @@ const GROUP_BOX_BOTTOM = 28;
  */
 const GROUP_MIN_SIZE = 1;
 
+/**
+ * Maximum horizontal gap between consecutive same-cluster members
+ * before they're split into separate sub-clusters. Without this, two
+ * agents that share a (parentId, agentType) but were spawned in
+ * different phases — and thus end up far apart in mrtree's order — get
+ * drawn as a single cluster box that stretches across the canvas with
+ * empty space in the middle. NODE_WIDTH * 2 is roughly "one full slot
+ * for an unrelated sibling between them" — anything wider than that
+ * means the cluster has discontinuous visual presence and should
+ * render as two boxes instead of one.
+ */
+const MAX_INTRA_CLUSTER_GAP_X = NODE_WIDTH * 2;
+
+/**
+ * Group nodes by `(parentId, agentType)`, then split each group into
+ * sub-clusters of visually-adjacent members. Returns a Map keyed by a
+ * synthetic id that includes a split index when a base cluster was
+ * broken apart, so downstream box-rendering / cluster-shifting code can
+ * treat each sub-cluster independently.
+ */
+function buildClusterMembers(
+  graph: TopologyGraph,
+  positionById: Map<string, { id: string; x: number; y: number }>,
+  isClusterEligible: (n: TopologyGraph['nodes'][number]) => boolean
+): Map<string, { agentType: string; parentKey: string; ids: string[] }> {
+  // Step 1 — bucket by base key.
+  const baseBuckets = new Map<string, { agentType: string; parentKey: string; ids: string[] }>();
+  for (const n of graph.nodes) {
+    if (!isClusterEligible(n)) continue;
+    if (!positionById.has(n.id)) continue;
+    if (!n.agentType) continue;
+    const parentKey = n.parentId ?? 'root';
+    const key = `${parentKey}::${n.agentType}`;
+    const bucket = baseBuckets.get(key);
+    if (bucket) bucket.ids.push(n.id);
+    else baseBuckets.set(key, { agentType: n.agentType, parentKey, ids: [n.id] });
+  }
+
+  // Step 2 — within each bucket, split members whose mrtree-x positions
+  // are too far apart. Sort by x, walk, start a new sub-cluster
+  // whenever gap-to-next exceeds the threshold.
+  const result = new Map<string, { agentType: string; parentKey: string; ids: string[] }>();
+  for (const [baseKey, bucket] of baseBuckets) {
+    const sorted = [...bucket.ids].sort((a, b) => {
+      const ax = positionById.get(a)?.x ?? 0;
+      const bx = positionById.get(b)?.x ?? 0;
+      return ax - bx;
+    });
+    let split: string[] = [];
+    let splitIndex = 0;
+    let prevRight = Number.NEGATIVE_INFINITY;
+    const flush = () => {
+      if (split.length === 0) return;
+      const splitKey = splitIndex === 0 ? baseKey : `${baseKey}#${splitIndex}`;
+      result.set(splitKey, {
+        agentType: bucket.agentType,
+        parentKey: bucket.parentKey,
+        ids: split,
+      });
+      splitIndex++;
+      split = [];
+    };
+    for (const id of sorted) {
+      const pos = positionById.get(id);
+      if (!pos) continue;
+      // Use the right edge of the previous member as the gap baseline so
+      // wide-but-touching members aren't accidentally split.
+      if (split.length > 0 && pos.x - prevRight > MAX_INTRA_CLUSTER_GAP_X) {
+        flush();
+      }
+      split.push(id);
+      prevRight = pos.x + NODE_WIDTH;
+    }
+    flush();
+  }
+  return result;
+}
+
 export interface TopologyGroupBox {
   /** Stable id derived from parent + agent_type, safe for React keys. */
   id: string;
@@ -159,19 +237,17 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
   // get spread out enough that the surrounding boxes never touch.
   const NON_GROUPABLE = new Set([...GENERIC_AGENT_TYPES]);
   const positionById = new Map(flatChildren.map((c) => [c.id, c]));
-  const clusterKeyOf = (n: (typeof graph.nodes)[number]): string | null => {
-    if (n.type === 'skill') return null;
-    if (!n.agentType || NON_GROUPABLE.has(n.agentType)) return null;
-    return `${n.parentId ?? 'root'}::${n.agentType}`;
-  };
-  const clusterMembers = new Map<string, string[]>();
-  for (const n of graph.nodes) {
-    const key = clusterKeyOf(n);
-    if (!key || !positionById.has(n.id)) continue;
-    const list = clusterMembers.get(key) ?? [];
-    list.push(n.id);
-    clusterMembers.set(key, list);
-  }
+  const isClusterEligible = (n: (typeof graph.nodes)[number]): boolean =>
+    n.type !== 'skill' && !!n.agentType && !NON_GROUPABLE.has(n.agentType);
+
+  // Build cluster groups, splitting any base cluster (parentId+agentType)
+  // whose members ended up far apart in mrtree's layout. This is the
+  // single source of truth used by both the cluster-shift extents below
+  // and the final TopologyGroupBox computation further down — without
+  // this, planning-phase and execution-phase agents that happened to
+  // share a (parent, agentType) get drawn as one giant cluster box
+  // stretched across the canvas with empty space in the middle.
+  const splitClusters = buildClusterMembers(graph, positionById, isClusterEligible);
 
   // Build per-cluster left/right extents grouped by the row they sit in.
   // mrtree puts all siblings on one Y, but we tolerate small drift by
@@ -187,12 +263,12 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     right: number;
   };
   const extents: ClusterExtent[] = [];
-  for (const [key, members] of clusterMembers) {
-    if (members.length === 0) continue;
+  for (const [key, cluster] of splitClusters) {
+    if (cluster.ids.length === 0) continue;
     let left = Number.POSITIVE_INFINITY;
     let right = Number.NEGATIVE_INFINITY;
     let yMin = Number.POSITIVE_INFINITY;
-    for (const id of members) {
+    for (const id of cluster.ids) {
       const pos = positionById.get(id);
       if (!pos) continue;
       const w = nodeById.get(id)?.node.type === 'skill' ? SKILL_NODE_WIDTH : NODE_WIDTH;
@@ -204,7 +280,7 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     extents.push({
       key,
       rowKey: Math.round(yMin / ROW_KEY_TOLERANCE) * ROW_KEY_TOLERANCE,
-      members,
+      members: cluster.ids,
       left,
       right,
     });
@@ -325,26 +401,19 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
   const heightFor = (id: string) =>
     nodeById.get(id)?.node.type === 'skill' ? SKILL_NODE_HEIGHT : NODE_HEIGHT;
 
-  const clusters = new Map<string, { agentType: string; nodeIds: string[] }>();
-  for (const n of graph.nodes) {
-    if (n.type === 'skill') continue;
-    const agentType = n.agentType;
-    if (!agentType || GENERIC_AGENT_TYPES.has(agentType)) continue;
-    if (!positionById.has(n.id)) continue;
-    const key = `${n.parentId ?? 'root'}::${agentType}`;
-    const existing = clusters.get(key);
-    if (existing) existing.nodeIds.push(n.id);
-    else clusters.set(key, { agentType, nodeIds: [n.id] });
-  }
+  // Re-compute clusters using the same split-aware bucketing the cluster-
+  // shift pass used. Member positions have been updated in place by the
+  // shift, so reading positionById here picks up the post-shift x.
+  const clustersForGroups = buildClusterMembers(graph, positionById, isClusterEligible);
 
   const groups: TopologyGroupBox[] = [];
-  for (const [key, cluster] of clusters) {
-    if (cluster.nodeIds.length < GROUP_MIN_SIZE) continue;
+  for (const [key, cluster] of clustersForGroups) {
+    if (cluster.ids.length < GROUP_MIN_SIZE) continue;
     let minX = Number.POSITIVE_INFINITY;
     let minY = Number.POSITIVE_INFINITY;
     let maxX = Number.NEGATIVE_INFINITY;
     let maxY = Number.NEGATIVE_INFINITY;
-    for (const id of cluster.nodeIds) {
+    for (const id of cluster.ids) {
       const pos = positionById.get(id);
       if (!pos) continue;
       const w = widthFor(id);
@@ -358,7 +427,7 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     groups.push({
       id: `group::${key}`,
       agentType: cluster.agentType,
-      nodeCount: cluster.nodeIds.length,
+      nodeCount: cluster.ids.length,
       x: minX - GROUP_BOX_SIDE,
       y: minY - GROUP_BOX_TOP,
       width: maxX - minX + GROUP_BOX_SIDE * 2,

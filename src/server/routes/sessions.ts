@@ -292,7 +292,16 @@ export function createSessionsRoutes({ sessionService, db }: SessionsDeps) {
     const { id, error: idError } = validateIdParam(c, 'id');
     if (idError) return idError;
 
-    const limit = parseLimit(c, 100);
+    // Default 1000 / cap 10_000. The topology view replays the full
+    // session history client-side to reconstruct the workflow tree —
+    // capping at 100 (the global parseLimit default) silently drops
+    // earlier subagent_spawned events for any non-trivial run, so the
+    // graph renders with only the most recent slice and the skill node
+    // / earlier clusters appear missing. The router uses cursor / offset
+    // pagination for "load earlier" anyway, so a high cap here doesn't
+    // change pagination semantics — it just lets the topology fetch
+    // every event in one round-trip when it asks for a large page.
+    const limit = parseLimit(c, 1000, 10_000);
     const offset = parseOffset(c);
     const afterEventId = c.req.query('afterEventId') ?? undefined;
 
