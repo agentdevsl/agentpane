@@ -69,7 +69,7 @@ export interface SessionFilters {
 
 // ===== Sort Types =====
 
-export type SessionSortField = 'createdAt' | 'closedAt' | 'duration';
+export type SessionSortField = 'createdAt' | 'closedAt' | 'duration' | 'lastActivityAt';
 export type SortDirection = 'asc' | 'desc';
 
 export interface SessionSort {
@@ -88,6 +88,14 @@ export interface SessionListItem {
   taskTitle: string | null;
   status: SessionStatus;
   createdAt: string;
+  /**
+   * Timestamp of the most recent event in this session, or `createdAt` if
+   * the session has no events yet. The "Recent Sessions" UI sorts and
+   * groups by this — sessions are reused across re-runs of the same task,
+   * so `createdAt` no longer reflects "when did this session last do
+   * something". Optional for backwards-compat with cached responses.
+   */
+  lastActivityAt?: string;
   closedAt: string | null;
   /** Duration in milliseconds */
   duration: number | null;

@@ -1,8 +1,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { SessionFilters, SessionSort } from '../types';
 
+// Default to ordering by latest activity rather than creation time —
+// session rows are reused across re-runs of the same task, so `createdAt`
+// reflects the task's first run and not "what happened most recently".
 const DEFAULT_SORT: SessionSort = {
-  field: 'createdAt',
+  field: 'lastActivityAt',
   direction: 'desc',
 };
 

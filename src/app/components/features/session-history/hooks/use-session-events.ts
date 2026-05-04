@@ -96,6 +96,17 @@ export function useSessions(codespaceId: string, filters?: SessionFilters, sort?
             let bVal: number;
 
             switch (sort.field) {
+              case 'lastActivityAt': {
+                // Falls back to createdAt if the server didn't include
+                // lastActivityAt (older API responses) so old clients
+                // still get a sensible order rather than treating
+                // missing fields as 0.
+                const aRecency = a.lastActivityAt ?? a.createdAt;
+                const bRecency = b.lastActivityAt ?? b.createdAt;
+                aVal = new Date(aRecency).getTime();
+                bVal = new Date(bRecency).getTime();
+                break;
+              }
               case 'createdAt':
                 aVal = new Date(a.createdAt).getTime();
                 bVal = new Date(b.createdAt).getTime();
@@ -108,9 +119,12 @@ export function useSessions(codespaceId: string, filters?: SessionFilters, sort?
                 aVal = a.duration ?? 0;
                 bVal = b.duration ?? 0;
                 break;
-              default:
-                aVal = new Date(a.createdAt).getTime();
-                bVal = new Date(b.createdAt).getTime();
+              default: {
+                const aRecency = a.lastActivityAt ?? a.createdAt;
+                const bRecency = b.lastActivityAt ?? b.createdAt;
+                aVal = new Date(aRecency).getTime();
+                bVal = new Date(bRecency).getTime();
+              }
             }
 
             return sort.direction === 'asc' ? aVal - bVal : bVal - aVal;

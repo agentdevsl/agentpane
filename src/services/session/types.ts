@@ -137,6 +137,13 @@ export type SessionWithPresence = {
   closedAt?: string | null;
   sandboxProvider?: string | null;
   sandboxContainerId?: string | null;
+  /**
+   * Timestamp of the most recent event in this session, falling back to
+   * `createdAt` for sessions with no events yet. Sessions are reused
+   * across re-runs of the same task, so `createdAt` no longer reflects
+   * "recency". The "Recent Sessions" list orders and groups by this.
+   */
+  lastActivityAt?: string;
 };
 
 // Re-export DurableStreamsServer from the canonical location
