@@ -19,7 +19,7 @@
 
 import { Hono } from 'hono';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { rateLimitBuckets } from '../../src/db/schema/sqlite/rate-limit-buckets.js';
+import { getRuntimeSchemaTables } from '../../src/db/schema/runtime-tables.js';
 import {
   createInMemoryBackend,
   createRateLimitCleanupJob,
@@ -32,6 +32,8 @@ import {
   getTestDb,
   setupTestDatabase,
 } from '../helpers/database.js';
+
+const { rateLimitBuckets } = getRuntimeSchemaTables('sqlite');
 
 function makeApp(opts: Parameters<typeof rateLimiter>[0]) {
   const app = new Hono();

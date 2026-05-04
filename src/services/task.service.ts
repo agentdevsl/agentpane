@@ -577,6 +577,14 @@ export class TaskService {
       return err(TaskErrors.PLAN_NOT_EXECUTED);
     }
 
+    // MAY-04: moving a task to in_progress is an execution request, not just
+    // a board move. If the container execution service has not been wired yet
+    // (sandbox init/reconciliation still running), fail with a typed retryable
+    // error instead of acknowledging a task that no agent will pick up.
+    if (column === 'in_progress' && !this.containerAgentService) {
+      return err(TaskErrors.EXECUTION_NOT_READY);
+    }
+
     let newPosition = position;
     if (newPosition === undefined) {
       const lastInColumn = await this.db.query.tasks.findFirst({

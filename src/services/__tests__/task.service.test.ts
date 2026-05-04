@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CodespaceErrors } from '../../lib/errors/codespace-errors.js';
 import { TaskErrors } from '../../lib/errors/task-errors.js';
+import { ok } from '../../lib/utils/result.js';
+import type { ContainerAgentTrigger } from '../task.service.js';
 import { TaskService } from '../task.service.js';
 
 const createDbMock = () => {
@@ -27,6 +29,15 @@ const createWorktreeServiceMock = () => ({
   getDiff: vi.fn(),
   merge: vi.fn(),
   remove: vi.fn(),
+});
+
+const createContainerAgentTriggerMock = (): ContainerAgentTrigger => ({
+  providerName: 'docker',
+  startAgent: vi.fn().mockResolvedValue(ok(undefined)),
+  stopAgent: vi.fn().mockResolvedValue(ok(undefined)),
+  isAgentRunning: vi.fn().mockReturnValue(false),
+  approvePlan: vi.fn().mockResolvedValue(ok(undefined)),
+  rejectPlan: vi.fn().mockResolvedValue(ok(undefined)),
 });
 
 describe('TaskService', () => {
@@ -328,17 +339,17 @@ describe('TaskService', () => {
 
     const updateReturning = vi
       .fn()
-      .mockResolvedValue([{ id: 't1', column: 'in_progress', position: 0 }]);
+      .mockResolvedValue([{ id: 't1', column: 'queued', position: 0 }]);
     db.update.mockReturnValue({
       set: vi.fn(() => ({ where: vi.fn(() => ({ returning: updateReturning })) })),
     });
 
     const service = new TaskService(db as never, worktrees as never);
-    const result = await service.moveColumn('t1', 'in_progress');
+    const result = await service.moveColumn('t1', 'queued');
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.task.column).toBe('in_progress');
+      expect(result.value.task.column).toBe('queued');
     }
   });
 
@@ -356,6 +367,21 @@ describe('TaskService', () => {
     }
   });
 
+  it('moveColumn returns retryable execution readiness error when execution service is unavailable', async () => {
+    const db = createDbMock();
+    const worktrees = createWorktreeServiceMock();
+    db.query.tasks.findFirst.mockResolvedValue({ id: 't1', column: 'backlog', codespaceId: 'p1' });
+
+    const service = new TaskService(db as never, worktrees as never);
+    const result = await service.moveColumn('t1', 'in_progress');
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatchObject(TaskErrors.EXECUTION_NOT_READY);
+    }
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
   it('moveColumn with explicit position', async () => {
     const db = createDbMock();
     const worktrees = createWorktreeServiceMock();
@@ -367,13 +393,13 @@ describe('TaskService', () => {
 
     const updateReturning = vi
       .fn()
-      .mockResolvedValue([{ id: 't1', column: 'in_progress', position: 5 }]);
+      .mockResolvedValue([{ id: 't1', column: 'queued', position: 5 }]);
     db.update.mockReturnValue({
       set: vi.fn(() => ({ where: vi.fn(() => ({ returning: updateReturning })) })),
     });
 
     const service = new TaskService(db as never, worktrees as never);
-    const result = await service.moveColumn('t1', 'in_progress', 5);
+    const result = await service.moveColumn('t1', 'queued', 5);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -387,6 +413,10 @@ describe('TaskService', () => {
     db.query.tasks.findFirst
       .mockResolvedValueOnce({ id: 't1', column: 'backlog', codespaceId: 'p1' })
       .mockResolvedValueOnce(null);
+    db.query.codespaces.findFirst.mockResolvedValue({
+      id: 'p1',
+      config: { sandbox: { enabled: false } },
+    });
 
     const updateReturning = vi
       .fn()
@@ -396,6 +426,7 @@ describe('TaskService', () => {
     });
 
     const service = new TaskService(db as never, worktrees as never);
+    service.setContainerAgentService(createContainerAgentTriggerMock());
     const result = await service.moveColumn('t1', 'in_progress');
 
     expect(result.ok).toBe(true);
@@ -404,9 +435,11 @@ describe('TaskService', () => {
   it('moveColumn returns error when update fails', async () => {
     const db = createDbMock();
     const worktrees = createWorktreeServiceMock();
-    db.query.tasks.findFirst
-      .mockResolvedValueOnce({ id: 't1', column: 'backlog', codespaceId: 'p1' })
-      .mockResolvedValueOnce(null);
+    db.query.tasks.findFirst.mockResolvedValueOnce({
+      id: 't1',
+      column: 'backlog',
+      codespaceId: 'p1',
+    });
 
     const updateReturning = vi.fn().mockResolvedValue([]);
     db.update.mockReturnValue({
@@ -414,7 +447,7 @@ describe('TaskService', () => {
     });
 
     const service = new TaskService(db as never, worktrees as never);
-    const result = await service.moveColumn('t1', 'in_progress');
+    const result = await service.moveColumn('t1', 'queued');
 
     expect(result.ok).toBe(false);
     if (!result.ok) {

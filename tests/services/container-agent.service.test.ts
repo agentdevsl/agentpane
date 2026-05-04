@@ -32,7 +32,13 @@ import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/data
 // ---------------------------------------------------------------------------
 // Mock the container bridge — prevents real container bridge creation
 // ---------------------------------------------------------------------------
-const mockBridgeProcessStream = vi.fn().mockResolvedValue(undefined);
+let bridgeProcessResolvers: Array<() => void> = [];
+function createPendingBridgeStream(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    bridgeProcessResolvers.push(resolve);
+  });
+}
+const mockBridgeProcessStream = vi.fn(() => createPendingBridgeStream());
 const mockBridgeProcessStderr = vi.fn();
 const mockBridgeStop = vi.fn();
 let capturedBridgeOptions: any = null;
@@ -97,6 +103,15 @@ async function flushAsync(iterations = 5): Promise<void> {
   for (let i = 0; i < iterations; i++) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
+}
+
+async function finishBridgeStreams(): Promise<void> {
+  const resolvers = bridgeProcessResolvers;
+  bridgeProcessResolvers = [];
+  for (const resolve of resolvers) {
+    resolve();
+  }
+  await flushAsync();
 }
 
 function createMockStreams(overrides: Partial<DurableStreamsService> = {}): DurableStreamsService {
@@ -219,6 +234,8 @@ describe('ContainerAgentService', () => {
     await setupTestDatabase();
     vi.clearAllMocks();
     capturedBridgeOptions = null;
+    bridgeProcessResolvers = [];
+    mockBridgeProcessStream.mockImplementation(() => createPendingBridgeStream());
 
     sandbox = createMockSandbox();
     provider = createMockProvider(sandbox);
@@ -1223,7 +1240,7 @@ describe('ContainerAgentService', () => {
       });
 
       capturedBridgeOptions.onComplete('completed', 5);
-      await flushAsync();
+      await finishBridgeStreams();
 
       // After completion, sandbox.exec should be called with 'rm' to clean sentinel
       const rmCalls = sandbox.exec.mock.calls.filter(
@@ -1280,6 +1297,7 @@ describe('ContainerAgentService', () => {
         where: eq(tasks.id, task.id),
       });
       expect(updatedTask?.lastAgentStatus).toBe('error');
+      expect(updatedTask?.column).toBe('waiting_approval');
       expect(updatedTask?.agentId).toBeNull();
     });
 

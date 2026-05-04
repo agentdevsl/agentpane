@@ -1,7 +1,7 @@
 import { createId } from '@paralleldrive/cuid2';
-import { count, eq } from 'drizzle-orm';
+import { count, eq, inArray } from 'drizzle-orm';
 import type { NewSandboxInstance, NewSandboxTmuxSession, SandboxInstance } from '../db/schema';
-import { codespaces, sandboxInstances, sandboxTmuxSessions } from '../db/schema';
+import { codespaces, sandboxInstances, sandboxTmuxSessions, settings } from '../db/schema';
 import type { SandboxError } from '../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../lib/errors/sandbox-errors.js';
 import type { CredentialsInjector } from '../lib/sandbox/credentials-injector.js';
@@ -124,24 +124,11 @@ export class SandboxService {
       return err(SandboxErrors.PROJECT_NOT_FOUND);
     }
 
-    const sandboxConfig = codespace.config?.sandbox as CodespaceSandboxConfig | undefined;
-    if (!sandboxConfig?.enabled) {
-      return err(SandboxErrors.SANDBOX_NOT_ENABLED(codespaceId));
-    }
-
-    // Build sandbox configuration
-    const config: SandboxConfig = {
-      codespaceId,
-      codespacePath: codespace.path,
-      image: sandboxConfig.image ?? SANDBOX_DEFAULTS.image,
-      memoryMb: sandboxConfig.memoryMb ?? SANDBOX_DEFAULTS.memoryMb,
-      cpuCores: sandboxConfig.cpuCores ?? SANDBOX_DEFAULTS.cpuCores,
-      idleTimeoutMinutes: sandboxConfig.idleTimeoutMinutes ?? SANDBOX_DEFAULTS.idleTimeoutMinutes,
-      volumeMounts: sandboxConfig.additionalVolumes ?? [],
-    };
+    const configResult = await this.resolveSandboxConfigForCodespace(codespace);
+    if (!configResult.ok) return configResult;
 
     // Create sandbox
-    return this.create(config);
+    return this.create(configResult.value);
   }
 
   /**
@@ -154,6 +141,13 @@ export class SandboxService {
    * does not double-count.
    */
   async create(config: SandboxConfig): Promise<Result<SandboxInfo, SandboxError>> {
+    if (this.sandboxConfigService) {
+      const imageValidation = this.sandboxConfigService.validateImage(config.image);
+      if (!imageValidation.ok) {
+        return err(imageValidation.error as SandboxError);
+      }
+    }
+
     // F04-10: enforce per-deployment quota before provisioning. The check
     // runs first so we don't even allocate a stream / sandbox ID when the
     // request would be rejected.
@@ -192,6 +186,35 @@ export class SandboxService {
       image: config.image,
     });
 
+    const reservedSandbox: NewSandboxInstance = {
+      id: sandboxId,
+      codespaceId: config.codespaceId,
+      containerId: `pending:${sandboxId}`,
+      status: 'creating',
+      image: config.image,
+      memoryMb: config.memoryMb,
+      cpuCores: config.cpuCores,
+      idleTimeoutMinutes: config.idleTimeoutMinutes,
+      volumeMounts: config.volumeMounts,
+      env: config.env,
+    };
+
+    try {
+      await this.db.insert(sandboxInstances).values(reservedSandbox);
+    } catch (error) {
+      const message = errorMessage(error);
+      await this.streams.publish(streamId, 'sandbox:error', {
+        sandboxId,
+        codespaceId: config.codespaceId,
+        error: message,
+      });
+      if (message.toLowerCase().includes('unique')) {
+        return err(SandboxErrors.CONTAINER_ALREADY_EXISTS(config.codespaceId));
+      }
+      return err(SandboxErrors.CONTAINER_CREATION_FAILED(message, error));
+    }
+
+    let sandbox: Sandbox | null = null;
     try {
       // Check if image is available
       const imageAvailable = await this.provider.isImageAvailable(config.image);
@@ -202,7 +225,7 @@ export class SandboxService {
 
       // Create container — pass our sandboxId so provider uses it as its ID.
       // This ensures one consistent ID across stream, DB, and provider lookups.
-      const sandbox = await this.provider.create({ ...config, id: sandboxId });
+      sandbox = await this.provider.create({ ...config, id: sandboxId });
 
       // Inject credentials - emit warning event if this fails so user is informed.
       // F06-NEW-02 / arch29-W1-E: pass injection context so the multi-tenant
@@ -221,21 +244,22 @@ export class SandboxService {
         });
       }
 
-      // Store in database — sandbox.id === sandboxId (provider used our ID)
-      const dbSandbox: NewSandboxInstance = {
-        id: sandbox.id,
-        codespaceId: config.codespaceId,
-        containerId: sandbox.containerId,
-        status: 'running',
-        image: config.image,
-        memoryMb: config.memoryMb,
-        cpuCores: config.cpuCores,
-        idleTimeoutMinutes: config.idleTimeoutMinutes,
-        volumeMounts: config.volumeMounts,
-        env: config.env,
-      };
-
-      await this.db.insert(sandboxInstances).values(dbSandbox);
+      // Update database — sandbox.id === sandboxId (provider used our ID)
+      await this.db
+        .update(sandboxInstances)
+        .set({
+          containerId: sandbox.containerId,
+          status: 'running',
+          image: config.image,
+          memoryMb: config.memoryMb,
+          cpuCores: config.cpuCores,
+          idleTimeoutMinutes: config.idleTimeoutMinutes,
+          volumeMounts: config.volumeMounts,
+          env: config.env,
+          errorMessage: null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(sandboxInstances.id, sandboxId));
 
       const info = this.sandboxToInfo(sandbox, config);
 
@@ -249,6 +273,23 @@ export class SandboxService {
       return ok(info);
     } catch (error) {
       const message = errorMessage(error);
+
+      if (sandbox) {
+        try {
+          await sandbox.stop();
+        } catch {
+          // Best-effort rollback; the DB row is marked error below.
+        }
+      }
+
+      await this.db
+        .update(sandboxInstances)
+        .set({
+          status: 'error',
+          errorMessage: message,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(sandboxInstances.id, sandboxId));
 
       // Publish error event
       await this.streams.publish(streamId, 'sandbox:error', {
@@ -573,8 +614,87 @@ export class SandboxService {
     const rows = await this.db
       .select({ n: count() })
       .from(sandboxInstances)
-      .where(eq(sandboxInstances.status, 'running'));
+      .where(inArray(sandboxInstances.status, ['creating', 'running', 'idle', 'stopping']));
     return rows[0]?.n ?? 0;
+  }
+
+  private async resolveSandboxConfigForCodespace(
+    codespace: typeof codespaces.$inferSelect
+  ): Promise<Result<SandboxConfig, SandboxError>> {
+    if (codespace.sandboxConfigId && this.sandboxConfigService) {
+      const configResult = await this.sandboxConfigService.getById(codespace.sandboxConfigId);
+      if (!configResult.ok) {
+        return err(configResult.error as SandboxError);
+      }
+
+      const sandboxConfig = configResult.value;
+      return ok({
+        codespaceId: codespace.id,
+        codespacePath: sandboxConfig.volumeMountPath ?? codespace.path,
+        image: sandboxConfig.baseImage,
+        memoryMb: sandboxConfig.memoryMb,
+        cpuCores: sandboxConfig.cpuCores,
+        idleTimeoutMinutes: sandboxConfig.timeoutMinutes,
+        volumeMounts: [],
+      });
+    }
+
+    const inlineConfig = codespace.config?.sandbox as CodespaceSandboxConfig | undefined;
+    if (inlineConfig && !inlineConfig.enabled) {
+      return err(SandboxErrors.SANDBOX_NOT_ENABLED(codespace.id));
+    }
+
+    if (inlineConfig?.enabled) {
+      return ok({
+        codespaceId: codespace.id,
+        codespacePath: codespace.path,
+        image: inlineConfig.image ?? SANDBOX_DEFAULTS.image,
+        memoryMb: inlineConfig.memoryMb ?? SANDBOX_DEFAULTS.memoryMb,
+        cpuCores: inlineConfig.cpuCores ?? SANDBOX_DEFAULTS.cpuCores,
+        idleTimeoutMinutes: inlineConfig.idleTimeoutMinutes ?? SANDBOX_DEFAULTS.idleTimeoutMinutes,
+        volumeMounts: inlineConfig.additionalVolumes ?? [],
+      });
+    }
+
+    const globalDefaults = await this.loadGlobalSandboxDefaults();
+    if (globalDefaults && globalDefaults.enabled === false) {
+      return err(SandboxErrors.SANDBOX_NOT_ENABLED(codespace.id));
+    }
+
+    return ok({
+      codespaceId: codespace.id,
+      codespacePath: codespace.path,
+      image: globalDefaults?.image ?? SANDBOX_DEFAULTS.image,
+      memoryMb: globalDefaults?.memoryMb ?? SANDBOX_DEFAULTS.memoryMb,
+      cpuCores: globalDefaults?.cpuCores ?? SANDBOX_DEFAULTS.cpuCores,
+      idleTimeoutMinutes: globalDefaults?.idleTimeoutMinutes ?? SANDBOX_DEFAULTS.idleTimeoutMinutes,
+      volumeMounts: globalDefaults?.additionalVolumes ?? [],
+    });
+  }
+
+  private async loadGlobalSandboxDefaults(): Promise<
+    | (Partial<CodespaceSandboxConfig> & {
+        image?: string;
+        memoryMb?: number;
+        cpuCores?: number;
+        idleTimeoutMinutes?: number;
+      })
+    | null
+  > {
+    try {
+      const row = await this.db.query.settings.findFirst({
+        where: eq(settings.key, 'sandbox.defaults'),
+      });
+      if (!row?.value) return null;
+      return JSON.parse(row.value) as Partial<CodespaceSandboxConfig> & {
+        image?: string;
+        memoryMb?: number;
+        cpuCores?: number;
+        idleTimeoutMinutes?: number;
+      };
+    } catch {
+      return null;
+    }
   }
 
   /**

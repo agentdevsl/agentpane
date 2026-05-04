@@ -4,13 +4,13 @@
 
 import { and, eq, ne } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { teamMembers } from '../../db/schema/sqlite/team-members';
-import { teams } from '../../db/schema/sqlite/teams';
-import { users } from '../../db/schema/sqlite/users';
+import { getRuntimeSchemaTables } from '../../db/schema/runtime-tables';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import type { Database } from '../../types/database';
 import { json } from '../shared';
 import { parseJsonBody, updateProfileSchema } from '../validation';
+
+const { teamMembers, teams, users } = getRuntimeSchemaTables();
 
 interface MeDeps {
   db: Database;

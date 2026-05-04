@@ -67,10 +67,7 @@ const EXPECTED_MISSING_COLUMNS: Record<string, Set<string>> = {
   // service tests can write through Drizzle, but the real SQLite production
   // schema is missing them — open follow-up tracked separately.
   cli_sessions: new Set<string>([]),
-  // The v19 stub creates plan_sessions with only id/codespace_id/project_id/
-  // task_id/session_id/status/created_at/updated_at. Drizzle declares richer
-  // columns. This is a real production drift; track as follow-up.
-  plan_sessions: new Set(['turns', 'github_issue_url', 'github_issue_number', 'completed_at']),
+  plan_sessions: new Set<string>([]),
 };
 
 interface TableCase {

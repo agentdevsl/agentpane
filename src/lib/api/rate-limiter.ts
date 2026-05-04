@@ -15,19 +15,27 @@
  *     ON CONFLICT DO UPDATE` for atomic per-tick increment.
  *
  * Hard constraint: no Redis, no external infrastructure. Multi-instance
- * deployments still suffer the documented drift at `:131-141` because each
- * process owns its own SQLite file; for hosted multi-instance, a follow-up
- * is needed to share state. Single-instance is the supported topology.
+ * deployments must use DB_MODE=postgres so every pod shares the same
+ * `rate_limit_buckets` table. SQLite deployments fail fast when configured
+ * with multiple instances because each pod would otherwise multiply quotas.
  */
 
 import { lt, sql } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
-import { rateLimitBuckets } from '../../db/schema/sqlite/rate-limit-buckets.js';
+import { getRuntimeSchemaTables } from '../../db/schema/runtime-tables.js';
 import type { Database } from '../../types/database.js';
+import { type DbDialect, getDbDialect } from '../db/dialect.js';
 import { createLogger } from '../logging/logger.js';
 import type { AuthContext } from './auth-middleware.js';
 
 const log = createLogger('RateLimiter');
+
+export class RateLimitDeploymentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RateLimitDeploymentError';
+  }
+}
 
 interface RateLimitEntry {
   count: number;
@@ -190,8 +198,32 @@ export function createInMemoryBackend(): RateLimitBackend {
   };
 }
 
+export function parseRateLimitInstanceCount(env: NodeJS.ProcessEnv = process.env): number {
+  const raw =
+    env.AGENTPANE_REPLICA_COUNT ?? env.AGENTPANE_INSTANCE_COUNT ?? env.REPLICA_COUNT ?? '1';
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 1;
+  }
+  return parsed;
+}
+
+export function assertRateLimitDeploymentSafe(options?: {
+  dbMode?: DbDialect;
+  instanceCount?: number;
+}): void {
+  const dbMode = options?.dbMode ?? getDbDialect();
+  const instanceCount = options?.instanceCount ?? parseRateLimitInstanceCount();
+
+  if (instanceCount > 1 && dbMode === 'sqlite') {
+    throw new RateLimitDeploymentError(
+      `Unsafe rate limiter deployment: ${instanceCount} instances with DB_MODE=sqlite would multiply quotas because each instance has private limiter state. Use DB_MODE=postgres for a shared rate_limit_buckets backend or run one instance.`
+    );
+  }
+}
+
 /**
- * F06-NEW-08: SQLite-backed rate-limit backend.
+ * F06-NEW-08: database-backed rate-limit backend.
  *
  * Each rate-limit window is persisted as a row in `rate_limit_buckets`. The
  * window-start timestamp quantises the bucket: every request inside the same
@@ -206,10 +238,9 @@ export function createInMemoryBackend(): RateLimitBackend {
  * older than 24h so the table stays bounded.
  *
  * Caveats:
- *   - Multi-instance deployments still drift because each process writes to
- *     its own SQLite file (per the hard "no Redis" constraint). The single
- *     supported topology is single-instance. Hosted multi-instance is a
- *     follow-up; the architectural note at `:131-141` still applies.
+ *   - Multi-instance SQLite deployments fail fast because per-pod SQLite
+ *     files would multiply quotas. Multi-instance hosted deployments must
+ *     use DB_MODE=postgres so this backend writes to shared database state.
  *   - The window is *aligned*, not *sliding* — `windowStart = floor(now /
  *     windowMs) * windowMs`. A burst that crosses a window boundary may
  *     temporarily exceed the soft cap by 2x just like the in-memory limiter.
@@ -217,6 +248,10 @@ export function createInMemoryBackend(): RateLimitBackend {
  *     require a different schema (rolling sum or token bucket).
  */
 export function createSqliteBackend(db: Database): RateLimitBackend {
+  const dbMode = getDbDialect();
+  assertRateLimitDeploymentSafe({ dbMode });
+  const { rateLimitBuckets } = getRuntimeSchemaTables(dbMode);
+
   return {
     incr: async (key, windowMs) => {
       const now = Date.now();
@@ -279,6 +314,7 @@ export interface RateLimitCleanupJob {
 }
 
 export function createRateLimitCleanupJob(db: Database): RateLimitCleanupJob {
+  const { rateLimitBuckets } = getRuntimeSchemaTables();
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
   let lastRunAt: string | null = null;

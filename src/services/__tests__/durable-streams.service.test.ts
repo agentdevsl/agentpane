@@ -22,21 +22,26 @@ const createDbMock = () => {
     values: vi.fn((values: unknown) => {
       inserts.push({ table, values });
       return {
-        returning: vi.fn().mockResolvedValue([{ offset: 3 }]),
+        returning: vi.fn(() => ({
+          all: vi.fn(() => [{ offset: 3 }]),
+        })),
+        run: vi.fn(),
       };
     }),
   }));
 
-  return {
+  const db = {
     query: {
       sessionEvents: {
         findFirst: vi.fn().mockResolvedValue({ offset: 2 }),
       },
     },
     insert: insertFn,
+    transaction: vi.fn((callback: (tx: unknown) => unknown) => callback(db)),
     /** Test helper: collect everything inserted across all `insert()` calls. */
     _inserts: inserts,
   };
+  return db;
 };
 
 describe('DurableStreamsService metadata persistence', () => {
@@ -61,6 +66,7 @@ describe('DurableStreamsService metadata persistence', () => {
     const result = await service.publish('session-1', 'container-agent:message', payload as never);
 
     expect(result.ok).toBe(true);
+    expect(db.transaction).toHaveBeenCalledTimes(1);
     // F05-19: publish() now writes two rows — one to session_events
     // (durable replay) and one to event_outbox (live delivery via relay).
     expect(db.insert).toHaveBeenCalledTimes(2);
@@ -90,6 +96,7 @@ describe('DurableStreamsService metadata persistence', () => {
     });
 
     expect(result.ok).toBe(true);
+    expect(db.transaction).toHaveBeenCalledTimes(1);
 
     // F05-19: two inserts — session_events row + outbox row. Both carry
     // the same metadata-augmented payload.

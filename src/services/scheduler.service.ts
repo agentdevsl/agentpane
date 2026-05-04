@@ -2,9 +2,8 @@ import { createId } from '@paralleldrive/cuid2';
 import { CronExpressionParser } from 'cron-parser';
 import { and, eq, lte, sql } from 'drizzle-orm';
 import type { EventSource } from '../db/schema/index.js';
-import { eventSources } from '../db/schema/index.js';
+import { getRuntimeSchemaTables } from '../db/schema/runtime-tables.js';
 import type { CronEventSourceConfig } from '../db/schema/shared/cron-config.js';
-import { scheduleExecutions } from '../db/schema/sqlite/schedule-executions.js';
 import type { BackgroundJob, BackgroundJobSnapshot } from '../lib/background/job.js';
 import { jsonExtractText, jsonSetMany, runRaw } from '../lib/db/dialect.js';
 import type { AppError } from '../lib/errors/base.js';
@@ -21,6 +20,7 @@ import type { EventProcessingService } from './event-processing.service.js';
 import type { EventSourceService } from './event-source.service.js';
 
 const log = createLogger('SchedulerService');
+const { eventSources, scheduleExecutions } = getRuntimeSchemaTables();
 
 export interface ManualTriggerResult {
   triggered: boolean;

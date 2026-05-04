@@ -12,7 +12,7 @@ export interface StoredPlanOptions extends ExitPlanModeOptions {
 }
 
 /** Stored shape of agent review result (matches AgentReviewResult in container-agent/types) */
-interface AgentReviewResultRecord {
+export interface AgentReviewResultRecord {
   verdict: 'approve' | 'flag_for_review';
   reasoning: string;
   concerns?: string[];

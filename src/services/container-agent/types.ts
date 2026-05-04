@@ -116,6 +116,7 @@ export interface ContainerAgentDeps {
   worktreeService?: import('./../../services/worktree.service.js').WorktreeService;
   githubTokenService?: import('./../../services/github-token.service.js').GitHubTokenService;
   skillTrackingService?: import('../memory/skill-tracking.service.js').SkillTrackingService | null;
+  sandboxService?: Pick<import('../sandbox.service.js').SandboxService, 'getOrCreateForCodespace'>;
 }
 
 /**

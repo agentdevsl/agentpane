@@ -87,14 +87,26 @@ function createMockSandbox(overrides?: {
  * Drizzle union and constructing a fully-typed instance for tests is
  * not the point — the gate only uses `.query.settings.findFirst`.
  */
-function makeMockDb(sandboxModeValue: string | null): any {
+function makeMockDb(
+  sandboxModeValue: string | null,
+  options: { teamCount?: number; userCount?: number; boundaryReadError?: Error } = {}
+): any {
   const findFirst = vi.fn(async () => {
     if (sandboxModeValue === null) return null;
     return { key: 'sandbox.mode', value: sandboxModeValue };
   });
+  const teamsFindMany = vi.fn(async () => {
+    if (options.boundaryReadError) throw options.boundaryReadError;
+    return Array.from({ length: options.teamCount ?? 1 }, (_, index) => ({ id: `team-${index}` }));
+  });
+  const usersFindMany = vi.fn(async () =>
+    Array.from({ length: options.userCount ?? 1 }, (_, index) => ({ id: `user-${index}` }))
+  );
   return {
     query: {
       settings: { findFirst },
+      teams: { findMany: teamsFindMany },
+      users: { findMany: usersFindMany },
     },
     _findFirst: findFirst,
   };
@@ -176,6 +188,44 @@ describe('F06-NEW-02 / arch29-W1-E — CredentialsInjector multi-tenant gate', (
 
     expect(result.ok).toBe(true);
     expect(sandbox.writeFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects shared mode when multiple teams exist even without MULTI_TENANT=true', async () => {
+    const injector = new CredentialsInjector();
+    const sandbox = createMockSandbox({ hasWriteFile: true });
+    const db = makeMockDb(JSON.stringify('shared'), { teamCount: 2 });
+
+    const result = await injector.inject(sandbox as never, sampleCreds, {
+      db,
+      codespaceId: 'codespace-multi-team',
+      env: {} as NodeJS.ProcessEnv,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('MULTI_TENANT_REQUIRES_PER_PROJECT_SANDBOX');
+    }
+    expect(sandbox.writeFile).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when tenant boundary inference cannot be read', async () => {
+    const injector = new CredentialsInjector();
+    const sandbox = createMockSandbox({ hasWriteFile: true });
+    const db = makeMockDb(JSON.stringify('shared'), {
+      boundaryReadError: new Error('database unavailable'),
+    });
+
+    const result = await injector.inject(sandbox as never, sampleCreds, {
+      db,
+      codespaceId: 'codespace-boundary-read-failed',
+      env: {} as NodeJS.ProcessEnv,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('SANDBOX_CREDENTIALS_INJECTION_FAILED');
+    }
+    expect(sandbox.writeFile).not.toHaveBeenCalled();
   });
 
   it('allows injection in shared mode when MULTI_TENANT=false', async () => {

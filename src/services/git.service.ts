@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { codespaces } from '../db/schema';
+import { getRuntimeSchemaTables } from '../db/schema/runtime-tables.js';
 import type { GitError } from '../lib/errors/git-errors.js';
 import { GitErrors } from '../lib/errors/git-errors.js';
 import { createLogger } from '../lib/logging/logger.js';
@@ -11,15 +11,6 @@ import type { CommandRunner } from './worktree.service.js';
 const log = createLogger('GitService');
 
 /**
- * Escape a string for safe use in a shell command argument.
- * Wraps the value in single quotes with proper escaping of embedded single quotes.
- */
-function shellEscape(value: string): string {
-  // Replace each single quote with end-quote, escaped-single-quote, start-quote
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-/**
  * Validate that a git branch name is safe.
  * Prevents command injection by only allowing safe characters.
  */
@@ -28,6 +19,20 @@ function isValidBranchName(branch: string): boolean {
   if (branch.length < 1 || branch.length > 250) return false;
   if (branch.includes('..')) return false;
   return /^[a-zA-Z0-9_\-/.]+$/.test(branch);
+}
+
+function requireExecArgs(runner: CommandRunner): NonNullable<CommandRunner['execArgs']> {
+  if (!runner.execArgs) {
+    throw new Error('GitService requires CommandRunner.execArgs; shell exec is not supported');
+  }
+  return runner.execArgs;
+}
+
+function normalizeCommitLimit(limit: number): number {
+  if (!Number.isFinite(limit)) return 50;
+  const normalized = Math.trunc(limit);
+  if (normalized < 1) return 1;
+  return Math.min(normalized, 500);
 }
 
 export type GitStatus = {
@@ -94,6 +99,7 @@ export class GitService {
     }
 
     try {
+      const { codespaces } = getRuntimeSchemaTables();
       const codespace = await this.db.query.codespaces.findFirst({
         where: eq(codespaces.id, codespaceId),
       });
@@ -124,9 +130,10 @@ export class GitService {
     const { path: codespacePath, name: codespaceName } = codespaceResult.value;
 
     try {
+      const execArgs = requireExecArgs(this.commandRunner);
       // Get current branch
-      const { stdout: branchOutput } = await this.commandRunner.exec(
-        'git rev-parse --abbrev-ref HEAD',
+      const { stdout: branchOutput } = await execArgs(
+        ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
         codespacePath
       );
       const currentBranch = branchOutput.trim();
@@ -135,8 +142,8 @@ export class GitService {
       const repoName = codespacePath.split('/').pop() || codespaceName;
 
       // Get git status (porcelain format for easy parsing)
-      const { stdout: statusOutput } = await this.commandRunner.exec(
-        'git status --porcelain',
+      const { stdout: statusOutput } = await execArgs(
+        ['git', 'status', '--porcelain'],
         codespacePath
       );
 
@@ -156,8 +163,8 @@ export class GitService {
       let ahead = 0;
       let behind = 0;
       try {
-        const { stdout: aheadBehind } = await this.commandRunner.exec(
-          'git rev-list --left-right --count HEAD...@{upstream}',
+        const { stdout: aheadBehind } = await execArgs(
+          ['git', 'rev-list', '--left-right', '--count', 'HEAD...@{upstream}'],
           codespacePath
         );
         const [aheadStr, behindStr] = aheadBehind.trim().split(/\s+/);
@@ -193,24 +200,30 @@ export class GitService {
     const codespacePath = codespaceResult.value.path;
 
     try {
+      const execArgs = requireExecArgs(this.commandRunner);
       // Get current HEAD branch
-      const { stdout: headOutput } = await this.commandRunner.exec(
-        'git rev-parse --abbrev-ref HEAD',
+      const { stdout: headOutput } = await execArgs(
+        ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
         codespacePath
       );
       const currentBranch = headOutput.trim();
 
       // Get all local branches with their commit info
-      const { stdout: branchOutput } = await this.commandRunner.exec(
-        'git for-each-ref --format="%(refname:short)|%(objectname)|%(objectname:short)|%(upstream:track)" refs/heads/',
+      const { stdout: branchOutput } = await execArgs(
+        [
+          'git',
+          'for-each-ref',
+          '--format=%(refname:short)|%(objectname)|%(objectname:short)|%(upstream:track)',
+          'refs/heads/',
+        ],
         codespacePath
       );
 
       // Detect default branch once
       let defaultBranch = 'main';
       try {
-        const { stdout: defaultRef } = await this.commandRunner.exec(
-          'git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || echo "refs/remotes/origin/main"',
+        const { stdout: defaultRef } = await execArgs(
+          ['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'],
           codespacePath
         );
         defaultBranch = defaultRef.trim().replace('refs/remotes/origin/', '') || 'main';
@@ -218,22 +231,23 @@ export class GitService {
         /* keep main as default */
       }
 
-      // Batch: get commit counts for all branches in one command
+      // Count commits with argv calls per branch instead of a shell loop.
       const commitCounts = new Map<string, number>();
-      try {
-        const { stdout: countsOutput } = await this.commandRunner.exec(
-          `git for-each-ref --format="%(refname:short)" refs/heads/ | while read branch; do count=$(git rev-list --count ${shellEscape(defaultBranch)}.."$branch" 2>/dev/null || echo "0"); echo "$branch|$count"; done`,
-          codespacePath
-        );
-        for (const line of countsOutput
-          .trim()
-          .split('\n')
-          .filter((l) => l.trim())) {
-          const [name, count] = line.split('|');
-          if (name) commitCounts.set(name, parseInt(count || '0', 10));
+      const branchNames = branchOutput
+        .trim()
+        .split('\n')
+        .map((line) => line.split('|')[0])
+        .filter((name): name is string => Boolean(name));
+      for (const branchName of branchNames) {
+        try {
+          const { stdout: countOutput } = await execArgs(
+            ['git', 'rev-list', '--count', `${defaultBranch}..${branchName}`],
+            codespacePath
+          );
+          commitCounts.set(branchName, parseInt(countOutput.trim() || '0', 10) || 0);
+        } catch (_error) {
+          commitCounts.set(branchName, 0);
         }
-      } catch (_error) {
-        /* counts default to 0 */
       }
 
       const branches = branchOutput
@@ -297,23 +311,31 @@ export class GitService {
 
     const codespacePath = codespaceResult.value.path;
     const branch = options?.branch;
-    const limit = options?.limit ?? 50;
+    const limit = normalizeCommitLimit(options?.limit ?? 50);
 
     try {
+      const execArgs = requireExecArgs(this.commandRunner);
       // Validate branch name if provided
       if (branch && !isValidBranchName(branch)) {
         return err(GitErrors.INVALID_BRANCH);
       }
 
-      // Use shellEscape for the branch name; default to HEAD
-      const targetBranch = branch ? shellEscape(branch) : 'HEAD';
+      const targetBranch = branch ?? 'HEAD';
 
       // Get commit log with stats inline in a single command.
       // Use record separator (\x1e) as field delimiter to avoid conflicts with
       // pipe characters that may appear in commit subjects.
       const SEP = '\x1e';
-      const { stdout: logOutput } = await this.commandRunner.exec(
-        `git log ${targetBranch} --format="COMMIT_START%H${SEP}%h${SEP}%s${SEP}%an${SEP}%aI" --stat -n ${Number(limit)}`,
+      const { stdout: logOutput } = await execArgs(
+        [
+          'git',
+          'log',
+          targetBranch,
+          `--format=COMMIT_START%H${SEP}%h${SEP}%s${SEP}%an${SEP}%aI`,
+          '--stat',
+          '-n',
+          String(limit),
+        ],
         codespacePath
       );
 
@@ -380,12 +402,13 @@ export class GitService {
     const codespacePath = codespaceResult.value.path;
 
     try {
+      const execArgs = requireExecArgs(this.commandRunner);
       // Fetch latest from remote (throttled, don't fail if offline)
       const now = Date.now();
       const lastFetch = this.lastFetchTime.get(codespaceId) ?? 0;
       if (now - lastFetch >= GitService.FETCH_THROTTLE_MS) {
         try {
-          await this.commandRunner.exec('git fetch --prune 2>/dev/null || true', codespacePath);
+          await execArgs(['git', 'fetch', '--prune'], codespacePath);
           this.lastFetchTime.set(codespaceId, Date.now());
         } catch (_error) {
           // Best-effort fetch — failure is non-fatal
@@ -393,16 +416,21 @@ export class GitService {
       }
 
       // Get all remote branches with their commit info
-      const { stdout: branchOutput } = await this.commandRunner.exec(
-        'git for-each-ref --format="%(refname:short)|%(objectname)|%(objectname:short)" refs/remotes/',
+      const { stdout: branchOutput } = await execArgs(
+        [
+          'git',
+          'for-each-ref',
+          '--format=%(refname:short)|%(objectname)|%(objectname:short)',
+          'refs/remotes/',
+        ],
         codespacePath
       );
 
       // Detect default branch once
       let defaultBranch = 'main';
       try {
-        const { stdout: defaultRef } = await this.commandRunner.exec(
-          'git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || echo "refs/remotes/origin/main"',
+        const { stdout: defaultRef } = await execArgs(
+          ['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'],
           codespacePath
         );
         defaultBranch = defaultRef.trim().replace('refs/remotes/origin/', '') || 'main';
@@ -410,22 +438,26 @@ export class GitService {
         /* keep main as default */
       }
 
-      // Batch: get commit counts for all remote branches in one command
+      // Count commits with argv calls per remote branch instead of a shell loop.
       const commitCounts = new Map<string, number>();
-      try {
-        const { stdout: countsOutput } = await this.commandRunner.exec(
-          `git for-each-ref --format="%(refname:short)" refs/remotes/ | grep -v HEAD | while read branch; do count=$(git rev-list --count ${shellEscape(defaultBranch)}.."$branch" 2>/dev/null || echo "0"); echo "$branch|$count"; done`,
-          codespacePath
+      const remoteBranchNames = branchOutput
+        .trim()
+        .split('\n')
+        .map((line) => line.split('|')[0])
+        .filter(
+          (name): name is string =>
+            typeof name === 'string' && name.length > 0 && !name.endsWith('/HEAD')
         );
-        for (const line of countsOutput
-          .trim()
-          .split('\n')
-          .filter((l) => l.trim())) {
-          const [name, count] = line.split('|');
-          if (name) commitCounts.set(name, parseInt(count || '0', 10));
+      for (const branchName of remoteBranchNames) {
+        try {
+          const { stdout: countOutput } = await execArgs(
+            ['git', 'rev-list', '--count', `${defaultBranch}..${branchName}`],
+            codespacePath
+          );
+          commitCounts.set(branchName, parseInt(countOutput.trim() || '0', 10) || 0);
+        } catch (_error) {
+          commitCounts.set(branchName, 0);
         }
-      } catch (_error) {
-        /* counts default to 0 */
       }
 
       const branches = branchOutput

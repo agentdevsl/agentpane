@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { fetchGapEvents } from '../../../src/lib/streams/client.js';
+import { fetchGapEvents, replayGapEventsToCallbacks } from '../../../src/lib/streams/client.js';
 
 describe('fetchGapEvents (F05-06)', () => {
   it('requests the correct URL and parses data', async () => {
@@ -81,5 +81,45 @@ describe('fetchGapEvents (F05-06)', () => {
     await fetchGapEvents('weird/slash', 0, 0, {
       fetchImpl: mockFetch as unknown as typeof fetch,
     });
+  });
+
+  it('replays fetched gap events through typed callbacks', () => {
+    const onChunk = vi.fn();
+
+    const result = replayGapEventsToCallbacks(
+      [
+        {
+          id: 'e1',
+          type: 'chunk',
+          timestamp: 123,
+          offset: 7,
+          data: {
+            text: 'recovered',
+            agentId: 'agent-1',
+            meta: {
+              schemaVersion: 1,
+              eventId: 'e1',
+              streamId: 'abc',
+              blockId: 'block-1',
+              partType: 'chunk_end',
+              durability: 'durable',
+              sequence: null,
+              createdAt: '2026-05-04T00:00:00.000Z',
+            },
+          },
+        },
+      ],
+      { onChunk }
+    );
+
+    expect(result).toEqual({ delivered: 1, skipped: 0 });
+    expect(onChunk).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'chunks',
+        cursor: '7',
+        offset: 7,
+        data: expect.objectContaining({ text: 'recovered' }),
+      })
+    );
   });
 });

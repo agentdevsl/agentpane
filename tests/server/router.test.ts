@@ -47,6 +47,8 @@ function stubDb(): RouterDependencies['db'] {
   (chain as { then: (resolve: (v: unknown[]) => unknown) => unknown }).then = (
     resolve: (v: unknown[]) => unknown
   ) => Promise.resolve([]).then(resolve);
+  (chain as { catch: (reject: (reason: unknown) => unknown) => Promise<unknown[]> }).catch = () =>
+    Promise.resolve([]);
   chain.query = {
     codespaces: { findFirst: vi.fn().mockResolvedValue({ id: 'p1' }) },
     userSessions: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -81,6 +83,33 @@ function createMinimalDeps(overrides: Partial<RouterDependencies> = {}): RouterD
   };
 }
 
+function createApiTokenDeps(
+  role: 'viewer' | 'agent_operator' | 'admin',
+  overrides: Partial<RouterDependencies> = {}
+): RouterDependencies {
+  const db = stubDb();
+  (db.query as any).apiTokens.findFirst = vi.fn().mockResolvedValue({
+    id: `token-${role}`,
+    userId: 'user-1',
+    teamId: 'team-1',
+    role,
+    scopeCodespaceId: null,
+    scopeTags: null,
+    status: 'active',
+    expiresAt: null,
+  });
+  (db.query as any).users.findFirst = vi.fn().mockResolvedValue({
+    id: 'user-1',
+    githubId: 123,
+    githubLogin: 'test-user',
+    name: 'Test User',
+    email: null,
+    githubEmail: null,
+    avatarUrl: null,
+  });
+  return createMinimalDeps({ db, ...overrides });
+}
+
 // Helper — make a Request and run it through app.fetch without an actual server.
 async function appFetch(
   app: ReturnType<typeof createRouter>,
@@ -90,6 +119,16 @@ async function appFetch(
   const url = `http://localhost${path}`;
   const req = new Request(url, init);
   return app.fetch(req);
+}
+
+function bearerInit(init: RequestInit = {}): RequestInit {
+  return {
+    ...init,
+    headers: {
+      Authorization: 'Bearer test-token',
+      ...(init.headers ?? {}),
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -570,6 +609,76 @@ describe('createRouter', () => {
     it('filesystem routes require admin role (401 unauthenticated)', async () => {
       const res = await appFetch(app, '/api/filesystem');
       expect(res.status).toBe(401);
+    });
+
+    it('MAY-01: GitHub App administration requires admin role', async () => {
+      const githubAppService = stubService({
+        getCredentials: vi.fn().mockResolvedValue(null),
+      });
+      const viewerApp = createRouter(createApiTokenDeps('viewer', { githubAppService }));
+
+      const res = await appFetch(
+        viewerApp,
+        '/api/github/app/manifest',
+        bearerInit({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ externalUrl: 'https://agentpane.example.com' }),
+        })
+      );
+
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.error.code).toBe('FORBIDDEN');
+    });
+
+    it('MAY-08: GitHub clone route requires agent_operator role', async () => {
+      const viewerApp = createRouter(createApiTokenDeps('viewer'));
+      const res = await appFetch(
+        viewerApp,
+        '/api/github/clone',
+        bearerInit({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        })
+      );
+
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.error.code).toBe('FORBIDDEN');
+    });
+
+    it('MAY-08: GitHub template route requires agent_operator role', async () => {
+      const viewerApp = createRouter(createApiTokenDeps('viewer'));
+      const res = await appFetch(
+        viewerApp,
+        '/api/github/create-from-template',
+        bearerInit({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        })
+      );
+
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.error.code).toBe('FORBIDDEN');
+    });
+
+    it('MAY-08: agent_operator reaches GitHub clone validation', async () => {
+      const operatorApp = createRouter(createApiTokenDeps('agent_operator'));
+      const res = await appFetch(
+        operatorApp,
+        '/api/github/clone',
+        bearerInit({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        })
+      );
+
+      expect(res.status).toBe(400);
     });
   });
 });

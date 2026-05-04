@@ -235,6 +235,62 @@ describe('ContainerExecService (IT-1400)', () => {
       // The state tracking is verified in the stopAgent and handleAgentComplete tests instead.
     });
 
+    it('IT-1402a.1: routes missing-sandbox auto-create through SandboxService when injected', async () => {
+      const project = await createTestProject({ id: 'proj-1' });
+      const task = await createTestTask(project.id, {
+        title: 'Test task',
+        column: 'in_progress',
+      });
+      const sandboxService = {
+        getOrCreateForCodespace: vi.fn().mockResolvedValue({
+          ok: true,
+          value: {
+            id: mockSandbox.id,
+            codespaceId: project.id,
+            containerId: mockSandbox.containerId,
+            status: 'running',
+            image:
+              'docker.io/srlynch1/agent-sandbox@sha256:9b04cfd8f030360efb7fbd1023ce79b228b61edf82dbc0d82c38c867633d4126',
+            createdAt: new Date().toISOString(),
+            lastActivityAt: new Date().toISOString(),
+            memoryMb: 8192,
+            cpuCores: 4,
+          },
+        }),
+      };
+      mockProvider.get.mockResolvedValueOnce(null);
+
+      const serviceWithSandboxService = new ContainerExecService(
+        {
+          db: db as any,
+          provider: mockProvider,
+          streams: mockStreams,
+          apiKeyService: mockApiKeyService,
+          worktreeService: undefined,
+          githubTokenService: undefined,
+          skillTrackingService: null,
+          sandboxService,
+        },
+        state,
+        mockWorktreeInit as any,
+        mockOnPlanReady,
+        mockOnAgentCompleteCallback
+      );
+
+      const result = await serviceWithSandboxService.startAgent({
+        codespaceId: project.id,
+        taskId: task.id,
+        sessionId: 'session-sandbox-service',
+        prompt: 'Implement feature X',
+        phase: 'plan',
+      });
+
+      expect(result.ok).toBe(true);
+      expect(sandboxService.getOrCreateForCodespace).toHaveBeenCalledWith(project.id);
+      expect(mockProvider.create).not.toHaveBeenCalled();
+      expect(mockProvider.getById).toHaveBeenCalledWith(mockSandbox.id);
+    });
+
     it('IT-1402b: recreates sandbox when in terminal state (error/stopped)', async () => {
       const stoppedSandbox = createMockSandbox({
         id: 'sandbox-stopped',

@@ -22,7 +22,7 @@ describe('IT-013: Task move to in_progress without sandbox', () => {
     remove: async () => ok(undefined),
   };
 
-  it('moves task to in_progress without triggering agent when no containerAgentService is set', async () => {
+  it('returns retryable readiness error when no containerAgentService is set', async () => {
     const db = getTestDb();
     const project = await createTestProject();
     const task = await createTestTask(project.id, { column: 'backlog' });
@@ -31,12 +31,9 @@ describe('IT-013: Task move to in_progress without sandbox', () => {
 
     const result = await taskService.moveColumn(task.id, 'in_progress');
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.task.column).toBe('in_progress');
-      expect(result.value.task.sessionId).toBeNull();
-      expect(result.value.task.startedAt).toBeTruthy();
-      expect(result.value.agentError).toBeUndefined();
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('TASK_EXECUTION_NOT_READY');
     }
   });
 
@@ -109,7 +106,17 @@ describe('IT-013: Task move to in_progress without sandbox', () => {
     const project = await createTestProject();
     const task = await createTestTask(project.id, { column: 'backlog' });
 
+    const mockContainerAgent = {
+      providerName: 'docker',
+      startAgent: vi.fn().mockResolvedValue(ok(undefined)),
+      stopAgent: vi.fn().mockResolvedValue(ok(undefined)),
+      isAgentRunning: vi.fn().mockReturnValue(false),
+      approvePlan: vi.fn().mockResolvedValue(ok(undefined)),
+      rejectPlan: vi.fn().mockResolvedValue(ok(undefined)),
+    };
+
     const taskService = new TaskService(db, mockWorktreeService);
+    taskService.setContainerAgentService(mockContainerAgent);
 
     const result = await taskService.moveColumn(task.id, 'in_progress');
 

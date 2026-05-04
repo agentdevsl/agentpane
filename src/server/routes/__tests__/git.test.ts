@@ -18,8 +18,10 @@ function createMockDb() {
 // ── Mock Command Runner ──
 
 function createMockCommandRunner() {
+  const exec = vi.fn();
   return {
-    exec: vi.fn(),
+    exec,
+    execArgs: vi.fn((argv: string[], cwd: string) => exec(argv.join(' '), cwd)),
   };
 }
 

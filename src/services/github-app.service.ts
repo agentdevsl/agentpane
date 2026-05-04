@@ -1,13 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { and, eq } from 'drizzle-orm';
-import {
-  codespaces,
-  eventSources,
-  eventSubscriptions,
-  githubInstallations,
-  teamProjectFolders,
-} from '../db/schema/index.js';
-import type { GitHubInstallation } from '../db/schema/sqlite/github.js';
+import { getRuntimeSchemaTables, type RuntimeSchemaTables } from '../db/schema/runtime-tables.js';
 import { decryptToken, encryptToken } from '../lib/crypto/server-encryption.js';
 import type { AppError } from '../lib/errors/base.js';
 import { EventErrors } from '../lib/errors/event-errors.js';
@@ -23,6 +16,10 @@ import type { SettingsService } from './settings.service.js';
 const log = createLogger('GitHubAppService');
 
 const CREDENTIALS_KEY = 'github.app.credentials';
+const { codespaces, eventSources, eventSubscriptions, githubInstallations, teamProjectFolders } =
+  getRuntimeSchemaTables();
+
+type GitHubInstallation = RuntimeSchemaTables['githubInstallations']['$inferSelect'];
 
 export interface StoredAppCredentials {
   appId: string;

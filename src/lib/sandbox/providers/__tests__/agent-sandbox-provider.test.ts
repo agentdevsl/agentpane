@@ -18,10 +18,15 @@ interface MockAgentSandboxClient {
   getWarmPool: ReturnType<typeof vi.fn>;
   deleteWarmPool: ReturnType<typeof vi.fn>;
   replaceWarmPool: ReturnType<typeof vi.fn>;
+  kubeConfig: { makeApiClient: ReturnType<typeof vi.fn> };
   namespace: string;
 }
 
 let mockClient: MockAgentSandboxClient;
+let mockNetworkingApi: {
+  createNamespacedNetworkPolicy: ReturnType<typeof vi.fn>;
+  deleteNamespacedNetworkPolicy: ReturnType<typeof vi.fn>;
+};
 
 const createMockClient = (): MockAgentSandboxClient => ({
   createSandbox: vi.fn().mockResolvedValue({}),
@@ -53,6 +58,9 @@ const createMockClient = (): MockAgentSandboxClient => ({
   getWarmPool: vi.fn().mockRejectedValue(new Error('not found')),
   deleteWarmPool: vi.fn().mockResolvedValue(undefined),
   replaceWarmPool: vi.fn().mockResolvedValue({}),
+  kubeConfig: {
+    makeApiClient: vi.fn(() => mockNetworkingApi),
+  },
   namespace: 'agentpane-sandboxes',
 });
 
@@ -108,6 +116,11 @@ vi.mock('@paralleldrive/cuid2', () => ({
   createId: vi.fn(() => 'test-cuid-12345678'),
 }));
 
+vi.mock('@kubernetes/client-node', () => ({
+  NetworkingV1Api: class NetworkingV1Api {},
+  ApisApi: class ApisApi {},
+}));
+
 import { AgentSandboxInstance } from '../agent-sandbox-instance.js';
 // Import after mocks
 import { AgentSandboxProvider, createAgentSandboxProvider } from '../agent-sandbox-provider.js';
@@ -127,10 +140,16 @@ describe('AgentSandboxProvider', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.SANDBOX_DEFAULT_NETWORK_MODE;
+    mockNetworkingApi = {
+      createNamespacedNetworkPolicy: vi.fn().mockResolvedValue({}),
+      deleteNamespacedNetworkPolicy: vi.fn().mockResolvedValue({}),
+    };
     mockClient = createMockClient();
   });
 
   afterEach(() => {
+    delete process.env.SANDBOX_DEFAULT_NETWORK_MODE;
     vi.restoreAllMocks();
   });
 
@@ -208,6 +227,69 @@ describe('AgentSandboxProvider', () => {
       await expect(provider.create(sampleConfig)).rejects.toMatchObject({
         code: 'K8S_POD_CREATION_FAILED',
       });
+    });
+
+    it('MAY-02: creates NetworkPolicy before Sandbox CRD when isolation is enabled', async () => {
+      process.env.SANDBOX_DEFAULT_NETWORK_MODE = 'none';
+      const order: string[] = [];
+      mockNetworkingApi.createNamespacedNetworkPolicy.mockImplementation(async () => {
+        order.push('network-policy');
+        return {};
+      });
+      mockClient.createSandbox.mockImplementation(async () => {
+        order.push('sandbox-crd');
+        return {};
+      });
+      const provider = createProvider();
+
+      await provider.create(sampleConfig);
+
+      expect(order).toEqual(['network-policy', 'sandbox-crd']);
+      expect(mockNetworkingApi.createNamespacedNetworkPolicy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          namespace: 'agentpane-sandboxes',
+          body: expect.objectContaining({
+            kind: 'NetworkPolicy',
+            spec: expect.objectContaining({
+              policyTypes: ['Ingress', 'Egress'],
+              ingress: [],
+              egress: [],
+            }),
+          }),
+        })
+      );
+    });
+
+    it('MAY-02: fails closed before creating Sandbox CRD when NetworkPolicy creation fails', async () => {
+      process.env.SANDBOX_DEFAULT_NETWORK_MODE = 'none';
+      mockNetworkingApi.createNamespacedNetworkPolicy.mockRejectedValue(new Error('policy denied'));
+      const provider = createProvider();
+
+      await expect(provider.create(sampleConfig)).rejects.toMatchObject({
+        code: 'K8S_POD_CREATION_FAILED',
+      });
+      expect(mockClient.createSandbox).not.toHaveBeenCalled();
+      expect(mockClient.deleteSandbox).not.toHaveBeenCalled();
+    });
+
+    it('MAY-02: rolls back Sandbox CRD and NetworkPolicy when readiness fails', async () => {
+      process.env.SANDBOX_DEFAULT_NETWORK_MODE = 'none';
+      mockClient.waitForReady.mockRejectedValue(new Error('not ready'));
+      const provider = createProvider();
+
+      await expect(provider.create(sampleConfig)).rejects.toMatchObject({
+        code: 'K8S_POD_CREATION_FAILED',
+      });
+      expect(mockClient.deleteSandbox).toHaveBeenCalledWith(
+        expect.stringContaining('agentpane-'),
+        'agentpane-sandboxes'
+      );
+      expect(mockNetworkingApi.deleteNamespacedNetworkPolicy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          namespace: 'agentpane-sandboxes',
+          name: expect.stringContaining('np-agentpane-'),
+        })
+      );
     });
 
     it('emits sandbox:creating, sandbox:created, and sandbox:started events', async () => {

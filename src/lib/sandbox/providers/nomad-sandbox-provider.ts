@@ -199,6 +199,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       }
     }
 
+    await this.assertNoClusterJobForCodespace(config.codespaceId);
     this.creatingCodespaces.add(config.codespaceId);
     const sandboxId = config.id ?? createId();
     // Job names must be DNS-compatible: lowercase alphanumeric and hyphens
@@ -323,6 +324,22 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
     } finally {
       this.creatingCodespaces.delete(config.codespaceId);
     }
+  }
+
+  private async assertNoClusterJobForCodespace(codespaceId: string): Promise<void> {
+    const jobs = await this.client.listJobs(NOMAD_JOB_PREFIX);
+    const activeJob = jobs.find((job) => {
+      if (job.Meta?.[NOMAD_META.PROJECT_ID] !== codespaceId) return false;
+      const status = mapNomadJobStatus(job.Status);
+      return status !== 'stopped' && status !== 'error';
+    });
+    if (!activeJob) return;
+
+    const sandboxId = activeJob.Meta?.[NOMAD_META.SANDBOX_ID];
+    if (sandboxId && activeJob.ID) {
+      this.codespaceToSandbox.set(codespaceId, sandboxId);
+    }
+    throw NomadErrors.JOB_ALREADY_EXISTS(codespaceId);
   }
 
   /**

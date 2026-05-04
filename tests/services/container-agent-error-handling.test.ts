@@ -177,6 +177,7 @@ describe('ContainerAgentService.handleAgentError suppression', () => {
       where: eq(tasks.id, task.id),
     });
     expect(updatedTask?.lastAgentStatus).toBe('error');
+    expect(updatedTask?.column).toBe('waiting_approval');
     expect(updatedTask?.agentId).toBeNull();
   });
 });

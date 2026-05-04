@@ -10,8 +10,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { apiTokens } from '../db/schema/sqlite/api-tokens.js';
-import { userSessions } from '../db/schema/sqlite/user-sessions.js';
+import { getRuntimeSchemaTables } from '../db/schema/runtime-tables.js';
 import { getAuthContext } from '../lib/api/auth-middleware.js';
 import { createSqliteBackend, rateLimiter } from '../lib/api/rate-limiter.js';
 import { enrichAuthContext, requireRole, requireTagAccess } from '../lib/api/rbac-middleware.js';
@@ -94,6 +93,7 @@ import { createWorkflowsRoutes } from './routes/workflows.js';
 import { hashToken } from './shared.js';
 
 const routerLog = createLogger('Router');
+const { apiTokens, userSessions } = getRuntimeSchemaTables();
 
 let requestCounter = 0;
 
@@ -504,6 +504,15 @@ export function createRouter(deps: RouterDependencies) {
   // GitHub integration: viewer minimum (read repos/branches)
   app.use('/api/github', requireRole('viewer', rbacService));
   app.use('/api/github/*', requireRole('viewer', rbacService));
+  // MAY-01: GitHub App setup mutates global app credentials and installation
+  // mappings, so viewer access is too broad despite living under /api/github.
+  app.use('/api/github/app', requireRole('admin', rbacService));
+  app.use('/api/github/app/*', requireRole('admin', rbacService));
+  // MAY-08: clone/template routes perform filesystem writes and GitHub
+  // mutations. Keep read-only GitHub discovery at viewer, but require an
+  // operator for operations that change local or remote state.
+  app.use('/api/github/clone', requireRole('agent_operator', rbacService));
+  app.use('/api/github/create-from-template', requireRole('agent_operator', rbacService));
 
   // Git operations: agent_operator minimum (executes git commands)
   app.use('/api/git', requireRole('agent_operator', rbacService));

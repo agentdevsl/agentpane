@@ -355,15 +355,27 @@ export class ContainerExecService {
     if (!sandbox) {
       log.info('No sandbox found, attempting auto-create', { data: { codespaceId } });
       try {
-        sandbox = await provider.create({
-          codespaceId,
-          codespacePath: codespace.path ?? '/workspace',
-          image: SANDBOX_DEFAULTS.image,
-          memoryMb: SANDBOX_DEFAULTS.memoryMb,
-          cpuCores: SANDBOX_DEFAULTS.cpuCores,
-          idleTimeoutMinutes: 30,
-          volumeMounts: [],
-        });
+        if (this.deps.sandboxService) {
+          const createResult = await this.deps.sandboxService.getOrCreateForCodespace(codespaceId);
+          if (!createResult.ok) {
+            return err(createResult.error);
+          }
+          sandbox =
+            (await provider.getById(createResult.value.id)) ?? (await provider.get(codespaceId));
+        } else {
+          sandbox = await provider.create({
+            codespaceId,
+            codespacePath: codespace.path ?? '/workspace',
+            image: SANDBOX_DEFAULTS.image,
+            memoryMb: SANDBOX_DEFAULTS.memoryMb,
+            cpuCores: SANDBOX_DEFAULTS.cpuCores,
+            idleTimeoutMinutes: SANDBOX_DEFAULTS.idleTimeoutMinutes,
+            volumeMounts: [],
+          });
+        }
+        if (!sandbox) {
+          return err(SandboxErrors.CONTAINER_NOT_FOUND);
+        }
         log.info('Auto-created sandbox', { data: { codespaceId, sandboxId: sandbox.id } });
       } catch (createErr) {
         log.info('Auto-create sandbox failed', {

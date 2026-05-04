@@ -33,16 +33,29 @@ import { assertSharedSandboxAllowed, resolveSandboxMode } from '../shared-helper
  * Drizzle union and constructing a fully-typed instance for tests is
  * not the point — the gate only uses `.query.settings.findFirst`.
  */
-function makeMockDb(sandboxModeValue: string | null): any {
+function makeMockDb(
+  sandboxModeValue: string | null,
+  options: { teamCount?: number; userCount?: number } = {}
+): any {
   const findFirst = vi.fn(async () => {
     if (sandboxModeValue === null) return null;
     return { key: 'sandbox.mode', value: sandboxModeValue };
   });
+  const teamsFindMany = vi.fn(async () =>
+    Array.from({ length: options.teamCount ?? 1 }, (_, index) => ({ id: `team-${index}` }))
+  );
+  const usersFindMany = vi.fn(async () =>
+    Array.from({ length: options.userCount ?? 1 }, (_, index) => ({ id: `user-${index}` }))
+  );
   return {
     query: {
       settings: { findFirst },
+      teams: { findMany: teamsFindMany },
+      users: { findMany: usersFindMany },
     },
     _findFirst: findFirst,
+    _teamsFindMany: teamsFindMany,
+    _usersFindMany: usersFindMany,
   };
 }
 
@@ -54,7 +67,7 @@ describe('F06-NEW-02 / arch29-W1-E — assertSharedSandboxAllowed', () => {
         assertSharedSandboxAllowed(db, 'codespace-1', {
           MULTI_TENANT: 'true',
         } as NodeJS.ProcessEnv)
-      ).rejects.toThrow(/MULTI_TENANT=true is set but sandbox mode is "shared"/);
+      ).rejects.toThrow(/sandbox mode is "shared"/);
     });
 
     it('attaches the codespaceId to the error details', async () => {
@@ -141,13 +154,18 @@ describe('F06-NEW-02 / arch29-W1-E — assertSharedSandboxAllowed', () => {
       ).resolves.toBeUndefined();
     });
 
-    it('does not query the database when MULTI_TENANT is not "true"', async () => {
-      // Performance: the gate must short-circuit so self-hosted installs
-      // don't pay an extra DB read on every agent start.
+    it('infers tenant boundary count when MULTI_TENANT is not "true"', async () => {
       const db = makeMockDb(JSON.stringify('shared'));
-      const dbAny = db as unknown as { _findFirst: ReturnType<typeof vi.fn> };
+      const dbAny = db as unknown as { _teamsFindMany: ReturnType<typeof vi.fn> };
       await assertSharedSandboxAllowed(db, undefined, {} as NodeJS.ProcessEnv);
-      expect(dbAny._findFirst).not.toHaveBeenCalled();
+      expect(dbAny._teamsFindMany).toHaveBeenCalled();
+    });
+
+    it('rejects shared mode when multiple teams exist even without MULTI_TENANT=true', async () => {
+      const db = makeMockDb(JSON.stringify('shared'), { teamCount: 2 });
+      await expect(
+        assertSharedSandboxAllowed(db, 'multi-team', {} as NodeJS.ProcessEnv)
+      ).rejects.toThrow(/sandbox mode is "shared"/);
     });
   });
 });

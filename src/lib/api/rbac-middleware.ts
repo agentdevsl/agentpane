@@ -7,20 +7,13 @@
 
 import { eq, inArray, sql } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
+import { getRuntimeSchemaTables } from '../../db/schema/runtime-tables.js';
 import {
   RBAC_ROLE_LEVEL,
   RBAC_ROLES,
   type RbacRole,
   resolveHighestRole,
 } from '../../db/schema/shared/enums';
-import { agents } from '../../db/schema/sqlite/agents';
-import { apiTokens } from '../../db/schema/sqlite/api-tokens';
-import { codespaceTags } from '../../db/schema/sqlite/codespace-tags';
-import { sessions } from '../../db/schema/sqlite/sessions';
-import { taskTags } from '../../db/schema/sqlite/task-tags';
-import { tasks } from '../../db/schema/sqlite/tasks';
-import { teamMembers } from '../../db/schema/sqlite/team-members';
-import { users } from '../../db/schema/sqlite/users';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { createLogger } from '../logging/logger';
@@ -36,6 +29,8 @@ interface CachedApiToken {
 }
 
 const log = createLogger('RbacMiddleware');
+const { agents, apiTokens, codespaceTags, sessions, taskTags, tasks, teamMembers, users } =
+  getRuntimeSchemaTables();
 
 /**
  * Middleware that enriches the auth context with RBAC information.

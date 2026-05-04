@@ -1,6 +1,7 @@
 import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
 import { sessionEvents } from '../db/schema';
+import { getDbDialect } from '../lib/db/dialect.js';
 import { type AppError, createError } from '../lib/errors/base.js';
 import { createLogger } from '../lib/logging/logger.js';
 import {
@@ -24,7 +25,7 @@ import type {
 import { err, ok, type Result } from '../lib/utils/result.js';
 import type { AgentFileChangedData } from '../types/agent-events.js';
 import type { Database } from '../types/database.js';
-import { enqueueOutboxEvent } from './event-outbox-relay.service.js';
+import { enqueueOutboxEvent, enqueueOutboxEventSync } from './event-outbox-relay.service.js';
 import { createStreamPayloadWithMetadata } from './session/event-metadata.js';
 import type { SessionEvent, SessionEventType } from './session.service.js';
 
@@ -664,6 +665,7 @@ export class DurableStreamsService {
    * Returns the assigned offset.
    */
   private async persistToDb(
+    db: Pick<Database, 'insert'>,
     streamId: string,
     eventId: string,
     type: string,
@@ -671,8 +673,6 @@ export class DurableStreamsService {
     data: unknown,
     timestamp: number
   ): Promise<number> {
-    if (!this.db) return 0;
-
     // F05-25: derive the stream-kind discriminator from the streamId prefix at
     // publish time so cleanup paths and admin queries can filter rows without
     // re-parsing the prefix at runtime.
@@ -684,7 +684,7 @@ export class DurableStreamsService {
     const MAX_RETRIES = 3;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        const result = await this.db
+        const result = await db
           .insert(sessionEvents)
           .values({
             id: attempt === 0 ? eventId : `${eventId}-r${attempt}`,
@@ -698,7 +698,11 @@ export class DurableStreamsService {
           })
           .returning({ offset: sessionEvents.offset });
 
-        return result[0]?.offset ?? 0;
+        const offset = result[0]?.offset;
+        if (offset === undefined) {
+          throw new Error(`Failed to persist event ${eventId}: insert returned no row`);
+        }
+        return offset;
       } catch (insertErr) {
         const isConstraintViolation =
           insertErr instanceof Error &&
@@ -710,7 +714,109 @@ export class DurableStreamsService {
         throw insertErr;
       }
     }
-    return 0;
+    throw new Error(`Failed to persist event ${eventId} after ${MAX_RETRIES} attempts`);
+  }
+
+  private persistToDbSync(
+    db: Pick<Database, 'insert'>,
+    streamId: string,
+    eventId: string,
+    type: string,
+    channel: string,
+    data: unknown,
+    timestamp: number
+  ): number {
+    const streamKind = classifyStreamId(streamId) ?? 'session';
+    const MAX_RETRIES = 3;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const result = db
+          .insert(sessionEvents)
+          .values({
+            id: attempt === 0 ? eventId : `${eventId}-r${attempt}`,
+            sessionId: streamId,
+            streamKind,
+            offset: sql`(SELECT COALESCE(MAX(${sessionEvents.offset}), -1) + 1 FROM ${sessionEvents} WHERE ${sessionEvents.sessionId} = ${streamId})`,
+            type,
+            channel,
+            data,
+            timestamp,
+          })
+          .returning({ offset: sessionEvents.offset })
+          .all() as Array<{ offset: number }>;
+
+        const offset = result[0]?.offset;
+        if (offset === undefined) {
+          throw new Error(`Failed to persist event ${eventId}: insert returned no row`);
+        }
+        return offset;
+      } catch (insertErr) {
+        const isConstraintViolation =
+          insertErr instanceof Error &&
+          (insertErr.message.includes('UNIQUE constraint') ||
+            insertErr.message.includes('duplicate key'));
+        if (isConstraintViolation && attempt < MAX_RETRIES - 1) {
+          continue;
+        }
+        throw insertErr;
+      }
+    }
+    throw new Error(`Failed to persist event ${eventId} after ${MAX_RETRIES} attempts`);
+  }
+
+  /**
+   * Persist durable replay state and enqueue live delivery in one DB transaction.
+   * This keeps the outbox row inseparable from the `session_events` row that
+   * produced it, so a crash cannot leave a replayable event that current
+   * subscribers will never receive.
+   */
+  private async persistToDbAndOutbox(
+    streamId: string,
+    eventId: string,
+    type: string,
+    channel: string,
+    payload: unknown,
+    timestamp: number
+  ): Promise<number> {
+    if (!this.db) return 0;
+
+    if (getDbDialect() === 'sqlite') {
+      return this.db.transaction((tx) => {
+        const offset = this.persistToDbSync(
+          tx as Pick<Database, 'insert'>,
+          streamId,
+          eventId,
+          type,
+          channel,
+          payload,
+          timestamp
+        );
+        enqueueOutboxEventSync(tx as Pick<Database, 'insert'>, {
+          streamId,
+          type,
+          payload,
+        });
+        return offset;
+      });
+    }
+
+    return this.db.transaction(async (tx) => {
+      const offset = await this.persistToDb(
+        tx as Pick<Database, 'insert'>,
+        streamId,
+        eventId,
+        type,
+        channel,
+        payload,
+        timestamp
+      );
+      await enqueueOutboxEvent(tx as Pick<Database, 'insert'>, {
+        streamId,
+        type,
+        payload,
+      });
+      return offset;
+    });
   }
 
   /**
@@ -786,8 +892,8 @@ export class DurableStreamsService {
 
       let offset = 0;
       if (!isEphemeral) {
-        // Persist to database FIRST (ensures durability)
-        offset = await this.persistToDb(
+        // Persist durable replay state and enqueue live delivery atomically.
+        offset = await this.persistToDbAndOutbox(
           streamId,
           eventId,
           type,
@@ -819,16 +925,7 @@ export class DurableStreamsService {
             )
           );
         }
-      } else if (this.db) {
-        // F05-19: enqueue for the relay to drain. Outbox enqueue runs after
-        // persistToDb so the durable record is in place even if outbox enqueue
-        // fails (in which case live SSE may degrade but DB-replay still works).
-        await enqueueOutboxEvent(this.db, {
-          streamId,
-          type,
-          payload: payload as unknown,
-        });
-      } else {
+      } else if (!this.db) {
         // No db (legacy in-memory mode): fall back to direct publish.
         try {
           memoryOffset = await this.server.publish(streamId, type, payload);
@@ -1128,7 +1225,7 @@ export class DurableStreamsService {
       }
 
       if (this.db) {
-        await this.persistToDb(
+        await this.persistToDbAndOutbox(
           streamId,
           event.id || createId(),
           event.type,
@@ -1138,13 +1235,14 @@ export class DurableStreamsService {
         );
       }
 
-      // Caddy publish is best-effort after DB persistence
-      try {
-        await this.server.publish(streamId, event.type, event.data);
-      } catch (caddyErr) {
-        log.debug('Caddy publish failed for session event', {
-          error: caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
-        });
+      if (!this.db) {
+        try {
+          await this.server.publish(streamId, event.type, event.data);
+        } catch (caddyErr) {
+          log.debug('Caddy publish failed for session event', {
+            error: caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
+          });
+        }
       }
 
       return ok(undefined);

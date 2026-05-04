@@ -13,8 +13,10 @@ import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/data
  */
 
 function createMockCommandRunner(): CommandRunner {
+  const exec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
   return {
-    exec: vi.fn().mockResolvedValue({ stdout: '', stderr: '' }),
+    exec,
+    execArgs: vi.fn((argv: string[], cwd: string) => exec(argv.join(' '), cwd)),
   };
 }
 

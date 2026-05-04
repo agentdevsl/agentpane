@@ -53,6 +53,7 @@ export type SessionEvent = {
   type: SessionEventType;
   timestamp: number;
   data: unknown;
+  offset?: number;
 };
 
 export type CreateSessionInput = {

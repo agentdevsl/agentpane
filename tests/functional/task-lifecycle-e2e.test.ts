@@ -83,6 +83,14 @@ describe('Functional E2E: Real Service Transitions', () => {
     streams = createMockStreams();
     mockWorktreeService = createMockWorktreeService();
     taskService = new TaskService(db, mockWorktreeService);
+    taskService.setContainerAgentService({
+      providerName: 'docker',
+      startAgent: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+      stopAgent: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+      isAgentRunning: vi.fn().mockReturnValue(false),
+      approvePlan: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+      rejectPlan: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+    });
     stateManager = new SandboxStateManager();
   });
 
@@ -424,6 +432,7 @@ describe('Functional E2E: Real Service Transitions', () => {
 
     const errorTask = await db.query.tasks.findFirst({ where: eq(tasks.id, TASK_ID) });
     expect(errorTask!.lastAgentStatus).toBe('error');
+    expect(errorTask!.column).toBe('waiting_approval');
     expect(errorTask!.agentId).toBeNull();
     expect(errorTask!.sessionId).toBeNull();
     expect(errorTask!.skillId).toBe('auth-toolkit');

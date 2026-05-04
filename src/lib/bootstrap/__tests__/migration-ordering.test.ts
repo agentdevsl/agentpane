@@ -151,4 +151,43 @@ describe('Migration ordering', () => {
 
     db.close();
   });
+
+  it('adds current plan_sessions columns to a legacy v19 stub', () => {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+
+    db.exec(`
+      CREATE TABLE schema_migrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        version INTEGER NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO schema_migrations (version, name) VALUES (39, 'api-tokens-cascade-fix');
+      CREATE TABLE plan_sessions (
+        id TEXT PRIMARY KEY,
+        codespace_id TEXT,
+        project_id TEXT,
+        task_id TEXT,
+        session_id TEXT,
+        status TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+    `);
+
+    runMigrations(db, MIGRATIONS);
+
+    const columns = db.prepare("PRAGMA table_info('plan_sessions')").all() as {
+      name: string;
+      dflt_value: string | null;
+    }[];
+    const columnNames = columns.map((c) => c.name);
+    expect(columnNames).toEqual(
+      expect.arrayContaining(['turns', 'github_issue_url', 'github_issue_number', 'completed_at'])
+    );
+    expect(columns.find((c) => c.name === 'turns')?.dflt_value).toBe("'[]'");
+
+    db.close();
+  });
 });

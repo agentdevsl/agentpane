@@ -16,22 +16,43 @@ const structuredChunkPayload = {
   },
 } as const;
 
-const createDbMock = () => ({
-  query: {
-    codespaces: { findFirst: vi.fn() },
-    sessions: { findFirst: vi.fn(), findMany: vi.fn() },
-    sessionEvents: { findFirst: vi.fn(), findMany: vi.fn() },
-    sessionSummaries: { findFirst: vi.fn() },
-  },
-  insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn() })) })),
-  update: vi.fn(() => ({
-    set: vi.fn(() => ({
-      where: vi.fn(() => ({
-        returning: vi.fn().mockResolvedValue([{ id: 's1' }]),
+const createDbMock = () => {
+  const selectResults = [[{ id: 'e1', offset: 1 }]];
+  const db = {
+    query: {
+      codespaces: { findFirst: vi.fn() },
+      sessions: { findFirst: vi.fn(), findMany: vi.fn() },
+      sessionEvents: { findFirst: vi.fn(), findMany: vi.fn() },
+      sessionSummaries: { findFirst: vi.fn() },
+    },
+    run: vi.fn().mockResolvedValue({ changes: 1 }),
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn().mockImplementation(() => ({
+            all: vi.fn(() => selectResults.shift() ?? [{ id: 'e1', offset: 1 }]),
+          })),
+        })),
       })),
     })),
-  })),
-});
+    insert: vi.fn(() => ({
+      values: vi.fn(() => ({
+        returning: vi.fn(),
+        onConflictDoUpdate: vi.fn(() => ({ run: vi.fn() })),
+        run: vi.fn(),
+      })),
+    })),
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn().mockResolvedValue([{ id: 's1' }]),
+        })),
+      })),
+    })),
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(db)),
+  };
+  return db;
+};
 
 const createStreamsMock = () => ({
   createStream: vi.fn(),
@@ -49,6 +70,8 @@ describe('SessionService', () => {
     db.insert.mockReturnValue({
       values: vi.fn(() => ({
         returning: vi.fn().mockResolvedValue([{ id: 's1', status: 'initializing' }]),
+        onConflictDoUpdate: vi.fn(() => ({ run: vi.fn() })),
+        run: vi.fn(),
       })),
     });
 
@@ -81,7 +104,7 @@ describe('SessionService', () => {
     }
   });
 
-  it('publishes events via streams', async () => {
+  it('publishes events via the outbox', async () => {
     const db = createDbMock();
     const streams = createStreamsMock();
     db.query.sessions.findFirst.mockResolvedValue({ id: 's1' });
@@ -98,7 +121,8 @@ describe('SessionService', () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(streams.publish).toHaveBeenCalled();
+    expect(streams.publish).not.toHaveBeenCalled();
+    expect(db.transaction).toHaveBeenCalledTimes(1);
   });
 
   it('blocks session events that omit structured metadata via the migration gate', async () => {
@@ -167,6 +191,8 @@ describe('SessionService', () => {
     db.insert.mockReturnValue({
       values: vi.fn(() => ({
         returning: vi.fn().mockResolvedValue([]),
+        onConflictDoUpdate: vi.fn(() => ({ run: vi.fn() })),
+        run: vi.fn(),
       })),
     });
 
@@ -313,7 +339,8 @@ describe('SessionService', () => {
       expect(result.value.presence).toHaveLength(1);
       expect(result.value.presence[0]?.userId).toBe('user1');
     }
-    expect(streams.publish).toHaveBeenCalled();
+    expect(streams.publish).not.toHaveBeenCalled();
+    expect(db.transaction).toHaveBeenCalledTimes(1);
   });
 
   it('join returns error when session not found', async () => {
@@ -376,7 +403,8 @@ describe('SessionService', () => {
     if (result.ok) {
       expect(result.value.presence).toHaveLength(0);
     }
-    expect(streams.publish).toHaveBeenCalled();
+    expect(streams.publish).not.toHaveBeenCalled();
+    expect(db.transaction).toHaveBeenCalledTimes(2);
   });
 
   it('leave returns error when session not found', async () => {
@@ -419,7 +447,8 @@ describe('SessionService', () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(streams.publish).toHaveBeenCalled();
+    expect(streams.publish).not.toHaveBeenCalled();
+    expect(db.transaction).toHaveBeenCalledTimes(2);
   });
 
   it('updatePresence returns error when session not found', async () => {
@@ -519,8 +548,8 @@ describe('SessionService', () => {
       data: structuredChunkPayload,
     });
 
-    // RS-013: With DB-first persistence, stream publish failure is best-effort.
-    // The publish should still succeed as the event can be recovered from DB.
+    // Live delivery is now relay-backed via event_outbox, so direct stream
+    // publish failures do not affect the service publish path.
     expect(result.ok).toBe(true);
   });
 

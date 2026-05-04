@@ -5,13 +5,14 @@
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { projectFolders } from '../../db/schema/sqlite/project-folders';
-import { teamProjectFolders } from '../../db/schema/sqlite/team-project-folders';
+import { getRuntimeSchemaTables } from '../../db/schema/runtime-tables';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { json, requireTeamRole, validateIdParam } from '../shared';
 import { idSchema, parseJsonBody } from '../validation';
+
+const { projectFolders, teamProjectFolders } = getRuntimeSchemaTables();
 
 interface TeamProjectFoldersDeps {
   db: Database;

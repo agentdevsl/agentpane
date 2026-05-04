@@ -455,6 +455,20 @@ CREATE TABLE IF NOT EXISTS sandbox_tmux_sessions (
     // Column may already exist — idempotent
   }
 
+  // MAY-14: runtime v40 plan_sessions column catch-up for legacy v19 stubs.
+  for (const stmt of [
+    `ALTER TABLE plan_sessions ADD COLUMN turns TEXT DEFAULT '[]'`,
+    `ALTER TABLE plan_sessions ADD COLUMN github_issue_url TEXT`,
+    `ALTER TABLE plan_sessions ADD COLUMN github_issue_number INTEGER`,
+    `ALTER TABLE plan_sessions ADD COLUMN completed_at TEXT`,
+  ]) {
+    try {
+      testSqlite.exec(stmt);
+    } catch {
+      // Column may already exist — idempotent
+    }
+  }
+
   // F02-20 (arch29-W2-Q, runtime v39): api_tokens.scope_codespace_id FK behavior fix.
   // Rebuild api_tokens with ON DELETE SET NULL (was CASCADE in v19). Skip if the
   // table already has the correct behavior (PG mode + fresh installs).

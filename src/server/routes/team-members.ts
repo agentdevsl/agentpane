@@ -4,9 +4,8 @@
 
 import { and, count, eq, gt } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { getRuntimeSchemaTables } from '../../db/schema/runtime-tables';
 import { RBAC_ROLES, type RbacRole } from '../../db/schema/shared/enums';
-import { teamMembers } from '../../db/schema/sqlite/team-members';
-import { users } from '../../db/schema/sqlite/users';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
@@ -18,6 +17,8 @@ import {
   validateIdParam,
 } from '../shared';
 import { addTeamMemberSchema, parseJsonBody, updateTeamMemberSchema } from '../validation';
+
+const { teamMembers, users } = getRuntimeSchemaTables();
 
 interface TeamMembersDeps {
   db: Database;

@@ -4,12 +4,7 @@
 
 import { and, count, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { codespaceTags } from '../../db/schema/sqlite/codespace-tags';
-import { codespaces } from '../../db/schema/sqlite/codespaces';
-import { tags } from '../../db/schema/sqlite/tags';
-import { taskTags } from '../../db/schema/sqlite/task-tags';
-import { tasks } from '../../db/schema/sqlite/tasks';
-import { teamProjectFolders } from '../../db/schema/sqlite/team-project-folders';
+import { getRuntimeSchemaTables } from '../../db/schema/runtime-tables.js';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
@@ -22,6 +17,9 @@ import {
   validateIdParam,
 } from '../shared';
 import { assignTagSchema, createTagSchema, parseJsonBody } from '../validation';
+
+const { codespaceTags, codespaces, tags, taskTags, tasks, teamProjectFolders } =
+  getRuntimeSchemaTables();
 
 const log = createLogger('TagsRoutes');
 

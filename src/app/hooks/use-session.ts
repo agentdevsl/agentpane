@@ -26,6 +26,7 @@ import type {
   StreamCursor,
   StreamEventMetadata,
 } from '@/lib/streams/client';
+import { fetchGapEvents, replayGapEventsToCallbacks } from '@/lib/streams/client';
 import { err, ok, type Result } from '@/lib/utils/result';
 import { useInterval } from './use-interval';
 import { useMountEffect } from './use-mount-effect';
@@ -77,6 +78,25 @@ export type SessionAgentState = {
   progress?: number;
 } | null;
 
+export type GapRecoveryState =
+  | { status: 'idle' }
+  | { status: 'recovering'; fromOffset: number; toOffset: number }
+  | {
+      status: 'recovered';
+      fromOffset: number;
+      toOffset: number;
+      recoveredCount: number;
+      skippedCount: number;
+    }
+  | {
+      status: 'unrecoverable';
+      fromOffset: number;
+      toOffset: number;
+      recoveredCount: number;
+      skippedCount: number;
+      error: string;
+    };
+
 export type SessionState = {
   chunks: SessionChunk[];
   toolCalls: SessionToolCall[];
@@ -93,6 +113,7 @@ export type SessionState = {
    * Consumers can use this as a "before" hint when fetching older events.
    */
   truncatedCount: number;
+  gapRecovery: GapRecoveryState;
 };
 
 type PendingSessionUpdates = {
@@ -118,6 +139,7 @@ function createInitialState(): SessionState {
     agentState: null,
     truncated: false,
     truncatedCount: 0,
+    gapRecovery: { status: 'idle' },
   };
 }
 
@@ -386,9 +408,6 @@ export function useSession(
 
   const stableOnReconnect = useEffectEvent(() => {
     console.log('[useSession] Reconnected to session stream');
-    // Durable stream resume remains the authoritative reconnect mechanism.
-    // The REST gap-healing path stays disabled until opaque stream offsets are
-    // mapped to durable DB offsets without lossy conversion.
   });
 
   const callbacks: SessionCallbacks = {
@@ -463,14 +482,54 @@ export function useSession(
       console.log('[useSession] Disconnected from session stream');
     },
 
-    /**
-     * F05-21: bubble gap-detection events into the console so the UI can
-     * (eventually) call `fetchGapEvents` to back-fill. We don't auto-fetch
-     * here because the offset→cursor mapping uses lossy conversion; a
-     * dedicated REST gap-fill is staged behind a feature flag.
-     */
     onGapDetected: ({ fromOffset, toOffset }) => {
       console.warn(`[useSession] Stream gap detected from offset ${fromOffset} to ${toOffset}`);
+      setState((prev) => ({
+        ...prev,
+        gapRecovery: { status: 'recovering', fromOffset, toOffset },
+      }));
+
+      void (async () => {
+        try {
+          const events = await fetchGapEvents(sessionId, fromOffset, toOffset);
+          const replayResult = replayGapEventsToCallbacks(events, callbacks);
+          const expectedCount = toOffset - fromOffset + 1;
+          const recoveredAll = events.length === expectedCount;
+          setState((prev) => ({
+            ...prev,
+            gapRecovery: recoveredAll
+              ? {
+                  status: 'recovered',
+                  fromOffset,
+                  toOffset,
+                  recoveredCount: replayResult.delivered,
+                  skippedCount: replayResult.skipped,
+                }
+              : {
+                  status: 'unrecoverable',
+                  fromOffset,
+                  toOffset,
+                  recoveredCount: replayResult.delivered,
+                  skippedCount: replayResult.skipped,
+                  error: `Expected ${expectedCount} events but recovered ${events.length}`,
+                },
+          }));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn('[useSession] Gap recovery failed', { error: message });
+          setState((prev) => ({
+            ...prev,
+            gapRecovery: {
+              status: 'unrecoverable',
+              fromOffset,
+              toOffset,
+              recoveredCount: 0,
+              skippedCount: 0,
+              error: message,
+            },
+          }));
+        }
+      })();
     },
 
     /**

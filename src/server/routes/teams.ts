@@ -5,15 +5,8 @@
 import { createId } from '@paralleldrive/cuid2';
 import { and, count, eq, gt, inArray, like, ne } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { getRuntimeSchemaTables } from '../../db/schema/runtime-tables.js';
 import type { RbacRole } from '../../db/schema/shared/enums';
-import { apiTokens } from '../../db/schema/sqlite/api-tokens';
-import { codespaceMembers } from '../../db/schema/sqlite/codespace-members';
-import { githubTokens } from '../../db/schema/sqlite/github';
-import { tags } from '../../db/schema/sqlite/tags';
-import { teamInvitations } from '../../db/schema/sqlite/team-invitations';
-import { teamMembers } from '../../db/schema/sqlite/team-members';
-import { teamProjectFolders } from '../../db/schema/sqlite/team-project-folders';
-import { teams } from '../../db/schema/sqlite/teams';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { slugify } from '../../lib/utils/slugify.js';
 import type { RbacService } from '../../services/rbac.service';
@@ -25,6 +18,17 @@ import {
   transferOwnershipSchema,
   updateTeamSchema,
 } from '../validation';
+
+const {
+  apiTokens,
+  codespaceMembers,
+  githubTokens,
+  tags,
+  teamInvitations,
+  teamMembers,
+  teamProjectFolders,
+  teams,
+} = getRuntimeSchemaTables();
 
 interface TeamsDeps {
   db: Database;

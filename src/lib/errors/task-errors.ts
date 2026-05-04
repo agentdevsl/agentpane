@@ -52,6 +52,11 @@ export const TaskErrors = {
     'Codespace has no GitHub repository linked. Configure a repository in codespace settings before running agents in K8s or Nomad sandbox mode.',
     400
   ),
+  EXECUTION_NOT_READY: createError(
+    'TASK_EXECUTION_NOT_READY',
+    'Agent execution is not ready yet. Wait for sandbox initialization and retry.',
+    503
+  ),
 } as const;
 
 export type TaskError =
@@ -66,4 +71,5 @@ export type TaskError =
   | typeof TaskErrors.AGENT_NOT_RUNNING
   | typeof TaskErrors.AGENT_STOP_FAILED
   | typeof TaskErrors.PLAN_NOT_EXECUTED
-  | typeof TaskErrors.NO_GITHUB_REPO;
+  | typeof TaskErrors.NO_GITHUB_REPO
+  | typeof TaskErrors.EXECUTION_NOT_READY;

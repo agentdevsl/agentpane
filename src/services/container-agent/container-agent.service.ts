@@ -40,6 +40,7 @@ import type { ApiKeyService } from '../api-key.service.js';
 import type { DurableStreamsService } from '../durable-streams.service.js';
 import type { GitHubTokenService } from '../github-token.service.js';
 import type { SkillTrackingService } from '../memory/skill-tracking.service.js';
+import type { SandboxService } from '../sandbox.service.js';
 import type { WorktreeService } from '../worktree.service.js';
 
 import { AgentReviewService } from './agent-review.service.js';
@@ -131,7 +132,8 @@ export class ContainerAgentService {
     apiKeyService: ApiKeyService,
     worktreeService?: WorktreeService,
     githubTokenService?: GitHubTokenService,
-    skillTrackingService?: SkillTrackingService | null
+    skillTrackingService?: SkillTrackingService | null,
+    sandboxService?: Pick<SandboxService, 'getOrCreateForCodespace'>
   ) {
     if (!worktreeService) {
       log.info('WorktreeService not injected -- agents will share workspace');
@@ -145,6 +147,7 @@ export class ContainerAgentService {
       worktreeService,
       githubTokenService,
       skillTrackingService,
+      sandboxService,
     };
 
     // Initialize sub-services
@@ -456,7 +459,8 @@ export function createContainerAgentService(
   apiKeyService: ApiKeyService,
   worktreeService?: WorktreeService,
   githubTokenService?: GitHubTokenService,
-  skillTrackingService?: SkillTrackingService | null
+  skillTrackingService?: SkillTrackingService | null,
+  sandboxService?: Pick<SandboxService, 'getOrCreateForCodespace'>
 ): ContainerAgentService {
   return new ContainerAgentService(
     db,
@@ -465,6 +469,7 @@ export function createContainerAgentService(
     apiKeyService,
     worktreeService,
     githubTokenService,
-    skillTrackingService
+    skillTrackingService,
+    sandboxService
   );
 }

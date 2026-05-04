@@ -9,7 +9,7 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { Octokit } from 'octokit';
 import { z } from 'zod';
-import { githubTokens } from '../../db/schema/sqlite/github.js';
+import { getRuntimeSchemaTables } from '../../db/schema/runtime-tables.js';
 import type { AuthContext } from '../../lib/api/auth-middleware.js';
 import {
   decryptToken,
@@ -24,6 +24,7 @@ import { json, requireTeamRole, validateIdParam } from '../shared.js';
 import { parseJsonBody } from '../validation.js';
 
 const log = createLogger('TeamGitHubTokenRoutes');
+const { githubTokens } = getRuntimeSchemaTables();
 
 interface TeamGitHubTokenDeps {
   db: Database;

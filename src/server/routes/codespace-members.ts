@@ -8,8 +8,7 @@
 
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { codespaceMembers } from '../../db/schema/sqlite/codespace-members';
-import { users } from '../../db/schema/sqlite/users';
+import { getRuntimeSchemaTables } from '../../db/schema/runtime-tables.js';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
@@ -19,6 +18,8 @@ import {
   parseJsonBody,
   updateCodespaceMemberSchema,
 } from '../validation';
+
+const { codespaceMembers, users } = getRuntimeSchemaTables();
 
 interface CodespaceMembersDeps {
   db: Database;

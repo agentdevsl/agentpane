@@ -298,8 +298,10 @@ export const SandboxErrors = {
   /**
    * F06-NEW-02 (P0) / arch29-W1-E — Multi-tenant gate violation.
    *
-   * Thrown when `MULTI_TENANT=true` is set in the environment but the
-   * resolved sandbox mode is `shared`. Shared sandbox mode uses a single
+   * Thrown when multi-tenant sandbox enforcement is active but the resolved
+   * sandbox mode is `shared`. Enforcement is active when `MULTI_TENANT=true`
+   * is set or the local database already has multiple team/user boundaries.
+   * Shared sandbox mode uses a single
    * Anthropic OAuth credentials file at `~/.claude/.credentials.json` and
    * a single `/workspace` bind mount inside one container — every tenant
    * agent could read every other tenant's secrets. The full multi-tenant
@@ -307,13 +309,13 @@ export const SandboxErrors = {
    * fail-safe.
    *
    * Resolution: configure per-codespace sandbox mode (`sandbox.mode =
-   * 'per-project'` setting) or unset `MULTI_TENANT`. Self-hosted single-
-   * team installs should not set `MULTI_TENANT=true`.
+   * 'per-project'` setting). Self-hosted single-team installs can keep shared
+   * mode only while they have a single tenant boundary.
    */
   MULTI_TENANT_REQUIRES_PER_PROJECT_SANDBOX: (codespaceId?: string) =>
     createError(
       'MULTI_TENANT_REQUIRES_PER_PROJECT_SANDBOX',
-      'MULTI_TENANT=true is set but sandbox mode is "shared". Shared sandbox mode is forbidden in multi-tenant deployments because all tenant agents would share a single Anthropic OAuth credentials file. Configure per-codespace sandboxes (sandbox.mode = "per-project") or unset MULTI_TENANT.',
+      'Multi-tenant sandbox enforcement is active but sandbox mode is "shared". Shared sandbox mode is forbidden in multi-tenant deployments because all tenant agents would share a single Anthropic OAuth credentials file. Configure per-codespace sandboxes (sandbox.mode = "per-project").',
       500,
       codespaceId ? { codespaceId } : undefined
     ),

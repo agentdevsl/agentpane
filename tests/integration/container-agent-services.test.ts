@@ -139,8 +139,7 @@ describe('Shared Helpers — updateTaskOnAgentError (IT-302)', () => {
     expect(dbTask?.agentId).toBeNull();
     expect(dbTask?.sessionId).toBe(session.id); // Preserved for UI error context
     expect(dbTask?.lastAgentStatus).toBe('error');
-    // Column stays in_progress after error
-    expect(dbTask?.column).toBe('in_progress');
+    expect(dbTask?.column).toBe('waiting_approval');
   });
 
   it('IT-302b: returns false when task is not in_progress', async () => {
@@ -1368,8 +1367,8 @@ describe('AgentCoreBridgeService — DB-level state (IT-307)', () => {
 
     const dbTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
     expect(dbTask?.lastAgentStatus).toBe('error');
+    expect(dbTask?.column).toBe('waiting_approval');
     expect(dbTask?.agentId).toBeNull();
-    expect(dbTask?.column).toBe('in_progress'); // stays in_progress
 
     const dbAgent = await db.query.agents.findFirst({
       where: eq(agents.id, `agent-${task.id}`),

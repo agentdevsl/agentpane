@@ -5,14 +5,14 @@
 import { randomBytes } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { teamInvitations } from '../../db/schema/sqlite/team-invitations';
-import { teamMembers } from '../../db/schema/sqlite/team-members';
-import { users } from '../../db/schema/sqlite/users';
+import { getRuntimeSchemaTables } from '../../db/schema/runtime-tables';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { hashToken, json, requireTeamRole, validateIdParam } from '../shared';
 import { createInvitationSchema, parseJsonBody } from '../validation';
+
+const { teamInvitations, teamMembers, users } = getRuntimeSchemaTables();
 
 interface InvitationsDeps {
   db: Database;

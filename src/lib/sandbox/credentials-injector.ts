@@ -62,7 +62,30 @@ export interface InjectionContext {
  */
 async function assertInjectionAllowed(ctx: InjectionContext): Promise<Result<void, SandboxError>> {
   const env = ctx.env ?? process.env;
-  if (!isMultiTenantEnabled(env)) return ok(undefined);
+  if (!isMultiTenantEnabled(env)) {
+    try {
+      const [teamRows, userRows] = await Promise.all([
+        ctx.db.query.teams.findMany({ limit: 2 }),
+        ctx.db.query.users.findMany({ limit: 2 }),
+      ]);
+      if (teamRows.length <= 1 && userRows.length <= 1) {
+        return ok(undefined);
+      }
+    } catch (readErr) {
+      log.warn(
+        'Failed to infer tenant boundary count for credentials injection; refusing to inject credentials',
+        {
+          data: { error: readErr instanceof Error ? readErr.message : String(readErr) },
+        }
+      );
+      return err(
+        SandboxErrors.CREDENTIALS_INJECTION_FAILED(
+          'Failed to verify tenant boundary count',
+          readErr
+        )
+      );
+    }
+  }
   let mode: 'shared' | 'per-project' = 'shared';
   try {
     const row = await ctx.db.query.settings.findFirst({

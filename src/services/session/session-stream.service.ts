@@ -17,10 +17,9 @@ import { createId } from '@paralleldrive/cuid2';
 import { and, desc, eq, gt, gte, lt, lte, sql } from 'drizzle-orm';
 import type { NewSessionSummary, SessionSummary } from '../../db/schema';
 import { sessionEvents, sessionSummaries, sessions } from '../../db/schema';
-import { runRaw } from '../../lib/db/dialect.js';
+import { getDbDialect, runRaw } from '../../lib/db/dialect.js';
 import type { SessionError } from '../../lib/errors/session-errors.js';
 import { SessionErrors } from '../../lib/errors/session-errors.js';
-import { createLogger } from '../../lib/logging/logger.js';
 import {
   requirePayloadStreamMetadata,
   STREAM_PROTOCOL_MIGRATION_GATE,
@@ -28,6 +27,7 @@ import {
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
+import { enqueueOutboxEvent, enqueueOutboxEventSync } from '../event-outbox-relay.service.js';
 import type {
   DurableStreamsServer,
   GetEventsBySessionOptions,
@@ -36,8 +36,6 @@ import type {
   SessionEventType,
   SubscribeOptions,
 } from './types.js';
-
-const log = createLogger('SessionStreamService');
 
 /**
  * SessionStreamService handles event streaming and persistence
@@ -141,10 +139,9 @@ export class SessionStreamService {
   }
 
   /**
-   * RS-013: DB-first persistence strategy.
-   * Events are persisted to the database FIRST (awaited), then published to the
-   * real-time stream. This ensures events are durable before being sent to live
-   * subscribers, matching the pattern used in DurableStreamsService.publish().
+   * Events are persisted with an outbox row in the same transaction. The
+   * outbox relay owns live delivery, so session events use the same durable
+   * publish pipeline as the app-level stream service.
    */
   async publish(
     sessionId: string,
@@ -156,26 +153,12 @@ export class SessionStreamService {
     }
 
     try {
-      // RS-013: Persist to database FIRST to ensure durability
-      const persistResult = await this.persistEvent(sessionId, event);
+      const persistResult = await this.persistEventAndOutbox(sessionId, event);
       if (!persistResult.ok) {
-        // Still attempt real-time delivery even if DB persistence fails
+        return err(persistResult.error);
       }
 
-      // THEN publish to real-time stream (for live subscribers)
-      // This is best-effort: if DB persistence succeeded, the event is durable
-      // and clients can hydrate from the database on refresh.
-      let offset = persistResult.ok ? persistResult.value.offset : 0;
-      try {
-        offset = await this.streams.publish(sessionId, event.type, event.data);
-      } catch (streamErr) {
-        log.debug('Stream publish failed (event persisted in DB)', {
-          error: streamErr instanceof Error ? streamErr.message : String(streamErr),
-          data: { sessionId, eventType: event.type },
-        });
-      }
-
-      return ok({ offset });
+      return ok({ offset: persistResult.value.offset });
     } catch (error) {
       return err(SessionErrors.SYNC_FAILED(String(error)));
     }
@@ -216,6 +199,21 @@ export class SessionStreamService {
   async persistEvent(
     sessionId: string,
     event: SessionEvent
+  ): Promise<Result<{ id: string; offset: number }, SessionError>> {
+    return this.persistEventInternal(sessionId, event, false);
+  }
+
+  private async persistEventAndOutbox(
+    sessionId: string,
+    event: SessionEvent
+  ): Promise<Result<{ id: string; offset: number }, SessionError>> {
+    return this.persistEventInternal(sessionId, event, true);
+  }
+
+  private async persistEventInternal(
+    sessionId: string,
+    event: SessionEvent,
+    enqueueForLiveDelivery: boolean
   ): Promise<Result<{ id: string; offset: number }, SessionError>> {
     const validationResult = this.validateStructuredSessionEventForStream(sessionId, event);
     if (!validationResult.ok) {
@@ -261,30 +259,75 @@ export class SessionStreamService {
                 : sessionId.startsWith('topology:')
                   ? 'topology'
                   : 'session';
-      await runRaw(
-        this.db,
-        sql`INSERT INTO session_events (id, session_id, stream_kind, "offset", type, channel, data, timestamp, created_at)
-            SELECT ${eventId}, ${sessionId}, ${streamKind},
-                   COALESCE(MAX("offset"), -1) + 1,
-                   ${event.type}, ${channel}, ${JSON.stringify(event.data)},
-                   ${event.timestamp}, ${createdAtIso}
-            FROM session_events
-            WHERE session_id = ${sessionId}`
-      );
+      const insertSql = sql`INSERT INTO session_events (id, session_id, stream_kind, "offset", type, channel, data, timestamp, created_at)
+          SELECT ${eventId}, ${sessionId}, ${streamKind},
+                 COALESCE(MAX("offset"), -1) + 1,
+                 ${event.type}, ${channel}, ${JSON.stringify(event.data)},
+                 ${event.timestamp}, ${createdAtIso}
+          FROM session_events
+          WHERE session_id = ${sessionId}`;
 
-      // Retrieve the inserted offset
-      const inserted = await this.db.query.sessionEvents.findFirst({
-        where: eq(sessionEvents.id, eventId),
-      });
+      const inserted =
+        getDbDialect() === 'sqlite'
+          ? this.db.transaction((tx) => {
+              const transactionalDb = tx as Database;
+              (
+                transactionalDb as unknown as {
+                  run: (query: typeof insertSql) => { changes: number };
+                }
+              ).run(insertSql);
 
-      if (!inserted) {
-        return err(SessionErrors.SYNC_FAILED('Failed to persist event'));
-      }
+              const [persisted] = transactionalDb
+                .select()
+                .from(sessionEvents)
+                .where(eq(sessionEvents.id, eventId))
+                .limit(1)
+                .all() as Array<typeof sessionEvents.$inferSelect>;
 
-      // Update session summary with new offset
-      await this.updateSessionSummaryOffset(sessionId, inserted.offset);
+              if (!persisted) {
+                throw new Error('Failed to persist event');
+              }
 
-      return ok({ id: inserted.id, offset: inserted.offset });
+              this.updateSessionSummaryOffsetSync(sessionId, persisted.offset, transactionalDb);
+
+              if (enqueueForLiveDelivery) {
+                enqueueOutboxEventSync(transactionalDb, {
+                  streamId: sessionId,
+                  type: event.type,
+                  payload: event.data,
+                });
+              }
+
+              return { id: persisted.id, offset: persisted.offset };
+            })
+          : await this.db.transaction(async (tx) => {
+              const transactionalDb = tx as Database;
+              await runRaw(transactionalDb, insertSql);
+
+              const [persisted] = await transactionalDb
+                .select()
+                .from(sessionEvents)
+                .where(eq(sessionEvents.id, eventId))
+                .limit(1);
+
+              if (!persisted) {
+                throw new Error('Failed to persist event');
+              }
+
+              await this.updateSessionSummaryOffset(sessionId, persisted.offset, transactionalDb);
+
+              if (enqueueForLiveDelivery) {
+                await enqueueOutboxEvent(transactionalDb, {
+                  streamId: sessionId,
+                  type: event.type,
+                  payload: event.data,
+                });
+              }
+
+              return { id: persisted.id, offset: persisted.offset };
+            });
+
+      return ok(inserted);
     } catch (error) {
       return err(SessionErrors.SYNC_FAILED(String(error)));
     }
@@ -334,6 +377,7 @@ export class SessionStreamService {
             type: e.type as SessionEventType,
             timestamp: e.timestamp,
             data: e.data,
+            offset: e.offset,
           }))
         );
       }
@@ -359,6 +403,7 @@ export class SessionStreamService {
             type: e.type as SessionEventType,
             timestamp: e.timestamp,
             data: e.data,
+            offset: e.offset,
           }))
         );
       }
@@ -380,6 +425,7 @@ export class SessionStreamService {
             type: e.type as SessionEventType,
             timestamp: e.timestamp,
             data: e.data,
+            offset: e.offset,
           }))
         );
       }
@@ -398,6 +444,7 @@ export class SessionStreamService {
           type: e.type as SessionEventType,
           timestamp: e.timestamp,
           data: e.data,
+          offset: e.offset,
         }))
       );
     } catch (error) {
@@ -528,20 +575,41 @@ export class SessionStreamService {
   /**
    * Update session summary offset tracking
    */
-  private async updateSessionSummaryOffset(sessionId: string, _offset: number): Promise<void> {
-    const existing = await this.db.query.sessionSummaries.findFirst({
-      where: eq(sessionSummaries.sessionId, sessionId),
-    });
-
-    if (existing) {
-      await this.db
-        .update(sessionSummaries)
-        .set({ updatedAt: new Date().toISOString() })
-        .where(eq(sessionSummaries.sessionId, sessionId));
-    } else {
-      await this.db.insert(sessionSummaries).values({
+  private async updateSessionSummaryOffset(
+    sessionId: string,
+    _offset: number,
+    db: Database = this.db
+  ): Promise<void> {
+    await db
+      .insert(sessionSummaries)
+      .values({
         sessionId,
+        updatedAt: new Date().toISOString(),
+      })
+      .onConflictDoUpdate({
+        target: sessionSummaries.sessionId,
+        set: {
+          updatedAt: new Date().toISOString(),
+        },
       });
-    }
+  }
+
+  private updateSessionSummaryOffsetSync(
+    sessionId: string,
+    _offset: number,
+    db: Database = this.db
+  ): void {
+    db.insert(sessionSummaries)
+      .values({
+        sessionId,
+        updatedAt: new Date().toISOString(),
+      })
+      .onConflictDoUpdate({
+        target: sessionSummaries.sessionId,
+        set: {
+          updatedAt: new Date().toISOString(),
+        },
+      })
+      .run();
   }
 }

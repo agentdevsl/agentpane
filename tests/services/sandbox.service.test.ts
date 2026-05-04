@@ -10,7 +10,7 @@ import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../
 const SANDBOX_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS "sandbox_instances" (
   "id" TEXT PRIMARY KEY NOT NULL,
-  "codespace_id" TEXT NOT NULL UNIQUE,
+  "codespace_id" TEXT NOT NULL,
   "container_id" TEXT NOT NULL,
   "status" TEXT DEFAULT 'stopped' NOT NULL,
   "image" TEXT NOT NULL,
@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS "sandbox_instances" (
   "stopped_at" TEXT,
   "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS sandbox_instances_codespace_active_unique
+  ON sandbox_instances(codespace_id)
+  WHERE status IN ('creating', 'running', 'idle', 'stopping');
 
 CREATE TABLE IF NOT EXISTS "sandbox_tmux_sessions" (
   "id" TEXT PRIMARY KEY NOT NULL,
@@ -254,6 +258,81 @@ describe('SandboxService', () => {
         'sandbox:error',
         expect.objectContaining({ codespaceId: 'project-123' })
       );
+    });
+
+    it('reserves an active DB row before provider provisioning', async () => {
+      const db = getTestDb();
+      (mockProvider.create as ReturnType<typeof vi.fn>).mockImplementation(
+        async (cfg: SandboxConfig) => {
+          const sandboxId = cfg.id ?? 'sandbox-123';
+          const row = await db.query.sandboxInstances.findFirst({
+            where: (table, { eq }) => eq(table.id, sandboxId),
+          });
+          expect(row).toMatchObject({
+            id: sandboxId,
+            codespaceId: cfg.codespaceId,
+            status: 'creating',
+            containerId: `pending:${sandboxId}`,
+          });
+          return createMockSandbox({
+            id: sandboxId,
+            codespaceId: cfg.codespaceId,
+            containerId: 'container-reserved',
+          });
+        }
+      );
+
+      const result = await service.create({
+        codespaceId: 'project-123',
+        codespacePath: '/path/to/project',
+        image: 'test-image:latest',
+        memoryMb: 4096,
+        cpuCores: 2,
+        idleTimeoutMinutes: 30,
+        volumeMounts: [],
+      });
+
+      expect(result.ok).toBe(true);
+      const row = await db.query.sandboxInstances.findFirst({
+        where: (table, { eq }) => eq(table.codespaceId, 'project-123'),
+      });
+      expect(row).toMatchObject({
+        status: 'running',
+        containerId: 'container-reserved',
+      });
+    });
+
+    it('does not call provider provisioning when an active sandbox row already exists', async () => {
+      const db = getTestDb();
+      const { sandboxInstances } = await import('../../src/db/schema');
+      await db.insert(sandboxInstances).values({
+        id: 'existing-active',
+        codespaceId: 'project-123',
+        containerId: 'container-existing',
+        status: 'running',
+        image: 'test-image:latest',
+        memoryMb: 4096,
+        cpuCores: 2,
+        idleTimeoutMinutes: 30,
+        volumeMounts: [],
+      });
+
+      const result = await service.create({
+        codespaceId: 'project-123',
+        codespacePath: '/path/to/project',
+        image: 'test-image:latest',
+        memoryMb: 4096,
+        cpuCores: 2,
+        idleTimeoutMinutes: 30,
+        volumeMounts: [],
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('SANDBOX_CONTAINER_ALREADY_EXISTS');
+      }
+      expect(mockProvider.isImageAvailable).not.toHaveBeenCalled();
+      expect(mockProvider.create).not.toHaveBeenCalled();
     });
 
     it('returns error with code when provider throws coded error', async () => {

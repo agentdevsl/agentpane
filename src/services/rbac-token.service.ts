@@ -9,9 +9,8 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { and, count, eq, inArray, ne } from 'drizzle-orm';
+import { getRuntimeSchemaTables } from '../db/schema/runtime-tables.js';
 import type { ApiTokenStatus, RbacRole } from '../db/schema/shared/enums';
-import { apiTokens } from '../db/schema/sqlite/api-tokens';
-import { tags } from '../db/schema/sqlite/tags';
 import type { AppError } from '../lib/errors/base';
 import { createError } from '../lib/errors/base';
 import { createLogger } from '../lib/logging/logger';
@@ -20,6 +19,7 @@ import { err, ok } from '../lib/utils/result';
 import type { Database } from '../types/database';
 
 const log = createLogger('RbacTokenService');
+const { apiTokens, tags } = getRuntimeSchemaTables();
 
 /** Token format: ap_ + 32 bytes base64url */
 const TOKEN_PREFIX = 'ap_';

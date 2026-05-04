@@ -423,6 +423,14 @@ export interface RawSessionEvent {
   meta?: StreamEventMetadata;
 }
 
+export type GapFillEvent = {
+  id: string;
+  type: string;
+  timestamp: number;
+  data: unknown;
+  offset?: number;
+};
+
 type TypedSessionEventMetadata = {
   offset?: number;
   cursor?: StreamCursor;
@@ -1495,6 +1503,35 @@ function routeEventToCallback(event: TypedSessionEvent, callbacks: SessionCallba
   }
 }
 
+export function replayGapEventsToCallbacks(
+  events: GapFillEvent[],
+  callbacks: SessionCallbacks
+): { delivered: number; skipped: number } {
+  let delivered = 0;
+  let skipped = 0;
+
+  for (const event of events) {
+    const rawEvent: RawSessionEvent = {
+      type: event.type as SessionEventType,
+      data: event.data,
+      timestamp: event.timestamp,
+      offset: event.offset,
+      cursor: event.offset === undefined ? undefined : String(event.offset),
+      meta: extractPayloadMeta(event.data),
+    };
+    const typedEvent = mapRawEventToTyped(rawEvent);
+    if (!typedEvent) {
+      skipped += 1;
+      continue;
+    }
+
+    routeEventToCallback(typedEvent, callbacks);
+    delivered += 1;
+  }
+
+  return { delivered, skipped };
+}
+
 /**
  * F05-06: fetch a contiguous range of missed events from the REST API.
  * Called from `onGapDetected` after a reconnect observes a gap.
@@ -1506,7 +1543,7 @@ export async function fetchGapEvents(
   fromOffset: number,
   toOffset: number,
   options?: { signal?: AbortSignal; fetchImpl?: typeof fetch }
-): Promise<Array<{ id: string; type: string; timestamp: number; data: unknown }>> {
+): Promise<GapFillEvent[]> {
   const impl = options?.fetchImpl ?? fetch;
   const params = new URLSearchParams({
     fromOffset: String(fromOffset),
@@ -1523,7 +1560,7 @@ export async function fetchGapEvents(
   if (!body.ok || !Array.isArray(body.data)) {
     throw new Error('Gap-fill fetch returned malformed body');
   }
-  return body.data as Array<{ id: string; type: string; timestamp: number; data: unknown }>;
+  return body.data as GapFillEvent[];
 }
 
 /**

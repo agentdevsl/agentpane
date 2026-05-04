@@ -727,4 +727,21 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_team ON api_tokens(team_id);
 CREATE INDEX IF NOT EXISTS idx_api_tokens_status ON api_tokens(status);
 `,
   },
+
+  // 40. MAY-14: backfill legacy plan_sessions columns.
+  //
+  // The v19 project-folder migration can create a compatibility stub with
+  // only the legacy identifiers and timestamps. Current Drizzle declares
+  // turns, GitHub issue linkage, and completed_at; add those columns so
+  // upgraded SQLite databases match the runtime schema.
+  {
+    version: 40,
+    name: 'plan-sessions-column-catchup',
+    statements: [
+      `ALTER TABLE plan_sessions ADD COLUMN turns TEXT DEFAULT '[]'`,
+      `ALTER TABLE plan_sessions ADD COLUMN github_issue_url TEXT`,
+      `ALTER TABLE plan_sessions ADD COLUMN github_issue_number INTEGER`,
+      `ALTER TABLE plan_sessions ADD COLUMN completed_at TEXT`,
+    ],
+  },
 ];

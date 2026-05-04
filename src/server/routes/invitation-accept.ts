@@ -4,12 +4,12 @@
 
 import { and, eq, gt } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { teamInvitations } from '../../db/schema/sqlite/team-invitations';
-import { teamMembers } from '../../db/schema/sqlite/team-members';
-import { teams } from '../../db/schema/sqlite/teams';
+import { getRuntimeSchemaTables } from '../../db/schema/runtime-tables.js';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import type { Database } from '../../types/database';
 import { hashToken, json, validateIdParam } from '../shared';
+
+const { teamInvitations, teamMembers, teams } = getRuntimeSchemaTables();
 
 interface InvitationAcceptDeps {
   db: Database;

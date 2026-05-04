@@ -207,7 +207,7 @@ describe('TaskService Container Agent Trigger', () => {
       }
     });
 
-    it('does not trigger agent when no container agent service is configured', async () => {
+    it('returns retryable readiness error when no container agent service is configured', async () => {
       // Create a new TaskService without container agent service
       const db = getTestDb();
       const taskServiceWithoutAgent = new TaskService(db as never, mockWorktreeService);
@@ -226,10 +226,9 @@ describe('TaskService Container Agent Trigger', () => {
 
       const result = await taskServiceWithoutAgent.moveColumn(task.id, 'in_progress');
 
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.task.column).toBe('in_progress');
-        expect(result.value.agentError).toBeUndefined();
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('TASK_EXECUTION_NOT_READY');
       }
     });
 

@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStreamPayloadWithMetadata } from '../../src/services/session/event-metadata';
 import type {
@@ -393,7 +394,7 @@ describe('SessionService', () => {
   // =============================================================================
 
   describe('Event Publishing', () => {
-    it('publishes event to stream', async () => {
+    it('publishes event through the outbox', async () => {
       const project = await createTestProject();
       const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
@@ -410,10 +411,19 @@ describe('SessionService', () => {
       const result = await sessionService.publish(sessionId, event);
 
       expect(result.ok).toBe(true);
-      expect(mockStreams.publish).toHaveBeenCalledWith(sessionId, 'chunk', event.data);
+      expect(mockStreams.publish).not.toHaveBeenCalled();
+
+      const { eventOutbox } = await import('../../src/db/schema/sqlite/event-outbox.js');
+      const outboxRows = await db
+        .select()
+        .from(eventOutbox)
+        .where(eq(eventOutbox.streamId, sessionId));
+      expect(outboxRows).toHaveLength(1);
+      expect(outboxRows[0]?.type).toBe('chunk');
+      expect(outboxRows[0]?.status).toBe('pending');
     });
 
-    it('succeeds even when stream publish fails (RS-013: DB-first, stream is best-effort)', async () => {
+    it('succeeds without directly publishing to the stream', async () => {
       const project = await createTestProject();
       const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
@@ -431,9 +441,8 @@ describe('SessionService', () => {
 
       const result = await sessionService.publish(sessionId, event);
 
-      // RS-013: With DB-first persistence, stream publish failure is best-effort.
-      // The publish should still succeed as the event is persisted to DB.
       expect(result.ok).toBe(true);
+      expect(mockStreams.publish).not.toHaveBeenCalled();
     });
 
     it('publishes tool:start event', async () => {
@@ -459,7 +468,7 @@ describe('SessionService', () => {
       const result = await sessionService.publish(sessionId, event);
 
       expect(result.ok).toBe(true);
-      expect(mockStreams.publish).toHaveBeenCalledWith(sessionId, 'tool:start', event.data);
+      expect(mockStreams.publish).not.toHaveBeenCalled();
     });
 
     it('publishes terminal:output event', async () => {
@@ -479,7 +488,7 @@ describe('SessionService', () => {
       const result = await sessionService.publish(sessionId, event);
 
       expect(result.ok).toBe(true);
-      expect(mockStreams.publish).toHaveBeenCalledWith(sessionId, 'terminal:output', event.data);
+      expect(mockStreams.publish).not.toHaveBeenCalled();
     });
   });
 

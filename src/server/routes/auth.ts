@@ -6,11 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { createId } from '@paralleldrive/cuid2';
 import { eq, lt } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { planSessions } from '../../db/schema/sqlite/plan-sessions';
-import { sandboxInstances } from '../../db/schema/sqlite/sandboxes';
-import { sessions } from '../../db/schema/sqlite/sessions';
-import { userSessions } from '../../db/schema/sqlite/user-sessions';
-import { users } from '../../db/schema/sqlite/users';
+import { getRuntimeSchemaTables } from '../../db/schema/runtime-tables.js';
 import { type AuthContext, SESSION_COOKIE_NAME } from '../../lib/api/auth-middleware.js';
 import { isDevAuthAllowed } from '../../lib/api/dev-auth.js';
 import { createLogger } from '../../lib/logging/logger';
@@ -19,6 +15,7 @@ import type { Database } from '../../types/database';
 import { hashToken, json, requireQueryParam } from '../shared';
 
 const log = createLogger('AuthRoutes');
+const { planSessions, sandboxInstances, sessions, userSessions, users } = getRuntimeSchemaTables();
 const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 interface AuthDeps {

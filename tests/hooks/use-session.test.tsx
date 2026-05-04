@@ -116,4 +116,72 @@ describe('useSession', () => {
       output: 'ok',
     });
   });
+
+  it('recovers a detected stream gap through the REST gap-fill path', async () => {
+    const fetchMock = vi.fn(async (url: string | URL, _init?: RequestInit) => {
+      const urlText = typeof url === 'string' ? url : url.toString();
+      if (urlText.includes('/events')) {
+        expect(urlText).toContain('fromOffset=3');
+        expect(urlText).toContain('toOffset=3');
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            ok: true,
+            data: [
+              {
+                id: 'evt-gap-3',
+                type: 'chunk',
+                timestamp: 30,
+                offset: 3,
+                data: {
+                  text: 'missed',
+                  agentId: 'agent-1',
+                  meta: {
+                    schemaVersion: 1,
+                    eventId: 'evt-gap-3',
+                    streamId: 'session-3',
+                    blockId: 'block-3',
+                    partType: 'chunk_end',
+                    durability: 'durable',
+                    sequence: null,
+                    createdAt: '2026-05-04T00:00:00.000Z',
+                  },
+                },
+              },
+            ],
+          }),
+        } as Response;
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ ok: true }),
+      } as Response;
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { result } = renderHook(() => useSession('session-3', 'user-1'));
+
+    await waitFor(() => {
+      expect(latestCallbacks).not.toBeNull();
+    });
+
+    act(() => {
+      latestCallbacks?.onGapDetected?.({ fromOffset: 3, toOffset: 3 });
+    });
+
+    await waitFor(() => {
+      expect(result.current.state.chunks).toHaveLength(1);
+    });
+
+    expect(result.current.state.chunks[0]?.text).toBe('missed');
+    expect(result.current.state.gapRecovery).toMatchObject({
+      status: 'recovered',
+      fromOffset: 3,
+      toOffset: 3,
+      recoveredCount: 1,
+    });
+  });
 });

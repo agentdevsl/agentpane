@@ -342,7 +342,7 @@ describe('DurableStreamsService', () => {
   // ============================================
 
   describe('publishSessionEvent', () => {
-    it('publishes a session event and persists to DB', async () => {
+    it('enqueues a session event through the outbox and persists to DB', async () => {
       const event = {
         id: 'evt-1',
         type: 'chunk' as const,
@@ -364,18 +364,7 @@ describe('DurableStreamsService', () => {
 
       await service.publishSessionEvent(sessionId, event);
 
-      expect(mockServer.publish).toHaveBeenCalledWith(
-        sessionId,
-        'chunk',
-        expect.objectContaining({
-          text: 'hello',
-          meta: expect.objectContaining({
-            schemaVersion: 1,
-            eventId: 'evt-1',
-            streamId: sessionId,
-          }),
-        })
-      );
+      expect(mockServer.publish).not.toHaveBeenCalled();
 
       const db = getTestDb();
       const events = await db.query.sessionEvents.findMany({
@@ -384,6 +373,15 @@ describe('DurableStreamsService', () => {
       expect(events).toHaveLength(1);
       expect(events[0]?.type).toBe('chunk');
       expect(events[0]?.channel).toBe('session');
+
+      const { eventOutbox } = await import('../../src/db/schema/sqlite/event-outbox.js');
+      const outboxRows = await db
+        .select()
+        .from(eventOutbox)
+        .where(eq(eventOutbox.streamId, sessionId));
+      expect(outboxRows).toHaveLength(1);
+      expect(outboxRows[0]?.type).toBe('chunk');
+      expect(outboxRows[0]?.status).toBe('pending');
     });
 
     it('returns error when streamId is empty', async () => {
@@ -420,7 +418,7 @@ describe('DurableStreamsService', () => {
       });
       const svc = new DurableStreamsService(failServer, getTestDb() as any);
 
-      // Should succeed (caddy failure is best-effort)
+      // Should succeed because live delivery is relay-backed via event_outbox.
       const result = await svc.publishSessionEvent(sessionId, {
         id: 'evt-2',
         type: 'tool:start',

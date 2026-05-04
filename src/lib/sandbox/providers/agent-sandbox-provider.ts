@@ -225,6 +225,39 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     }
   }
 
+  /**
+   * Best-effort rollback for a default-deny policy created before the Sandbox
+   * CRD. Network isolation must exist before the pod can become live, but if
+   * CRD creation then fails we should not leave an orphaned policy behind.
+   */
+  private async deleteDefaultDenyNetworkPolicy(sandboxName: string): Promise<void> {
+    const policyName = `np-${sandboxName}`;
+    try {
+      const k8s = await import('@kubernetes/client-node');
+      const networkingApi = this.client.kubeConfig.makeApiClient(k8s.NetworkingV1Api);
+      await networkingApi.deleteNamespacedNetworkPolicy({
+        namespace: this.namespace,
+        name: policyName,
+      });
+      log.info('Rolled back default-deny NetworkPolicy for failed sandbox create', {
+        data: { policyName, namespace: this.namespace },
+      });
+    } catch (error) {
+      const status =
+        (error as { code?: number; statusCode?: number; status?: number }).code ??
+        (error as { statusCode?: number }).statusCode ??
+        (error as { status?: number }).status;
+      if (status === 404) return;
+      log.warn('Failed to rollback default-deny NetworkPolicy after sandbox create failure', {
+        data: {
+          policyName,
+          namespace: this.namespace,
+          error: errorMessage(error),
+        },
+      });
+    }
+  }
+
   // --- SandboxProvider interface ---
 
   private creatingCodespaces = new Set<string>();
@@ -244,6 +277,8 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     if (this.creatingCodespaces.has(config.codespaceId)) {
       throw K8sErrors.POD_ALREADY_EXISTS(config.codespaceId);
     }
+
+    await this.assertNoClusterSandboxForCodespace(config.codespaceId);
     this.creatingCodespaces.add(config.codespaceId);
 
     const sandboxId = config.id ?? createId();
@@ -258,6 +293,8 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       codespaceId: config.codespaceId,
     });
 
+    let sandboxCreated = false;
+    let networkPolicyCreated = false;
     try {
       // Build the Sandbox CRD manifest using SandboxBuilder from the SDK.
       const builder = new SandboxBuilder(sandboxName)
@@ -283,17 +320,19 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       ).toISOString();
       builder.shutdownTime(shutdownTime);
 
+      // MAY-02: create network isolation before the Sandbox CRD so the
+      // controller never has a chance to start a pod without the default-deny
+      // policy in place. If sandbox creation fails below, rollback this policy
+      // best-effort in the catch block.
+      if (this.enforceNetworkIsolation) {
+        await this.createDefaultDenyNetworkPolicy(sandboxId, sandboxName);
+        networkPolicyCreated = true;
+      }
+
       // Apply the CRD manifest to the cluster
       const manifest = builder.build();
       await this.client.createSandbox(manifest);
-
-      // arch29-W2-J / F04-09: when network isolation is requested via
-      // `SANDBOX_DEFAULT_NETWORK_MODE=none`, emit a default-deny NetworkPolicy
-      // selecting this sandbox by label *before* the pod becomes Ready, so the
-      // workload never has unrestricted network access during startup.
-      if (this.enforceNetworkIsolation) {
-        await this.createDefaultDenyNetworkPolicy(sandboxId, sandboxName);
-      }
+      sandboxCreated = true;
 
       // Wait for the sandbox to reach Ready status.
       // The CRD controller creates the pod, sets up networking, and reports Ready.
@@ -329,6 +368,18 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       return instance;
     } catch (error) {
       const message = errorMessage(error);
+      if (sandboxCreated) {
+        try {
+          await this.client.deleteSandbox(sandboxName, this.namespace);
+        } catch (deleteErr) {
+          log.warn('Failed to rollback Sandbox CRD after create failure', {
+            data: { sandboxName, namespace: this.namespace, error: errorMessage(deleteErr) },
+          });
+        }
+      }
+      if (networkPolicyCreated) {
+        await this.deleteDefaultDenyNetworkPolicy(sandboxName);
+      }
       this.emit({
         type: 'sandbox:error',
         sandboxId,
@@ -338,6 +389,33 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     } finally {
       this.creatingCodespaces.delete(config.codespaceId);
     }
+  }
+
+  private async assertNoClusterSandboxForCodespace(codespaceId: string): Promise<void> {
+    const result = await this.client.listSandboxes({
+      labelSelector: `agentpane.io/project-id=${codespaceId}`,
+    });
+
+    const activeSandbox = result.items.find((crd) => {
+      const status = this.mapConditionsToStatus(crd);
+      return status !== 'stopped' && status !== 'error';
+    });
+    if (!activeSandbox) return;
+
+    const sandboxId = activeSandbox.metadata?.labels?.['agentpane.io/sandbox-id'];
+    const name = activeSandbox.metadata?.name;
+    if (sandboxId && name) {
+      const instance = new AgentSandboxInstance(
+        sandboxId,
+        name,
+        codespaceId,
+        this.namespace,
+        this.client
+      );
+      this.sandboxes.set(sandboxId, instance);
+      this.codespaceToSandbox.set(codespaceId, sandboxId);
+    }
+    throw K8sErrors.POD_ALREADY_EXISTS(codespaceId);
   }
 
   /**

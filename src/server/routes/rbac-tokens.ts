@@ -5,17 +5,15 @@
 import { randomBytes } from 'node:crypto';
 import { and, count, eq, gt, inArray, isNotNull, lte, ne } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { getRuntimeSchemaTables } from '../../db/schema/runtime-tables.js';
 import { RBAC_ROLE_LEVEL, type RbacRole } from '../../db/schema/shared/enums';
-import { apiTokens } from '../../db/schema/sqlite/api-tokens';
-import { codespaces } from '../../db/schema/sqlite/codespaces';
-import { tags } from '../../db/schema/sqlite/tags';
-import { teamProjectFolders } from '../../db/schema/sqlite/team-project-folders';
-import { teams } from '../../db/schema/sqlite/teams';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { hashToken, isValidId, json, parsePagination, validateIdParam } from '../shared';
 import { createApiTokenSchema, parseJsonBody } from '../validation';
+
+const { apiTokens, codespaces, tags, teamProjectFolders, teams } = getRuntimeSchemaTables();
 
 interface TokensDeps {
   db: Database;

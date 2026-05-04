@@ -14,6 +14,7 @@ import { eq } from 'drizzle-orm';
 import * as sqliteSchema from '../../../db/schema/sqlite/index.js';
 import { createLogger } from '../../../lib/logging/logger.js';
 import { createContainerAgentService } from '../../../services/container-agent.service.js';
+import { createSandboxService } from '../../../services/sandbox.service.js';
 import type { Database } from '../../../types/database.js';
 import { reconcileSandboxes } from '../phases/sandbox-reconciliation.js';
 import type { SandboxState, ServerConfig, ServiceContainer } from '../types.js';
@@ -127,6 +128,12 @@ async function initSandboxProviderCore(
   // Step 4: Wire up ContainerAgentService
   if (sandboxState.provider) {
     try {
+      const sandboxService = createSandboxService(
+        db,
+        sandboxState.provider,
+        services.durableStreamsService,
+        services.sandboxConfigService
+      );
       sandboxState.containerAgentService = createContainerAgentService(
         db,
         sandboxState.provider,
@@ -134,7 +141,8 @@ async function initSandboxProviderCore(
         services.apiKeyService,
         services.worktreeService,
         services.githubService,
-        services.skillTrackingService
+        services.skillTrackingService,
+        sandboxService
       );
 
       services.taskService.setContainerAgentService(sandboxState.containerAgentService);

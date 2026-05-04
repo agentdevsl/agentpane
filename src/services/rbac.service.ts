@@ -1,19 +1,17 @@
 import { and, eq } from 'drizzle-orm';
+import { getRuntimeSchemaTables } from '../db/schema/runtime-tables.js';
 import {
   isValidRbacRole,
   RBAC_ROLE_LEVEL,
   type RbacRole,
   resolveHighestRole,
 } from '../db/schema/shared/enums';
-import { codespaceMembers } from '../db/schema/sqlite/codespace-members';
-import { codespaces } from '../db/schema/sqlite/codespaces';
-import { folderMembers } from '../db/schema/sqlite/folder-members';
-import { teamMembers } from '../db/schema/sqlite/team-members';
-import { teamProjectFolders } from '../db/schema/sqlite/team-project-folders';
 import { createLogger } from '../lib/logging/logger';
 import type { Database } from '../types/database';
 
 const log = createLogger('RbacService');
+const { codespaceMembers, codespaces, folderMembers, teamMembers, teamProjectFolders } =
+  getRuntimeSchemaTables();
 
 /** Permission actions mapped to minimum role */
 const PERMISSION_MAP: Record<string, RbacRole> = {

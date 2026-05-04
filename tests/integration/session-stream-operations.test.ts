@@ -2,6 +2,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sessionEvents, sessionSummaries } from '../../src/db/schema';
+import { eventOutbox } from '../../src/db/schema/sqlite/event-outbox';
 import type { DurableStreamsServer } from '../../src/services/durable-streams.service';
 import { SessionStreamService } from '../../src/services/session/session-stream.service';
 import type { SessionEvent } from '../../src/services/session/types';
@@ -85,12 +86,12 @@ describe('Session Stream Operations (IT-096 to IT-100)', () => {
     }
   });
 
-  it('IT-097: event persists to DB even when stream publish throws', async () => {
+  it('IT-097: event persists to DB and outbox without direct stream publish', async () => {
     const codespace = await createTestProject();
     const session = await createTestSession(codespace.id, { status: 'active' });
 
     const mockStreams = createMockStreams();
-    // Make the real-time stream throw
+    // Direct publish is no longer used for durable session events.
     (mockStreams.publish as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error('Stream unavailable')
     );
@@ -99,15 +100,22 @@ describe('Session Stream Operations (IT-096 to IT-100)', () => {
     const event = buildStructuredEvent(session.id, 'agent:started', 0);
     const result = await streamService.publish(session.id, event);
 
-    // Publish should still succeed (DB-first strategy)
     expect(result.ok).toBe(true);
+    expect(mockStreams.publish).not.toHaveBeenCalled();
 
-    // Verify event is in DB despite stream failure
+    // Verify event is in DB and queued for relay-backed live delivery.
     const rows = await db.query.sessionEvents.findMany({
       where: eq(sessionEvents.sessionId, session.id),
     });
     expect(rows).toHaveLength(1);
     expect(rows[0].type).toBe('agent:started');
+
+    const outboxRows = await db
+      .select()
+      .from(eventOutbox)
+      .where(eq(eventOutbox.streamId, session.id));
+    expect(outboxRows).toHaveLength(1);
+    expect(outboxRows[0]?.type).toBe('agent:started');
   });
 
   it('IT-098: query events in offset order for history replay', async () => {

@@ -227,15 +227,16 @@ export async function updateTaskOnAgentError(
   sessionId?: string
 ): Promise<boolean> {
   try {
-    // Preserve sessionId so the UI can display error context and session events.
-    // Note: task stays in in_progress with lastAgentStatus='error'. Moving to
-    // backlog here would race with handleAgentComplete since processAgentOutput
-    // fires both bridge callbacks and process-exit handlers.
+    // Preserve sessionId so the UI can display error context and session events,
+    // but move out of in_progress so a failed agent is not shown as still
+    // running. The column guard prevents overwriting a user cancellation.
     const [updated] = await db
       .update(tasks)
       .set({
+        column: 'waiting_approval',
         agentId: null,
         lastAgentStatus: 'error',
+        completedAt: new Date().toISOString(),
       })
       .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
       .returning();
@@ -389,11 +390,38 @@ export async function resolveSandboxMode(db: Database): Promise<'shared' | 'per-
   }
 }
 
+async function hasMultipleTenantBoundaries(db: Database): Promise<boolean> {
+  try {
+    const [teamRows, userRows] = await Promise.all([
+      db.query.teams.findMany({ limit: 2 }),
+      db.query.users.findMany({ limit: 2 }),
+    ]);
+    return teamRows.length > 1 || userRows.length > 1;
+  } catch (readErr) {
+    log.warn(
+      'Failed to infer tenant boundary count; assuming single-tenant unless MULTI_TENANT=true',
+      {
+        data: { error: readErr instanceof Error ? readErr.message : String(readErr) },
+      }
+    );
+    return false;
+  }
+}
+
+async function shouldEnforcePerProjectSandbox(
+  db: Database,
+  env: NodeJS.ProcessEnv
+): Promise<boolean> {
+  if (isMultiTenantEnabled(env)) return true;
+  return hasMultipleTenantBoundaries(db);
+}
+
 /**
  * F06-NEW-02 / arch29-W1-E — Multi-tenant gate enforcement.
  *
  * Throws `MULTI_TENANT_REQUIRES_PER_PROJECT_SANDBOX` when:
- *   - `MULTI_TENANT=true` is set in the environment, AND
+ *   - `MULTI_TENANT=true` is set in the environment OR the local database
+ *     already contains multiple team/user boundaries, AND
  *   - the resolved sandbox mode is `'shared'`.
  *
  * In shared mode every codespace shares one Docker container with a single
@@ -404,8 +432,8 @@ export async function resolveSandboxMode(db: Database): Promise<'shared' | 'per-
  * tenant deployment is rejected at the chokepoint instead of silently
  * leaking credentials.
  *
- * No-op when `MULTI_TENANT` is unset/false (default) — self-hosted
- * single-team installs see no behaviour change.
+ * No-op when `MULTI_TENANT` is unset/false and the database still looks like
+ * a single-team install.
  *
  * @throws an `AppError` with code `MULTI_TENANT_REQUIRES_PER_PROJECT_SANDBOX`
  *   when the gate is violated. The caller is expected to surface this as
@@ -416,7 +444,7 @@ export async function assertSharedSandboxAllowed(
   codespaceId?: string,
   env: NodeJS.ProcessEnv = process.env
 ): Promise<void> {
-  if (!isMultiTenantEnabled(env)) return;
+  if (!(await shouldEnforcePerProjectSandbox(db, env))) return;
   const mode = await resolveSandboxMode(db);
   if (mode === 'shared') {
     const errorObj = SandboxErrors.MULTI_TENANT_REQUIRES_PER_PROJECT_SANDBOX(codespaceId);

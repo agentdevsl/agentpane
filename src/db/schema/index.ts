@@ -1,17 +1,109 @@
-// Default: SQLite schema (re-export everything for backward compatibility)
-export * from './sqlite';
+import { getRuntimeSchemaTables } from './runtime-tables.js';
 
-// NOTE: Do NOT use `export * as pgSchema` or `export * as sqliteSchema` here.
-// Module namespace objects have null prototypes, which crashes drizzle-orm's
-// extractTablesRelationalConfig. Import directly from the dialect directories:
-//   import * as pgSchema from '@/db/schema/postgres';
-//   import * as sqliteSchema from '@/db/schema/sqlite';
+export * from './shared/enums';
+export type * from './sqlite';
 
-// DB-012: Soft delete pattern (adding `deletedAt` columns) is intentionally deferred.
-// Current cascade deletes work correctly for our use case. Soft delete would require:
-//   1. Adding `deletedAt` column to all tables with cascade references
-//   2. Updating all queries to filter out soft-deleted rows
-//   3. Adding a periodic hard-delete sweep for data retention compliance
-//   4. Updating the UI to handle "archived" vs "deleted" states
-// This is a significant cross-cutting change that should be planned as a dedicated effort
-// when audit trail requirements are formalized. See finding DB-012 in the March 2026 review.
+// Runtime code imports table objects from this barrel throughout the app. Keep
+// those imports dialect-aware so DB_MODE=postgres does not accidentally build
+// queries with SQLite table definitions.
+const runtimeSchema = getRuntimeSchemaTables();
+
+export const {
+  MARKETPLACE_STATUSES,
+  PLUGIN_TAGS,
+  SYNC_INTERVAL_OPTIONS,
+  TEMPLATE_SCOPES,
+  TEMPLATE_STATUSES,
+  TERRAFORM_REGISTRY_STATUSES,
+  WORKFLOW_STATUSES,
+  agentRuns,
+  agentRunsRelations,
+  agents,
+  agentsRelations,
+  apiKeys,
+  apiTokens,
+  apiTokensRelations,
+  auditLogs,
+  cliSessions,
+  codespaceMembers,
+  codespaceMembersRelations,
+  codespaceTags,
+  codespaceTagsRelations,
+  codespaces,
+  codespacesRelations,
+  dreamSessions,
+  dreamSessionsRelations,
+  eventLog,
+  eventLogRelations,
+  eventOutbox,
+  eventSources,
+  eventSourcesRelations,
+  eventSubscriptions,
+  eventSubscriptionsRelations,
+  folderMembers,
+  folderMembersRelations,
+  githubInstallations,
+  githubInstallationsRelations,
+  githubTokens,
+  marketplaces,
+  memoryInsights,
+  memoryInsightsRelations,
+  memoryMessages,
+  memoryMessagesRelations,
+  planSessions,
+  planSessionsRelations,
+  projectFolders,
+  projectFoldersRelations,
+  rateLimitBuckets,
+  repositoryConfigs,
+  repositoryConfigsRelations,
+  sandboxConfigs,
+  sandboxConfigsRelations,
+  sandboxInstances,
+  sandboxInstancesRelations,
+  sandboxTmuxSessions,
+  sandboxTmuxSessionsRelations,
+  scheduleExecutions,
+  sessionEvents,
+  sessionEventsRelations,
+  sessionSummaries,
+  sessionSummariesRelations,
+  sessions,
+  sessionsRelations,
+  settings,
+  skillExecutions,
+  skillExecutionsRelations,
+  skillMetrics,
+  skillMetricsRelations,
+  skillSuggestions,
+  skillSuggestionsRelations,
+  tags,
+  tagsRelations,
+  taskTags,
+  taskTagsRelations,
+  tasks,
+  tasksRelations,
+  teamInvitations,
+  teamInvitationsRelations,
+  teamMembers,
+  teamMembersRelations,
+  teamProjectFolders,
+  teamProjectFoldersRelations,
+  teams,
+  teamsRelations,
+  templateCodespaces,
+  templateCodespacesRelations,
+  templates,
+  templatesRelations,
+  terraformModules,
+  terraformModulesRelations,
+  terraformRegistries,
+  terraformRegistriesRelations,
+  userSessions,
+  userSessionsRelations,
+  users,
+  usersRelations,
+  workflows,
+  worktrees,
+  worktreesRelations,
+} = runtimeSchema;

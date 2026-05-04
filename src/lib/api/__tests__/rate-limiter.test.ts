@@ -1,6 +1,11 @@
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { rateLimiter } from '../rate-limiter.js';
+import {
+  assertRateLimitDeploymentSafe,
+  parseRateLimitInstanceCount,
+  RateLimitDeploymentError,
+  rateLimiter,
+} from '../rate-limiter.js';
 
 function createApp(opts?: Parameters<typeof rateLimiter>[0]) {
   const app = new Hono();
@@ -310,5 +315,26 @@ describe('F07-04 rate limiter key derivation', () => {
 
     // Different slug has its own bucket.
     expect((await app.request('/hooks/stripe')).status).toBe(200);
+  });
+});
+
+describe('MAY-15 rate limiter deployment guard', () => {
+  it('parses configured replica count from deployment env', () => {
+    expect(parseRateLimitInstanceCount({ AGENTPANE_REPLICA_COUNT: '3' })).toBe(3);
+    expect(parseRateLimitInstanceCount({ AGENTPANE_INSTANCE_COUNT: '2' })).toBe(2);
+    expect(parseRateLimitInstanceCount({ REPLICA_COUNT: '4' })).toBe(4);
+    expect(parseRateLimitInstanceCount({ AGENTPANE_REPLICA_COUNT: 'not-a-number' })).toBe(1);
+  });
+
+  it('fails fast for multi-instance sqlite limiter state', () => {
+    expect(() => assertRateLimitDeploymentSafe({ dbMode: 'sqlite', instanceCount: 2 })).toThrow(
+      RateLimitDeploymentError
+    );
+  });
+
+  it('allows multi-instance postgres because rate_limit_buckets is shared', () => {
+    expect(() =>
+      assertRateLimitDeploymentSafe({ dbMode: 'postgres', instanceCount: 2 })
+    ).not.toThrow();
   });
 });

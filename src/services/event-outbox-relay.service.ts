@@ -20,13 +20,14 @@
  */
 
 import { and, eq, lt, lte, sql } from 'drizzle-orm';
-import { eventOutbox } from '../db/schema/sqlite/event-outbox.js';
+import { getRuntimeSchemaTables } from '../db/schema/runtime-tables.js';
 import type { BackgroundJob, BackgroundJobSnapshot } from '../lib/background/job.js';
 import { createLogger } from '../lib/logging/logger.js';
 import type { Database } from '../types/database.js';
 import type { DurableStreamsServer } from './durable-streams.service.js';
 
 const log = createLogger('EventOutboxRelay');
+const { eventOutbox } = getRuntimeSchemaTables();
 
 const POLL_INTERVAL_MS = 50;
 const BATCH_SIZE = 100;
@@ -218,7 +219,7 @@ export class EventOutboxRelayService implements BackgroundJob {
  * service's transaction (pass the same `db` that holds the transaction).
  */
 export async function enqueueOutboxEvent(
-  db: Database,
+  db: Pick<Database, 'insert'>,
   input: { streamId: string; type: string; payload: unknown }
 ): Promise<void> {
   await db.insert(eventOutbox).values({
@@ -226,4 +227,17 @@ export async function enqueueOutboxEvent(
     type: input.type,
     payload: input.payload,
   });
+}
+
+export function enqueueOutboxEventSync(
+  db: Pick<Database, 'insert'>,
+  input: { streamId: string; type: string; payload: unknown }
+): void {
+  db.insert(eventOutbox)
+    .values({
+      streamId: input.streamId,
+      type: input.type,
+      payload: input.payload,
+    })
+    .run();
 }
