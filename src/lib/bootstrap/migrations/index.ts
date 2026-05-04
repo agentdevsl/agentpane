@@ -734,10 +734,25 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_status ON api_tokens(status);
   // only the legacy identifiers and timestamps. Current Drizzle declares
   // turns, GitHub issue linkage, and completed_at; add those columns so
   // upgraded SQLite databases match the runtime schema.
+  //
+  // Some databases were upgraded past v20 before the v19 stub-creation was
+  // added, so plan_sessions may be missing entirely. Create the legacy
+  // shape first if absent — the subsequent ALTERs then succeed (or no-op
+  // via duplicate-column suppression in the runner).
   {
     version: 40,
     name: 'plan-sessions-column-catchup',
     statements: [
+      `CREATE TABLE IF NOT EXISTS plan_sessions (
+        id TEXT PRIMARY KEY,
+        codespace_id TEXT REFERENCES codespaces(id) ON DELETE CASCADE,
+        project_id TEXT,
+        task_id TEXT,
+        session_id TEXT,
+        status TEXT DEFAULT 'active' NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+      )`,
       `ALTER TABLE plan_sessions ADD COLUMN turns TEXT DEFAULT '[]'`,
       `ALTER TABLE plan_sessions ADD COLUMN github_issue_url TEXT`,
       `ALTER TABLE plan_sessions ADD COLUMN github_issue_number INTEGER`,
