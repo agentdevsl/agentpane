@@ -25,44 +25,44 @@ interface TopologyGroupOverlayProps {
  * recognisable hues from the rest of the app's palette so the eye
  * groups by phase, not by a coincidence of `agent_type` characters.
  *
+ * Each tint resolves to a CSS custom property at render time, so the
+ * cluster boxes track the active theme (light / dark / system) without
+ * any per-theme branching here. `color-mix(in srgb, var(--x) N%,
+ * transparent)` is the same pattern globals.css already uses for diff
+ * colour gutters — we just lean on it instead of hand-rolling RGBA.
+ *
  * Anything that doesn't match a phase keyword falls back to the
  * stable HSL string-hash, so adding a new agent_type still yields a
  * readable colour without code changes.
  */
 type ClusterTint = { fill: string; stroke: string; label: string };
 
+/**
+ * Build a tint triple from a single design-token variable. Three
+ * percentages: an 8% fill (subtle backdrop), a 55% stroke (clearly
+ * visible on either theme), and a solid label colour. Pulled into a
+ * helper so we don't repeat the `color-mix` boilerplate five times.
+ */
+function tintFromToken(varName: string): ClusterTint {
+  return {
+    fill: `color-mix(in srgb, var(${varName}) 8%, transparent)`,
+    stroke: `color-mix(in srgb, var(${varName}) 55%, transparent)`,
+    label: `var(${varName})`,
+  };
+}
+
 const PHASE_TINTS = {
   // research → accent (blue)
-  research: {
-    fill: 'rgba(47, 129, 247, 0.08)',
-    stroke: 'rgba(47, 129, 247, 0.55)',
-    label: 'rgba(120, 170, 255, 0.95)',
-  },
+  research: tintFromToken('--accent-fg'),
   // design → done (purple)
-  design: {
-    fill: 'rgba(163, 113, 247, 0.08)',
-    stroke: 'rgba(163, 113, 247, 0.55)',
-    label: 'rgba(200, 165, 255, 0.95)',
-  },
+  design: tintFromToken('--done-fg'),
   // test / validator / qa → attention (amber)
-  test: {
-    fill: 'rgba(210, 153, 34, 0.08)',
-    stroke: 'rgba(210, 153, 34, 0.55)',
-    label: 'rgba(240, 195, 100, 0.95)',
-  },
+  test: tintFromToken('--attention-fg'),
   // local bash / shell tooling → muted neutral so it doesn't compete
   // visually with the workflow stages
-  bash: {
-    fill: 'rgba(110, 118, 129, 0.08)',
-    stroke: 'rgba(110, 118, 129, 0.55)',
-    label: 'rgba(170, 178, 189, 0.95)',
-  },
+  bash: tintFromToken('--fg-muted'),
   // developer / implementer → success (green)
-  develop: {
-    fill: 'rgba(63, 185, 80, 0.08)',
-    stroke: 'rgba(63, 185, 80, 0.55)',
-    label: 'rgba(120, 220, 140, 0.95)',
-  },
+  develop: tintFromToken('--success-fg'),
 } as const satisfies Record<string, ClusterTint>;
 
 /**
@@ -85,10 +85,16 @@ function matchPhaseTint(agentType: string): ClusterTint | null {
 
 /**
  * Stable HSL fallback for agent_types not covered by the phase palette.
- * Same algorithm as before — kept so adding a new subagent name still
- * produces a readable, deterministic colour without a code change. The
- * saturation is bumped from 55 → 62 and alpha from 0.06 → 0.08 to
- * match the explicit phase tints above.
+ * Same algorithm as before — adding a new subagent name still produces
+ * a readable, deterministic colour without a code change.
+ *
+ * The label colour uses `color-mix` against the theme's foreground
+ * token so it inherits the right contrast in either mode: in dark mode
+ * the chroma sits at ~62% lightness against a near-black canvas; in
+ * light mode color-mix darkens the same hue against the dark `--fg-default`
+ * token (`#1f2328`-ish), keeping the label readable on a white canvas.
+ * Without this, the previous 78%-lightness label washed out completely
+ * on light themes.
  */
 function fallbackTint(agentType: string): ClusterTint {
   let hash = 0;
@@ -96,10 +102,15 @@ function fallbackTint(agentType: string): ClusterTint {
     hash = (hash * 31 + agentType.charCodeAt(i)) | 0;
   }
   const hue = Math.abs(hash) % 360;
+  // The chroma colour itself doesn't change between themes — only how
+  // we mix it. The label is mixed 70% chroma + 30% foreground so it
+  // gets pulled toward whichever foreground the theme defines (white
+  // on dark, near-black on light).
+  const chroma = `hsl(${hue}, 62%, 55%)`;
   return {
-    fill: `hsl(${hue}, 62%, 55%, 0.08)`,
-    stroke: `hsl(${hue}, 62%, 60%, 0.55)`,
-    label: `hsl(${hue}, 62%, 78%)`,
+    fill: `color-mix(in srgb, ${chroma} 8%, transparent)`,
+    stroke: `color-mix(in srgb, ${chroma} 55%, transparent)`,
+    label: `color-mix(in srgb, ${chroma} 70%, var(--fg-default))`,
   };
 }
 
