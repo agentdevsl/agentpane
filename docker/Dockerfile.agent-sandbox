@@ -45,6 +45,8 @@ USER root
 # Install additional tools needed by the agent runner
 # (jq, terraform, git already included in base image)
 # `unzip` + `ca-certificates` + `curl` are required by the Bun installer.
+# `gh` (GitHub CLI) is required so the agent can create PRs, comment on
+# issues, etc. once the host injects ~/.config/gh/hosts.yml.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ripgrep \
     fd-find \
@@ -52,6 +54,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     ca-certificates \
     curl \
+    gnupg \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+       | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+       > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 

@@ -11,11 +11,15 @@
  *
  * This module provides shared implementations to eliminate that duplication.
  */
+import { execFile } from 'node:child_process';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import type { AgentFileChangedData } from './event-emitter.js';
 import { createAgentRunnerLogger } from './logger.js';
+
+const execFileAsync = promisify(execFile);
 
 // F10-05: structured runner logger.
 const log = createAgentRunnerLogger();
@@ -88,6 +92,69 @@ export async function writeCredentialsFile(
   }
 
   log.error(`[shared-session] Credentials file written to ${credentialsFile}`);
+}
+
+// ---------------------------------------------------------------------------
+// GitHub credential writing
+// ---------------------------------------------------------------------------
+
+/**
+ * Write GitHub credentials so `git push` and `gh` work inside the runtime.
+ *
+ * Mirrors the host-side `GitHubCredentialsInjector` (src/lib/sandbox/
+ * github-credentials-injector.ts) so the on-disk shape is identical
+ * regardless of which path delivered the token (Docker/K8s/Nomad vs
+ * AgentCore). Two artifacts are written under `$HOME`, plus an idempotent
+ * `git config --global` to enable the store helper without clobbering any
+ * pre-existing user config (aliases, image-baked settings):
+ *
+ *   ~/.git-credentials        (0o600) — `https://x-access-token:TOKEN@github.com`
+ *   ~/.config/gh/hosts.yml    (0o600) — gh CLI auth blob
+ *   credential.helper=store   set via `git config --global` (does not
+ *                             overwrite ~/.gitconfig — only updates that
+ *                             single key)
+ *
+ * No throw on missing token — caller decides whether GitHub auth is required.
+ */
+export async function writeGitHubCredentialFiles(
+  token: string,
+  login = 'x-access-token'
+): Promise<void> {
+  const home = homedir();
+  const gitCredentialsPath = join(home, '.git-credentials');
+  const ghConfigDir = join(home, '.config', 'gh');
+  const ghHostsPath = join(ghConfigDir, 'hosts.yml');
+
+  if (!token) {
+    throw new Error('No GitHub token provided to writeGitHubCredentialFiles');
+  }
+
+  const safeLogin = login.trim() || 'x-access-token';
+
+  await mkdir(ghConfigDir, { recursive: true, mode: 0o700 });
+
+  await writeFile(gitCredentialsPath, `https://x-access-token:${token}@github.com\n`, {
+    mode: 0o600,
+  });
+
+  await writeFile(
+    ghHostsPath,
+    [
+      'github.com:',
+      `    oauth_token: ${token}`,
+      `    user: ${safeLogin}`,
+      '    git_protocol: https',
+      '',
+    ].join('\n'),
+    { mode: 0o600 }
+  );
+
+  // Idempotent: replaces credential.helper if already set; preserves all
+  // other entries in ~/.gitconfig (user.name, user.email, aliases, etc.).
+  // Args are fixed strings — no shell interpolation.
+  await execFileAsync('git', ['config', '--global', 'credential.helper', 'store']);
+
+  log.error(`[shared-session] GitHub credential files written under ${home}`);
 }
 
 // ---------------------------------------------------------------------------

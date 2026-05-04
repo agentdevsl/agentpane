@@ -559,6 +559,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
       token: 'ghp_test',
       owner: 'test-org',
       repo: 'test-repo',
+      type: 'pat',
     });
     vi.mocked(initializeK8sWorkspace).mockResolvedValue({
       worktreePath: '/workspace/.worktrees/fix-login-bug-abc123',
@@ -587,6 +588,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
       token: 'ghp_test',
       owner: 'org',
       repo: 'repo',
+      type: 'pat',
     });
     vi.mocked(initializeK8sWorkspace).mockResolvedValue({
       worktreePath: '/workspace/.worktrees/fix-bug-abc123',
@@ -634,6 +636,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
       token: 'ghp_test',
       owner: 'test-org',
       repo: 'test-repo',
+      type: 'pat',
     });
     // Simulate clone/worktree failure — initializeK8sWorkspace returns fallback
     vi.mocked(initializeK8sWorkspace).mockResolvedValue({
@@ -654,7 +657,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
     expect(env.AGENT_CWD).toBe('/workspace');
   });
 
-  it('Docker mode is unaffected (regression test)', async () => {
+  it('Docker mode resolves GitHub creds for the sandbox', async () => {
     // Create a Docker provider (default, no name or name='docker')
     const dockerProvider = createProviderMock();
     const dockerService = new ContainerAgentService(
@@ -662,8 +665,16 @@ describe('ContainerAgentService — K8s worktree integration', () => {
       dockerProvider as never,
       streams as never,
       apiKey as never,
-      worktreeService as never
+      worktreeService as never,
+      githubTokenService as never
     );
+
+    vi.mocked(resolveGitToken).mockResolvedValue({
+      token: 'ghp_docker_token',
+      owner: 'test-org',
+      repo: 'test-repo',
+      type: 'pat',
+    });
 
     await dockerService.startAgent({
       codespaceId: 'p1',
@@ -676,7 +687,8 @@ describe('ContainerAgentService — K8s worktree integration', () => {
     // Host WorktreeService.create SHOULD be called for Docker
     expect(worktreeService.create).toHaveBeenCalled();
 
-    // resolveGitToken should NOT be called for Docker
-    expect(resolveGitToken).not.toHaveBeenCalled();
+    // resolveGitToken SHOULD be called for Docker too — agents inside the
+    // sandbox need the token to push branches and create PRs.
+    expect(resolveGitToken).toHaveBeenCalled();
   });
 });

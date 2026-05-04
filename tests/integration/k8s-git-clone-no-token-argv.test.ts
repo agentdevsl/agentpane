@@ -62,7 +62,12 @@ describe('arch29-W2-I (F04-12) — K8s git clone never puts token in URL argv', 
 
     await initializeK8sWorkspace({
       sandbox,
-      gitToken: { token: SECRET_TOKEN, owner: 'agentdevsl', repo: 'agentpane' },
+      gitToken: {
+        token: SECRET_TOKEN,
+        owner: 'agentdevsl',
+        repo: 'agentpane',
+        type: 'app' as const,
+      },
       taskTitle: 'fix-the-thing',
       taskId: 'task-abcd1234',
       baseBranch: 'main',
@@ -121,7 +126,12 @@ describe('arch29-W2-I (F04-12) — K8s git clone never puts token in URL argv', 
 
     await initializeK8sWorkspace({
       sandbox,
-      gitToken: { token: SECRET_TOKEN, owner: 'agentdevsl', repo: 'agentpane' },
+      gitToken: {
+        token: SECRET_TOKEN,
+        owner: 'agentdevsl',
+        repo: 'agentpane',
+        type: 'app' as const,
+      },
       taskTitle: 'feature-x',
       taskId: 'task-efgh5678',
       baseBranch: 'main',
@@ -142,6 +152,84 @@ describe('arch29-W2-I (F04-12) — K8s git clone never puts token in URL argv', 
       expect(cVal).not.toContain(SECRET_TOKEN);
       expect(cVal).not.toContain('x-access-token:');
     }
+  });
+
+  it('file-based credential path: token never appears in argv when writeFile is available', async () => {
+    const { initializeK8sWorkspace } = await import(
+      '../../src/lib/sandbox/k8s-workspace-initializer.js'
+    );
+
+    const calls: ExecCall[] = [];
+    const writeFileCalls: { path: string; content: string; mode?: number }[] = [];
+    const sandbox = {
+      exec: vi.fn(async (cmd: string, args: string[] = []) => {
+        calls.push({ cmd, args: [...args] });
+        if (cmd === 'test' && args.includes('-d') && args.some((a) => a.endsWith('/.git'))) {
+          return { exitCode: 1, stdout: '', stderr: '' };
+        }
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }),
+      writeFile: vi.fn(async (path: string, content: string | Buffer, mode?: number) => {
+        writeFileCalls.push({
+          path,
+          content: typeof content === 'string' ? content : content.toString('utf8'),
+          mode,
+        });
+      }),
+    };
+
+    const SECRET_TOKEN = 'ghs_short_lived_app_install_token_xyz';
+
+    await initializeK8sWorkspace({
+      sandbox,
+      gitToken: {
+        token: SECRET_TOKEN,
+        owner: 'agentdevsl',
+        repo: 'agentpane',
+        type: 'app' as const,
+      },
+      taskTitle: 'file-based-auth',
+      taskId: 'task-file123',
+      baseBranch: 'main',
+    });
+
+    // The token MUST land in a writeFile call (out-of-band tar) — never argv.
+    // The transient clone credential file is per-task to prevent collisions
+    // between concurrent inits in a shared sandbox, so we match by substring.
+    const credWrite = writeFileCalls.find((w) => w.path.includes('git-credentials'));
+    expect(credWrite).toBeDefined();
+    expect(credWrite?.content).toContain(SECRET_TOKEN);
+    expect(credWrite?.mode).toBe(0o600);
+    // taskId must be present in the path so concurrent tasks in the same
+    // sandbox don't overwrite each other's transient credentials file.
+    expect(credWrite?.path).toContain('task-file123');
+
+    // No git invocation may carry the token in plaintext OR via x-access-token: in argv.
+    const gitCalls = calls.filter((c) => c.cmd === 'git');
+    for (const call of gitCalls) {
+      for (const arg of call.args) {
+        expect(arg).not.toContain(SECRET_TOKEN);
+        expect(arg).not.toContain('x-access-token:');
+      }
+    }
+
+    // Fetch should use credential.helper=store (no http.extraHeader).
+    const fetchCalls = gitCalls.filter((c) => c.args.includes('fetch'));
+    expect(fetchCalls.length).toBeGreaterThan(0);
+    for (const fetchCall of fetchCalls) {
+      const cFlags = fetchCall.args
+        .map((a, i) => (fetchCall.args[i - 1] === '-c' ? a : null))
+        .filter(Boolean) as string[];
+      expect(cFlags.some((v) => v.startsWith('credential.helper=store'))).toBe(true);
+      expect(cFlags.some((v) => v.startsWith('http.extraHeader='))).toBe(false);
+    }
+
+    // Cleanup: the transient credential file should be rm'd after fetch.
+    // Per-task path so we match by substring rather than exact suffix.
+    const rmCalls = calls.filter(
+      (c) => c.cmd === 'rm' && c.args.some((a) => a.includes('git-credentials'))
+    );
+    expect(rmCalls.length).toBeGreaterThan(0);
   });
 
   it('buildGitAuthHeaderArg encodes the token with x-access-token: prefix', async () => {

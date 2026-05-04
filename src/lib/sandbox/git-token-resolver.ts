@@ -12,6 +12,13 @@ export interface GitTokenResult {
   readonly token: string;
   readonly owner: string;
   readonly repo: string;
+  /**
+   * Token kind. App installation tokens are ~1h-lived and repo-scoped;
+   * PATs are typically long-lived and broader-scoped. Surfaces enough
+   * information for callers (notably AgentCore) to refuse PATs when
+   * policy requires short-lived tokens.
+   */
+  readonly type: 'app' | 'pat';
 }
 
 export interface GitTokenResolverDeps {
@@ -24,18 +31,26 @@ function formatError(err: unknown): string {
 }
 
 /**
- * Resolves a git authentication token for cloning repos inside K8s pods.
+ * Resolves a git authentication token for repos inside sandbox containers.
  *
  * Resolution order:
- *  1. GitHub App installation token (preferred) — also falls through on error
- *  2. Personal Access Token fallback (tried if step 1 is unavailable or fails)
+ *  1. GitHub App installation token (preferred — short-lived, repo-scoped)
+ *  2. Personal Access Token fallback, scoped to the codespace's team when
+ *     a codespaceId is provided. Falls back to the global PAT (team_id IS NULL)
+ *     when no team-specific token exists.
  *  3. null if neither is available
+ *
+ * Pass `codespaceId` whenever the caller knows it so team-scoped tokens are
+ * honoured. Omitting it falls back to the legacy global-only PAT path
+ * (`getDecryptedToken`); that path is preserved for tests and for callers
+ * that do not yet have codespace context.
  */
 export async function resolveGitToken(
   project: {
     githubOwner: string | null;
     githubRepo: string | null;
     githubInstallationId: string | null;
+    codespaceId?: string;
   },
   deps: GitTokenResolverDeps
 ): Promise<GitTokenResult | null> {
@@ -63,7 +78,7 @@ export async function resolveGitToken(
           const { data } = await appOctokit.rest.apps.createInstallationAccessToken({
             installation_id: numericId,
           });
-          return { token: data.token, owner, repo };
+          return { token: data.token, owner, repo, type: 'app' };
         }
       } else {
         // No installation record found — fall through to PAT fallback
@@ -78,12 +93,17 @@ export async function resolveGitToken(
     }
   }
 
-  // 2. Fall back to Personal Access Token
+  // 2. Fall back to Personal Access Token. When the caller knows the
+  //    codespace id, use the team-scoped resolver so codespaces in different
+  //    teams get their own tokens (with a global fallback). Without a
+  //    codespace id we fall back to the global token only.
   if (githubTokenService) {
     try {
-      const token = await githubTokenService.getDecryptedToken();
+      const token = project.codespaceId
+        ? await githubTokenService.resolveGitHubTokenForCodespace(project.codespaceId)
+        : await githubTokenService.getDecryptedToken();
       if (token) {
-        return { token, owner, repo };
+        return { token, owner, repo, type: 'pat' };
       }
     } catch (error) {
       log.debug('Failed to get GitHub PAT token', { error });

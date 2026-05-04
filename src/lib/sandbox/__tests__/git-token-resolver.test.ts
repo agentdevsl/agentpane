@@ -31,10 +31,16 @@ function createMockDb(findFirstResult: unknown = undefined) {
   } as unknown as GitTokenResolverDeps['db'];
 }
 
-/** Build a mock GitHubTokenService with controllable `getDecryptedToken`. */
-function createMockTokenService(getDecryptedTokenImpl?: () => Promise<string | null>) {
+/** Build a mock GitHubTokenService with controllable `getDecryptedToken`
+ * and `resolveGitHubTokenForCodespace`. The team-scoped resolver is exercised
+ * when callers pass a `codespaceId` through `resolveGitToken`. */
+function createMockTokenService(
+  getDecryptedTokenImpl?: () => Promise<string | null>,
+  resolveForCodespaceImpl?: (codespaceId: string) => Promise<string | null>
+) {
   return {
     getDecryptedToken: vi.fn(getDecryptedTokenImpl ?? (async () => null)),
+    resolveGitHubTokenForCodespace: vi.fn(resolveForCodespaceImpl ?? (async () => null)),
   } as unknown as NonNullable<GitTokenResolverDeps['githubTokenService']>;
 }
 
@@ -84,6 +90,7 @@ describe('resolveGitToken', () => {
       token: 'ghs_installation_token_abc',
       owner: 'my-org',
       repo: 'my-repo',
+      type: 'app',
     });
     expect(mockCreateToken).toHaveBeenCalledWith({ installation_id: 12345 });
   });
@@ -108,6 +115,7 @@ describe('resolveGitToken', () => {
       token: 'ghp_pat_fallback',
       owner: 'owner',
       repo: 'repo',
+      type: 'pat',
     });
     expect(tokenService.getDecryptedToken).toHaveBeenCalled();
   });
@@ -143,6 +151,7 @@ describe('resolveGitToken', () => {
       token: 'ghp_pat_token',
       owner: 'org',
       repo: 'repo',
+      type: 'pat',
     });
   });
 
@@ -179,6 +188,7 @@ describe('resolveGitToken', () => {
       token: 'ghp_fallback_api_fail',
       owner: 'org',
       repo: 'repo',
+      type: 'pat',
     });
   });
 
@@ -209,6 +219,7 @@ describe('resolveGitToken', () => {
       token: 'ghp_nan_fallback',
       owner: 'org',
       repo: 'repo',
+      type: 'pat',
     });
     // getAppOctokit should NOT have been called since we bailed on NaN
     expect(getAppOctokit).not.toHaveBeenCalled();
@@ -234,6 +245,7 @@ describe('resolveGitToken', () => {
       token: 'ghp_direct_pat',
       owner: 'user',
       repo: 'project',
+      type: 'pat',
     });
     // DB query for installations should NOT be called
     expect(db.query.githubInstallations.findFirst).not.toHaveBeenCalled();
@@ -381,5 +393,65 @@ describe('resolveGitToken', () => {
     );
 
     expect(result).toBeNull();
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // Team-scoped PAT resolution
+  // ────────────────────────────────────────────────────────────────────
+  it('uses resolveGitHubTokenForCodespace when codespaceId is provided', async () => {
+    const db = createMockDb(undefined);
+    const teamScoped = vi.fn().mockResolvedValue('ghp_team_specific_token');
+    const global = vi.fn().mockResolvedValue('ghp_global_token');
+    const tokenService = {
+      getDecryptedToken: global,
+      resolveGitHubTokenForCodespace: teamScoped,
+    } as unknown as NonNullable<GitTokenResolverDeps['githubTokenService']>;
+
+    const result = await resolveGitToken(
+      {
+        githubOwner: 'org',
+        githubRepo: 'repo',
+        githubInstallationId: null,
+        codespaceId: 'codespace-abc',
+      },
+      { db, githubTokenService: tokenService }
+    );
+
+    expect(result).toEqual({
+      token: 'ghp_team_specific_token',
+      owner: 'org',
+      repo: 'repo',
+      type: 'pat',
+    });
+    expect(teamScoped).toHaveBeenCalledWith('codespace-abc');
+    expect(global).not.toHaveBeenCalled();
+  });
+
+  it('falls back to global getDecryptedToken when codespaceId is omitted', async () => {
+    const db = createMockDb(undefined);
+    const teamScoped = vi.fn().mockResolvedValue('ghp_team_specific_token');
+    const global = vi.fn().mockResolvedValue('ghp_global_token');
+    const tokenService = {
+      getDecryptedToken: global,
+      resolveGitHubTokenForCodespace: teamScoped,
+    } as unknown as NonNullable<GitTokenResolverDeps['githubTokenService']>;
+
+    const result = await resolveGitToken(
+      {
+        githubOwner: 'org',
+        githubRepo: 'repo',
+        githubInstallationId: null,
+      },
+      { db, githubTokenService: tokenService }
+    );
+
+    expect(result).toEqual({
+      token: 'ghp_global_token',
+      owner: 'org',
+      repo: 'repo',
+      type: 'pat',
+    });
+    expect(global).toHaveBeenCalled();
+    expect(teamScoped).not.toHaveBeenCalled();
   });
 });

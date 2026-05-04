@@ -11,7 +11,7 @@ function createMockSandbox() {
 }
 
 const defaultOptions = {
-  gitToken: { token: 'ghp_test123', owner: 'acme', repo: 'my-app' },
+  gitToken: { token: 'ghp_test123', owner: 'acme', repo: 'my-app', type: 'pat' as const },
   taskTitle: 'Fix login bug',
   taskId: 'task_abc123def456',
 };
@@ -43,8 +43,6 @@ describe('initializeK8sWorkspace', () => {
     // git checkout -f origin/main
     sandbox.exec.mockResolvedValueOnce(ok);
     // git checkout -B main
-    sandbox.exec.mockResolvedValueOnce(ok);
-    // git config credential.helper ''
     sandbox.exec.mockResolvedValueOnce(ok);
     // test -d worktree dir → does not exist
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
@@ -134,8 +132,6 @@ describe('initializeK8sWorkspace', () => {
     sandbox.exec.mockResolvedValueOnce(ok);
     // git checkout -B main
     sandbox.exec.mockResolvedValueOnce(ok);
-    // git config credential.helper
-    sandbox.exec.mockResolvedValueOnce(ok);
     // test -d worktree dir
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
     // mkdir -p
@@ -177,11 +173,15 @@ describe('initializeK8sWorkspace', () => {
     // string itself MUST NOT contain plaintext `x-access-token:`.
     expect(cVal).not.toContain('x-access-token:');
 
-    // Credential helper should be disabled.
+    // The local credential.helper MUST NOT be reset to empty: that would
+    // override the global helper=store from ~/.gitconfig and break agent
+    // push/PR. The transient clone token lives in /tmp, not .git/config,
+    // so there is no token-persistence concern.
     const credCall = sandbox.exec.mock.calls.find(
-      ([cmd, args]) => cmd === 'git' && args?.includes('credential.helper')
+      ([cmd, args]) =>
+        cmd === 'git' && args?.includes('config') && args?.includes('credential.helper')
     );
-    expect(credCall).toBeTruthy();
+    expect(credCall).toBeUndefined();
   });
 
   it('falls back to /workspace on clone failure', async () => {
@@ -294,8 +294,6 @@ describe('initializeK8sWorkspace', () => {
     sandbox.exec.mockResolvedValueOnce(ok);
     // git checkout -B develop
     sandbox.exec.mockResolvedValueOnce(ok);
-    // git config credential.helper
-    sandbox.exec.mockResolvedValueOnce(ok);
     // test -d worktree dir
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
     // mkdir -p
@@ -357,8 +355,6 @@ describe('initializeK8sWorkspace', () => {
     // git checkout -f origin/main
     sandbox.exec.mockResolvedValueOnce(ok);
     // git checkout -B main
-    sandbox.exec.mockResolvedValueOnce(ok);
-    // git config credential.helper
     sandbox.exec.mockResolvedValueOnce(ok);
     // test -d worktree dir → does not exist
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });

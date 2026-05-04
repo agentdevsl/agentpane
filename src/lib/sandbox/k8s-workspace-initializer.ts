@@ -29,17 +29,11 @@ const WORKTREES_DIR = `${CONTAINER_WORKSPACE_PATH}/.worktrees`;
 /**
  * Build the value of `http.extraHeader` for GitHub PAT auth.
  *
- * arch29-W2-I (F04-12): replaces the previous `https://x-access-token:TOKEN@github.com/...`
- * URL form. Git applies `http.extraHeader` for matching URLs only when the
- * value is set via `-c` (per-invocation) or the file at $HOME/.gitconfig with
- * a `[http "https://github.com/"]` section. We use the per-invocation form so
- * the token never lands in any persistent config and `git remote -v` cannot
- * recover it.
- *
- * The token DOES appear once in argv during the single `git fetch` invocation
- * — that is unavoidable until git supports stdin credential helpers in this
- * exact shape. The win is that the URL stored in `.git/config` (visible to
- * any later command) is clean.
+ * Legacy fallback for sandboxes that do NOT implement `writeFile`. When
+ * `writeFile` is available (K8s/Nomad/Docker) we prefer the file-based
+ * `credential.helper=store` path — see `cloneRepository` — which keeps the
+ * token entirely out of argv (and therefore out of the kube-apiserver
+ * audit log for K8s exec requests).
  */
 export function buildGitAuthHeaderArg(token: string): string {
   const credentials = Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64');
@@ -48,10 +42,31 @@ export function buildGitAuthHeaderArg(token: string): string {
 }
 
 /**
- * Minimal sandbox interface for workspace initialization.
+ * Sandbox capability surface required for workspace initialization.
+ *
+ * `writeFile` is optional but recommended: when present, the GitHub token
+ * is delivered to the pod via an out-of-band tar (no argv exposure) and
+ * `git fetch` reads it via `credential.helper=store`. When absent we fall
+ * back to the legacy `-c http.extraHeader=...` path (single argv exposure
+ * during fetch).
  */
 export interface SandboxExec {
   exec(cmd: string, args?: string[]): Promise<ExecResult>;
+  writeFile?(path: string, content: string | Buffer, mode?: number): Promise<void>;
+}
+
+/**
+ * Build the path to the transient credential file used by
+ * `credential.helper=store`. Including the taskId keeps concurrent inits in
+ * a shared sandbox from clobbering each other's transient file (and from
+ * racing on the `finally` rm).
+ */
+function transientGitCredentialsPath(taskId: string): string {
+  // Defense-in-depth: strip path separators / control chars from taskId so a
+  // hostile id cannot escape /tmp. Task ids are CUIDs in practice; this is
+  // a belt-and-braces guard.
+  const safeTaskId = taskId.replace(/[^a-zA-Z0-9._-]/g, '_');
+  return `/tmp/.agentpane-git-credentials-${safeTaskId}`;
 }
 
 export interface K8sWorkspaceOptions {
@@ -105,21 +120,39 @@ async function cloneRepository(
   token: string,
   owner: string,
   repo: string,
-  baseBranch: string
+  baseBranch: string,
+  taskId: string
 ): Promise<{ ok: boolean; error?: string }> {
   if (!GITHUB_NAME_RE.test(owner) || !GITHUB_NAME_RE.test(repo)) {
     return { ok: false, error: `Invalid owner/repo format: ${owner}/${repo}` };
   }
 
-  // arch29-W2-I (F04-12): the remote URL is the public, token-free form. Auth
-  // is supplied per-invocation via `git -c http.extraHeader=...`. The token
-  // never lands in `.git/config`, so `git remote -v` after clone shows only
-  // the public URL — a sibling tenant in shared-sandbox mode cannot recover
-  // the token by reading the repo state. The token still appears in the
-  // single argv of the `git fetch` call below; that is unavoidable until git
-  // supports stdin credential injection in this exact shape.
+  const transientCredentialsPath = transientGitCredentialsPath(taskId);
+
+  // The remote URL is always the public, token-free form so `git remote -v`
+  // and `.git/config` never carry the secret. Auth is supplied either via
+  // a transient credential file + `credential.helper=store` (preferred —
+  // no argv exposure) or via `-c http.extraHeader=...` (fallback when the
+  // sandbox provider lacks writeFile).
   const remoteUrl = `https://github.com/${owner}/${repo}.git`;
-  const authHeaderArg = buildGitAuthHeaderArg(token);
+  const useCredentialFile = typeof sandbox.writeFile === 'function';
+  let authHeaderArg: string | null = null;
+  if (useCredentialFile && sandbox.writeFile) {
+    try {
+      await sandbox.writeFile(
+        transientCredentialsPath,
+        `https://x-access-token:${token}@github.com\n`,
+        0o600
+      );
+    } catch (writeErr) {
+      log.warn('writeFile for transient git credentials failed; falling back to argv-token clone', {
+        error: errorMessage(writeErr),
+      });
+      authHeaderArg = buildGitAuthHeaderArg(token);
+    }
+  } else {
+    authHeaderArg = buildGitAuthHeaderArg(token);
+  }
 
   try {
     // Initialize git repo in /workspace if not already a repo.
@@ -190,12 +223,23 @@ async function cloneRepository(
       }
     }
 
-    // Fetch the requested branch (shallow). Auth via per-invocation
-    // `-c http.extraHeader=Authorization: Basic <b64(x-access-token:TOKEN)>`.
-    // If that fails, fetch the default branch.
+    // Build the per-invocation `-c` flags for fetch. Either:
+    //   credential.helper=store + credential.useHttpPath=false (file-based,
+    //   no argv exposure) — preferred when sandbox.writeFile is available
+    // OR:
+    //   http.extraHeader=Authorization: Basic <b64> (legacy, argv exposure
+    //   visible to /proc and kube-apiserver audit log)
+    const fetchAuthFlags = authHeaderArg
+      ? ['-c', authHeaderArg]
+      : [
+          '-c',
+          `credential.helper=store --file=${transientCredentialsPath}`,
+          '-c',
+          'credential.useHttpPath=false',
+        ];
+
     let cloneResult = await sandbox.exec('git', [
-      '-c',
-      authHeaderArg,
+      ...fetchAuthFlags,
       '-C',
       CONTAINER_WORKSPACE_PATH,
       'fetch',
@@ -211,8 +255,7 @@ async function cloneRepository(
         data: { baseBranch, owner, repo },
       });
       cloneResult = await sandbox.exec('git', [
-        '-c',
-        authHeaderArg,
+        ...fetchAuthFlags,
         '-C',
         CONTAINER_WORKSPACE_PATH,
         'fetch',
@@ -284,22 +327,33 @@ async function cloneRepository(
       };
     }
 
-    // Disable credential helper to prevent token persistence
-    const credResult = await sandbox.exec('git', [
-      '-C',
-      CONTAINER_WORKSPACE_PATH,
-      'config',
-      'credential.helper',
-      '',
-    ]);
-    if (credResult.exitCode !== 0) {
-      log.debug('Failed to disable credential helper', { data: { exitCode: credResult.exitCode } });
-    }
+    // NOTE: previous revisions ran `git config credential.helper ''` here to
+    // prevent token persistence in the local repo. That setting RESETS the
+    // helper list at the local level, which silently overrides the global
+    // `credential.helper=store` we intentionally inject via
+    // ~/.gitconfig + ~/.git-credentials so the agent can push and open PRs.
+    // The transient clone token already lives in the per-task credentials
+    // file under /tmp, not in `.git/config`, so there is no persistence to
+    // prevent here.
     return { ok: true };
   } catch (err) {
     const msg = errorMessage(err);
     log.warn('Failed to clone repository', { error: msg });
     return { ok: false, error: msg };
+  } finally {
+    // Always remove the transient clone credential file. Earlier revisions
+    // only cleaned up after a fully successful fetch+checkout, which left
+    // the token on disk whenever fetch or checkout failed — readable by the
+    // next agent in shared-sandbox mode.
+    if (useCredentialFile) {
+      try {
+        await sandbox.exec('rm', ['-f', transientCredentialsPath]);
+      } catch (rmErr) {
+        log.debug('Failed to remove transient credential file', {
+          error: errorMessage(rmErr),
+        });
+      }
+    }
   }
 }
 
@@ -389,7 +443,7 @@ export async function initializeK8sWorkspace(
   // Step 1: Clone if needed
   const cloned = await isWorkspaceCloned(sandbox);
   if (!cloned) {
-    const cloneResult = await cloneRepository(sandbox, token, owner, repo, baseBranch);
+    const cloneResult = await cloneRepository(sandbox, token, owner, repo, baseBranch, taskId);
     if (!cloneResult.ok) {
       return { worktreePath: CONTAINER_WORKSPACE_PATH, branch: null, error: cloneResult.error };
     }
