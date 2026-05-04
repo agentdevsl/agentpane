@@ -6,8 +6,11 @@ import type { AgentNodeData } from './nodes/agent-node';
 import type { SkillNodeData } from './nodes/skill-node';
 
 const NODE_WIDTH = 170;
-const NODE_HEIGHT = 130;
-const SKILL_NODE_WIDTH = 160;
+// 170 matches the actual rendered height of AgentNode (SVG viewBox 145 +
+// extra margin for the metrics row). Using a value smaller than the rendered
+// height makes ELK pack layers too tightly and adjacent rows overlap.
+const NODE_HEIGHT = 170;
+const SKILL_NODE_WIDTH = 200;
 const SKILL_NODE_HEIGHT = 50;
 
 export async function layoutTopology(
@@ -17,101 +20,65 @@ export async function layoutTopology(
 
   const elk = await getElk();
 
-  // Build ELK node for a topology node
+  // Build ELK node for a topology node. mrtree doesn't use port constraints —
+  // it routes edges from node centers — so we just give ELK the dimensions.
   function makeElkNode(n: (typeof graph.nodes)[number]): ElkNode {
     const isSkill = n.type === 'skill';
-    const w = isSkill ? SKILL_NODE_WIDTH : NODE_WIDTH;
-    const h = isSkill ? SKILL_NODE_HEIGHT : NODE_HEIGHT;
     return {
       id: n.id,
-      width: w,
-      height: h,
-      layoutOptions: {
-        'org.eclipse.elk.portConstraints': 'FIXED_POS',
-      },
-      ports: [
-        {
-          id: `${n.id}__target`,
-          layoutOptions: { 'org.eclipse.elk.port.side': 'NORTH' },
-          x: w / 2,
-          y: 0,
-          width: 1,
-          height: 1,
-        },
-        {
-          id: `${n.id}__source`,
-          layoutOptions: { 'org.eclipse.elk.port.side': 'SOUTH' },
-          x: w / 2,
-          y: h,
-          width: 1,
-          height: 1,
-        },
-      ],
+      width: isSkill ? SKILL_NODE_WIDTH : NODE_WIDTH,
+      height: isSkill ? SKILL_NODE_HEIGHT : NODE_HEIGHT,
     };
   }
 
-  // Detect groups of concurrent siblings
-  const groups = new Map<string, string[]>();
-  for (const n of graph.nodes) {
-    if (n.group) {
-      const list = groups.get(n.group) ?? [];
-      list.push(n.id);
-      groups.set(n.group, list);
+  // mrtree handles sibling layout natively — concurrent-sibling grouping
+  // (the `group` field on TopologyNode) is a layered-algorithm artifact and
+  // would create compound nodes that mrtree can't route edges through.
+  const topChildren = graph.nodes.map(makeElkNode);
+
+  // Build a spanning tree (BFS from roots) so ELK's `mrtree` algorithm —
+  // which only handles strict trees, not DAGs with merges — gets a clean
+  // tree structure to lay out. The merge edges (e.g. multiple research
+  // nodes pointing into a synthesizer) are still rendered by ReactFlow on
+  // top of the layout so users see the full topology.
+  const incomingCount = new Map<string, number>();
+  for (const e of graph.edges) {
+    incomingCount.set(e.targetId, (incomingCount.get(e.targetId) ?? 0) + 1);
+  }
+  const treeRootIds = graph.nodes
+    .filter((n) => (incomingCount.get(n.id) ?? 0) === 0)
+    .map((n) => n.id);
+  const visitedTree = new Set<string>(treeRootIds);
+  const treeEdges: typeof graph.edges = [];
+  const queue: string[] = [...treeRootIds];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) break;
+    for (const e of graph.edges) {
+      if (e.sourceId === current && !visitedTree.has(e.targetId)) {
+        visitedTree.add(e.targetId);
+        treeEdges.push(e);
+        queue.push(e.targetId);
+      }
     }
   }
-  const groupedNodeIds = new Set<string>();
-  for (const ids of groups.values()) {
-    for (const id of ids) groupedNodeIds.add(id);
-  }
-
-  // Build compound group nodes (laid out horizontally)
-  const groupElkNodes: ElkNode[] = [];
-  for (const [groupId, nodeIds] of groups) {
-    const children = nodeIds
-      .map((id) => graph.nodes.find((n) => n.id === id))
-      .filter((n): n is (typeof graph.nodes)[number] => n !== undefined)
-      .map((n) => makeElkNode(n));
-    groupElkNodes.push({
-      id: groupId,
-      layoutOptions: {
-        'elk.algorithm': 'layered',
-        'elk.direction': 'RIGHT',
-        'elk.spacing.nodeNode': '40',
-        'elk.padding': '[top=20,left=20,bottom=20,right=20]',
-        'elk.contentAlignment': 'H_CENTER V_CENTER',
-      },
-      children,
-    });
-  }
-
-  // Top-level children: ungrouped nodes + group compound nodes
-  const topChildren = graph.nodes.filter((n) => !groupedNodeIds.has(n.id)).map(makeElkNode);
-  topChildren.push(...groupElkNodes);
 
   const elkGraph: ElkNode = {
     id: 'root',
     layoutOptions: {
-      'elk.algorithm': 'layered',
+      'elk.algorithm': 'mrtree',
       'elk.direction': 'DOWN',
-      'elk.spacing.nodeNode': '60',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '90',
-      'elk.edgeRouting': 'ORTHOGONAL',
-      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
-      'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
-      'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
-      'elk.layered.layering.strategy': 'NETWORK_SIMPLEX',
-      'elk.alignment': 'CENTER',
-      'elk.contentAlignment': 'H_CENTER V_TOP',
-      'elk.layered.mergeEdges': 'false',
-      'elk.spacing.edgeNode': '30',
-      'elk.layered.spacing.edgeEdgeBetweenLayers': '20',
-      'elk.layered.spacing.edgeNodeBetweenLayers': '30',
+      'elk.spacing.nodeNode': '50',
+      'elk.spacing.edgeNode': '20',
+      'elk.padding': '[top=20,left=20,bottom=20,right=20]',
+      'elk.mrtree.weighting': 'CONSTRAINT',
+      'elk.mrtree.searchOrder': 'DFS',
     },
     children: topChildren,
-    edges: graph.edges.map((e) => ({
+    edges: treeEdges.map((e) => ({
       id: e.id,
-      sources: [`${e.sourceId}__source`],
-      targets: [`${e.targetId}__target`],
+      sources: [e.sourceId],
+      targets: [e.targetId],
     })),
   };
 
@@ -119,29 +86,9 @@ export async function layoutTopology(
 
   const nodeById = new Map(graph.nodes.map((n, i) => [n.id, { node: n, index: i }]));
 
-  // Flatten ELK children — compound group nodes contain nested children
-  // whose positions are relative to the group. Convert to absolute positions.
-  const flatChildren: Array<{ id: string; x: number; y: number }> = [];
-  for (const child of layouted.children ?? []) {
-    if (groups.has(child.id)) {
-      // Compound group — extract nested children with offset
-      const groupX = child.x ?? 0;
-      const groupY = child.y ?? 0;
-      for (const nested of child.children ?? []) {
-        flatChildren.push({
-          id: nested.id,
-          x: groupX + (nested.x ?? 0),
-          y: groupY + (nested.y ?? 0),
-        });
-      }
-    } else {
-      flatChildren.push({
-        id: child.id,
-        x: child.x ?? 0,
-        y: child.y ?? 0,
-      });
-    }
-  }
+  const flatChildren: Array<{ id: string; x: number; y: number }> = (layouted.children ?? []).map(
+    (child: ElkNode) => ({ id: child.id, x: child.x ?? 0, y: child.y ?? 0 })
+  );
 
   const rfNodes: ReactFlowNode[] = flatChildren
     .map((child) => {
