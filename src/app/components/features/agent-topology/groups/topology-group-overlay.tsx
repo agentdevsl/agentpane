@@ -19,22 +19,92 @@ interface TopologyGroupOverlayProps {
 }
 
 /**
- * Stable colour-from-string hash. Maps an `agent_type` to a hue so each
- * cluster gets a distinct, readable tint without us hand-curating a
- * palette per subagent name. Avoids the obvious failure mode where two
- * clusters land on the exact same background colour.
+ * Tint palette for cluster boxes. The hue carries meaning: workflow
+ * phase (research / design / test / develop) instead of "whatever the
+ * string-hash spat out for this agent_type." A small set of distinct,
+ * recognisable hues from the rest of the app's palette so the eye
+ * groups by phase, not by a coincidence of `agent_type` characters.
+ *
+ * Anything that doesn't match a phase keyword falls back to the
+ * stable HSL string-hash, so adding a new agent_type still yields a
+ * readable colour without code changes.
  */
-function tintForAgentType(agentType: string): { fill: string; stroke: string; label: string } {
+type ClusterTint = { fill: string; stroke: string; label: string };
+
+const PHASE_TINTS = {
+  // research → accent (blue)
+  research: {
+    fill: 'rgba(47, 129, 247, 0.08)',
+    stroke: 'rgba(47, 129, 247, 0.55)',
+    label: 'rgba(120, 170, 255, 0.95)',
+  },
+  // design → done (purple)
+  design: {
+    fill: 'rgba(163, 113, 247, 0.08)',
+    stroke: 'rgba(163, 113, 247, 0.55)',
+    label: 'rgba(200, 165, 255, 0.95)',
+  },
+  // test / validator / qa → attention (amber)
+  test: {
+    fill: 'rgba(210, 153, 34, 0.08)',
+    stroke: 'rgba(210, 153, 34, 0.55)',
+    label: 'rgba(240, 195, 100, 0.95)',
+  },
+  // local bash / shell tooling → muted neutral so it doesn't compete
+  // visually with the workflow stages
+  bash: {
+    fill: 'rgba(110, 118, 129, 0.08)',
+    stroke: 'rgba(110, 118, 129, 0.55)',
+    label: 'rgba(170, 178, 189, 0.95)',
+  },
+  // developer / implementer → success (green)
+  develop: {
+    fill: 'rgba(63, 185, 80, 0.08)',
+    stroke: 'rgba(63, 185, 80, 0.55)',
+    label: 'rgba(120, 220, 140, 0.95)',
+  },
+} as const satisfies Record<string, ClusterTint>;
+
+/**
+ * Match an `agent_type` string to a phase tint. Substring match because
+ * conventional names compose freely: `tf-module-research`,
+ * `provider-research`, `module-test-writer`, etc. First match wins;
+ * order in the conditional below = priority when keywords overlap.
+ */
+function matchPhaseTint(agentType: string): ClusterTint | null {
+  const t = agentType.toLowerCase();
+  if (t.includes('research')) return PHASE_TINTS.research;
+  if (t.includes('design')) return PHASE_TINTS.design;
+  if (t.includes('test') || t.includes('validator') || t.includes('qa')) return PHASE_TINTS.test;
+  if (t.includes('bash') || t.startsWith('local_')) return PHASE_TINTS.bash;
+  if (t.includes('develop') || t.includes('implement') || t.includes('builder')) {
+    return PHASE_TINTS.develop;
+  }
+  return null;
+}
+
+/**
+ * Stable HSL fallback for agent_types not covered by the phase palette.
+ * Same algorithm as before — kept so adding a new subagent name still
+ * produces a readable, deterministic colour without a code change. The
+ * saturation is bumped from 55 → 62 and alpha from 0.06 → 0.08 to
+ * match the explicit phase tints above.
+ */
+function fallbackTint(agentType: string): ClusterTint {
   let hash = 0;
   for (let i = 0; i < agentType.length; i++) {
     hash = (hash * 31 + agentType.charCodeAt(i)) | 0;
   }
   const hue = Math.abs(hash) % 360;
   return {
-    fill: `hsl(${hue}, 60%, 55%, 0.06)`,
-    stroke: `hsl(${hue}, 60%, 60%, 0.45)`,
-    label: `hsl(${hue}, 60%, 75%)`,
+    fill: `hsl(${hue}, 62%, 55%, 0.08)`,
+    stroke: `hsl(${hue}, 62%, 60%, 0.55)`,
+    label: `hsl(${hue}, 62%, 78%)`,
   };
+}
+
+function tintForAgentType(agentType: string): ClusterTint {
+  return matchPhaseTint(agentType) ?? fallbackTint(agentType);
 }
 
 const transformSelector = (s: ReactFlowState) =>
