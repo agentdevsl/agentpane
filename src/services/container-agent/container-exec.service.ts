@@ -21,6 +21,8 @@ import { getRequestId } from '../../lib/context/request-context.js';
 import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
+import { resolveGitToken } from '../../lib/sandbox/git-token-resolver.js';
+import { GitHubCredentialsInjector } from '../../lib/sandbox/github-credentials-injector.js';
 import type { Sandbox } from '../../lib/sandbox/providers/sandbox-provider.js';
 import { injectAgents, injectSkills } from '../../lib/sandbox/skill-injector.js';
 import { SANDBOX_DEFAULTS } from '../../lib/sandbox/types.js';
@@ -855,6 +857,54 @@ export class ContainerExecService {
         await this.worktreeInit.cleanupWorktree(taskId, worktreeId);
       }
       return err(credentialsRefreshResult.error);
+    }
+
+    // Inject GitHub credentials (PAT or App installation token) into the
+    // sandbox the same way: file-based via writeFile so the token never
+    // appears in argv or env. Failure is non-fatal — agents may still
+    // operate on local files even without GitHub auth, and codespaces
+    // without a configured remote skip injection entirely.
+    if (codespace.githubOwner && codespace.githubRepo) {
+      try {
+        const gitToken = await resolveGitToken(
+          {
+            githubOwner: codespace.githubOwner,
+            githubRepo: codespace.githubRepo,
+            githubInstallationId: codespace.githubInstallationId,
+            codespaceId,
+          },
+          { db, githubTokenService: this.deps.githubTokenService }
+        );
+        if (gitToken) {
+          const githubInjector = new GitHubCredentialsInjector();
+          const ghResult = await githubInjector.inject(sandbox, {
+            token: gitToken.token,
+          });
+          if (!ghResult.ok) {
+            log.warn(
+              'Failed to inject GitHub credentials (continuing — agent will not be able to push/PR)',
+              {
+                data: { taskId, sandboxId: sandbox.id, error: ghResult.error.message },
+              }
+            );
+          } else {
+            log.info('GitHub credentials injected', {
+              data: { taskId, owner: gitToken.owner, repo: gitToken.repo },
+            });
+          }
+        } else {
+          log.info('No GitHub token available — sandbox will not have push/PR auth', {
+            data: { taskId, codespaceId },
+          });
+        }
+      } catch (ghErr) {
+        log.warn('GitHub credential injection threw (continuing)', {
+          data: {
+            taskId,
+            error: ghErr instanceof Error ? ghErr.message : String(ghErr),
+          },
+        });
+      }
     }
 
     // Merge project-level env vars (sandbox.env setting) into container env.
