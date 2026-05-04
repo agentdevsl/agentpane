@@ -48,7 +48,7 @@ function createMockClient() {
         return createMockCustomApi();
       }),
     },
-    watchSandboxes: vi.fn().mockReturnValue({ stop: vi.fn() }),
+    watchSandboxes: vi.fn().mockReturnValue({ stop: vi.fn(), done: Promise.resolve() }),
     listSandboxes: vi.fn().mockResolvedValue({ items: [] }),
     listWarmPools: vi.fn().mockResolvedValue({ items: [] }),
     getTemplate: vi.fn(),
