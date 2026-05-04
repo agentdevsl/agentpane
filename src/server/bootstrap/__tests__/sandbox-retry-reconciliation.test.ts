@@ -69,6 +69,7 @@ function makeSandboxState(): SandboxState {
     retryCount: 0,
     initializing: false,
     reconciled: false,
+    initAttempted: false,
   };
 }
 

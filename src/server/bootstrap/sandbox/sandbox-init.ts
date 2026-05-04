@@ -331,5 +331,14 @@ export async function initSandboxProvider(
     if (!sandboxState.provider) {
       scheduleSandboxRetry(db, services, sandboxState, dbMode);
     }
+  } finally {
+    // Open the readiness gate after the FIRST attempt regardless of
+    // outcome. Without this a broken K8s cluster (TLS error, missing
+    // CRDs, etc.) with `k8sFallbackToDocker: false` would lock the
+    // `/api/health` gate at 503 forever and prevent the dev server
+    // from coming up. The retry loop continues in the background; the
+    // health body still reports sandbox.status='error' so callers can
+    // see the degraded state.
+    sandboxState.initAttempted = true;
   }
 }

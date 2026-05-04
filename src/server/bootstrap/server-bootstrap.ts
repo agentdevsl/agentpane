@@ -104,6 +104,7 @@ export async function run(): Promise<void> {
     retryCount: 0,
     initializing: false,
     reconciled: false,
+    initAttempted: false,
   };
 
   const isDev = process.env.NODE_ENV === 'development';
@@ -136,9 +137,19 @@ export async function run(): Promise<void> {
   const getNomadProvider = () => sandboxState.nomadProvider;
 
   // F01-03: readiness gate for `/api/health`. The sandbox provider init
-  // runs in the background (Phase 11) and sandbox reconciliation follows
-  // it; health is "initializing" until both complete.
-  const isSandboxReady = () => sandboxState.provider !== null && sandboxState.reconciled;
+  // runs in the background (Phase 11) and reconciliation follows it.
+  // Originally this required *both* a non-null provider AND `reconciled`,
+  // but that locked the gate at 503 forever when K8s init failed (e.g.
+  // a stale minikube cert) with `k8sFallbackToDocker: false`: the dev
+  // start script gave up after 30 health checks and killed everything,
+  // even though the operator could have fixed the config from the UI.
+  //
+  // New semantics: ready means "the provider init attempt has completed"
+  // — success or failure. The body of `/api/health` still reports
+  // sandbox.status separately (`ok` / `error` / `not_configured`) so
+  // production load balancers and observability can distinguish a
+  // running-but-degraded instance from a healthy one.
+  const isSandboxReady = () => sandboxState.initAttempted;
 
   // Phase 7: Router
   const app = createAppRouter(

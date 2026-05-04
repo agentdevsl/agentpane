@@ -152,6 +152,17 @@ export interface SandboxState {
    * the `sandbox_instances` DB table.
    */
   reconciled: boolean;
+  /**
+   * Set to `true` once `initSandboxProvider` has completed its first
+   * attempt — successfully OR unsuccessfully (init error, timeout, no
+   * fallback, etc). The readiness gate uses this so a broken K8s
+   * cluster doesn't lock `/api/health` at 503 indefinitely; the start
+   * script can come up, the operator opens the UI, and they can fix the
+   * provider config from there. The sandbox health check in the body
+   * still reports `error` / `not_configured` so observability and
+   * production load balancers can route accordingly.
+   */
+  initAttempted: boolean;
 }
 
 /**
