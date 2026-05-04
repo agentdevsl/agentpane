@@ -5,12 +5,13 @@ import { getElk } from '@/lib/workflow-dsl/layout';
 import type { AgentNodeData } from './nodes/agent-node';
 import type { SkillNodeData } from './nodes/skill-node';
 
-const NODE_WIDTH = 170;
-// 170 matches the actual rendered height of AgentNode (SVG viewBox 145 +
-// extra margin for the metrics row). Using a value smaller than the rendered
-// height makes ELK pack layers too tightly and adjacent rows overlap.
-const NODE_HEIGHT = 170;
-const SKILL_NODE_WIDTH = 200;
+// Must match the actual container sizes in AgentNode/SkillNode — if ELK
+// thinks a node is wider than it really is, mrtree centers parent above
+// child using ELK's idea of the width and the rendered centers no longer
+// line up (edges land off-center).
+const NODE_WIDTH = 120;
+const NODE_HEIGHT = 145;
+const SKILL_NODE_WIDTH = 160;
 const SKILL_NODE_HEIGHT = 50;
 
 export async function layoutTopology(
@@ -68,7 +69,10 @@ export async function layoutTopology(
     layoutOptions: {
       'elk.algorithm': 'mrtree',
       'elk.direction': 'DOWN',
-      'elk.spacing.nodeNode': '50',
+      // 80 keeps labels (which can overflow the 120px node container by up
+      // to ~30px on each side after truncation) from colliding between
+      // adjacent siblings in a horizontal row.
+      'elk.spacing.nodeNode': '80',
       'elk.spacing.edgeNode': '20',
       'elk.padding': '[top=20,left=20,bottom=20,right=20]',
       'elk.mrtree.weighting': 'CONSTRAINT',
