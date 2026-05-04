@@ -693,12 +693,19 @@ export function buildTopologyFromEvents(
         decisions: [],
       };
       skillNodeMap.set(injectionNodeId, injectionNode);
-      const edgeId = `skill-inject->${rootNode.id}`;
+      // Edge: orchestrator -> skill (NOT skill -> orchestrator). The
+      // skill is an annotation hanging off the root, not a parent of
+      // it: with the reverse direction the skill became a tree root
+      // (no incoming edges) and mrtree placed it ABOVE the
+      // orchestrator, often offscreen by default. Sourcing the edge
+      // from the orchestrator makes the skill render as a child,
+      // visible just below the root with the rest of the workflow.
+      const edgeId = `${rootNode.id}->skill-inject-${context.skillId}`;
       if (!edges.some((e) => e.id === edgeId)) {
         edges.push({
           id: edgeId,
-          sourceId: injectionNodeId,
-          targetId: rootNode.id,
+          sourceId: rootNode.id,
+          targetId: injectionNodeId,
         });
       }
     }
