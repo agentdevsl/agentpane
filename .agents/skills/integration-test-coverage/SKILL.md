@@ -19,16 +19,19 @@ grep -l "projects\|workspace" vitest.config.* vite.config.* 2>/dev/null
 ```
 
 If the project has an `integration` test project:
+
 ```bash
 npx vitest run --project integration --coverage --coverage.reporter=json-summary --coverage.reporter=json --coverage.reportsDirectory=coverage/integration
 ```
 
 If no separate project, filter by test directory:
+
 ```bash
 npx vitest run tests/integration/ --coverage --coverage.reporter=json-summary --coverage.reporter=json --coverage.reportsDirectory=coverage/integration
 ```
 
 For Jest:
+
 ```bash
 npx jest --testPathPattern='integration|__integration__' --coverage --coverageDirectory=coverage/integration --coverageReporters=json-summary --coverageReporters=json
 ```
@@ -40,6 +43,7 @@ cat coverage/integration/coverage-summary.json | head -100
 ```
 
 The `json-summary` report has per-file stats:
+
 ```json
 {
   "src/services/task.service.ts": {

@@ -550,13 +550,13 @@ Module owners **MAY** use `newres` command-line tool to generate Terraform confi
 - **Non-Functional Requirements:** 34
 - **Total Requirements:** 37
 
-### By Severity:
+### By Severity
 
 - **MUST:** 21 requirements
 - **SHOULD:** 14 requirements
 - **MAY:** 2 requirements
 
-### By Category:
+### By Category
 
 - **Code Style:** 21 requirements
 - **Documentation:** 2 requirements
@@ -567,5 +567,5 @@ Module owners **MAY** use `newres` command-line tool to generate Terraform confi
 
 ---
 
-_Generated on: November 5, 2025_  
+_Generated on: November 5, 2025_
 _Source: Azure Verified Modules - Terraform Requirements_

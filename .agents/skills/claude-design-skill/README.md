@@ -4,11 +4,12 @@ A specialized skill for Claude Code that guides the AI toward producing professi
 
 ## Source
 
-Installed from: https://github.com/agentdevsl/claude-design-skill
+Installed from: <https://github.com/agentdevsl/claude-design-skill>
 
 ## Purpose
 
 This skill enables Claude to:
+
 - Choose a design direction before writing code
 - Apply consistent craft principles (4px grid, symmetrical padding, border radius consistency)
 - Select appropriate design personalities based on product context
