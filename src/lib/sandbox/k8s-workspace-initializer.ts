@@ -55,8 +55,19 @@ export interface SandboxExec {
   writeFile?(path: string, content: string | Buffer, mode?: number): Promise<void>;
 }
 
-/** Path to the transient credential file used by `credential.helper=store`. */
-const TRANSIENT_GIT_CREDENTIALS_PATH = '/tmp/.agentpane-git-credentials';
+/**
+ * Build the path to the transient credential file used by
+ * `credential.helper=store`. Including the taskId keeps concurrent inits in
+ * a shared sandbox from clobbering each other's transient file (and from
+ * racing on the `finally` rm).
+ */
+function transientGitCredentialsPath(taskId: string): string {
+  // Defense-in-depth: strip path separators / control chars from taskId so a
+  // hostile id cannot escape /tmp. Task ids are CUIDs in practice; this is
+  // a belt-and-braces guard.
+  const safeTaskId = taskId.replace(/[^a-zA-Z0-9._-]/g, '_');
+  return `/tmp/.agentpane-git-credentials-${safeTaskId}`;
+}
 
 export interface K8sWorkspaceOptions {
   readonly sandbox: SandboxExec;
@@ -109,11 +120,14 @@ async function cloneRepository(
   token: string,
   owner: string,
   repo: string,
-  baseBranch: string
+  baseBranch: string,
+  taskId: string
 ): Promise<{ ok: boolean; error?: string }> {
   if (!GITHUB_NAME_RE.test(owner) || !GITHUB_NAME_RE.test(repo)) {
     return { ok: false, error: `Invalid owner/repo format: ${owner}/${repo}` };
   }
+
+  const transientCredentialsPath = transientGitCredentialsPath(taskId);
 
   // The remote URL is always the public, token-free form so `git remote -v`
   // and `.git/config` never carry the secret. Auth is supplied either via
@@ -126,7 +140,7 @@ async function cloneRepository(
   if (useCredentialFile && sandbox.writeFile) {
     try {
       await sandbox.writeFile(
-        TRANSIENT_GIT_CREDENTIALS_PATH,
+        transientCredentialsPath,
         `https://x-access-token:${token}@github.com\n`,
         0o600
       );
@@ -219,7 +233,7 @@ async function cloneRepository(
       ? ['-c', authHeaderArg]
       : [
           '-c',
-          `credential.helper=store --file=${TRANSIENT_GIT_CREDENTIALS_PATH}`,
+          `credential.helper=store --file=${transientCredentialsPath}`,
           '-c',
           'credential.useHttpPath=false',
         ];
@@ -318,8 +332,9 @@ async function cloneRepository(
     // helper list at the local level, which silently overrides the global
     // `credential.helper=store` we intentionally inject via
     // ~/.gitconfig + ~/.git-credentials so the agent can push and open PRs.
-    // The transient clone token already lives in `${TRANSIENT_GIT_CREDENTIALS_PATH}`,
-    // not in `.git/config`, so there is no persistence to prevent here.
+    // The transient clone token already lives in the per-task credentials
+    // file under /tmp, not in `.git/config`, so there is no persistence to
+    // prevent here.
     return { ok: true };
   } catch (err) {
     const msg = errorMessage(err);
@@ -328,11 +343,11 @@ async function cloneRepository(
   } finally {
     // Always remove the transient clone credential file. Earlier revisions
     // only cleaned up after a fully successful fetch+checkout, which left
-    // the token at `${TRANSIENT_GIT_CREDENTIALS_PATH}` whenever fetch or
-    // checkout failed — readable by the next agent in shared-sandbox mode.
+    // the token on disk whenever fetch or checkout failed — readable by the
+    // next agent in shared-sandbox mode.
     if (useCredentialFile) {
       try {
-        await sandbox.exec('rm', ['-f', TRANSIENT_GIT_CREDENTIALS_PATH]);
+        await sandbox.exec('rm', ['-f', transientCredentialsPath]);
       } catch (rmErr) {
         log.debug('Failed to remove transient credential file', {
           error: errorMessage(rmErr),
@@ -428,7 +443,7 @@ export async function initializeK8sWorkspace(
   // Step 1: Clone if needed
   const cloned = await isWorkspaceCloned(sandbox);
   if (!cloned) {
-    const cloneResult = await cloneRepository(sandbox, token, owner, repo, baseBranch);
+    const cloneResult = await cloneRepository(sandbox, token, owner, repo, baseBranch, taskId);
     if (!cloneResult.ok) {
       return { worktreePath: CONTAINER_WORKSPACE_PATH, branch: null, error: cloneResult.error };
     }

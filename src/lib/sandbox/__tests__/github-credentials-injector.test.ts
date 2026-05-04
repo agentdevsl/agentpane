@@ -48,8 +48,8 @@ function createMockSandbox(opts?: { withWriteFile?: boolean; writeFails?: boolea
 }
 
 describe('GitHubCredentialsInjector', () => {
-  it('writes ~/.git-credentials, ~/.config/gh/hosts.yml, and ~/.gitconfig via writeFile', async () => {
-    const { sandbox, writeCalls } = createMockSandbox();
+  it('writes ~/.git-credentials and ~/.config/gh/hosts.yml via writeFile and sets credential.helper via git config --global', async () => {
+    const { sandbox, writeCalls, execCalls } = createMockSandbox();
     const injector = new GitHubCredentialsInjector();
 
     const result = await injector.inject(sandbox, {
@@ -58,7 +58,9 @@ describe('GitHubCredentialsInjector', () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(writeCalls).toHaveLength(3);
+    // Only the two token-bearing files are written via writeFile; ~/.gitconfig
+    // is no longer overwritten — credential.helper is set via git config --global.
+    expect(writeCalls).toHaveLength(2);
 
     const credPath = writeCalls.find((c) => c.path.endsWith('/.git-credentials'));
     expect(credPath).toBeDefined();
@@ -71,10 +73,28 @@ describe('GitHubCredentialsInjector', () => {
     expect(ghHosts?.content).toContain('user: octocat');
     expect(ghHosts?.mode).toBe(0o600);
 
+    // ~/.gitconfig is NOT overwritten — would clobber image-baked settings.
     const gitconfig = writeCalls.find((c) => c.path.endsWith('/.gitconfig'));
-    expect(gitconfig).toBeDefined();
-    expect(gitconfig?.content).toContain('[credential]');
-    expect(gitconfig?.content).toContain('helper = store');
+    expect(gitconfig).toBeUndefined();
+
+    // credential.helper=store is set via `git config --global` (idempotent,
+    // preserves existing user config).
+    const gitConfigCall = execCalls.find(
+      (c) =>
+        c.cmd === 'git' &&
+        c.args.includes('config') &&
+        c.args.includes('--global') &&
+        c.args.includes('credential.helper')
+    );
+    expect(gitConfigCall).toBeDefined();
+    expect(gitConfigCall?.args).toContain('store');
+
+    // mkdir for ~/.config/gh must use mode 700 so the gh oauth_token is not
+    // world-readable under a permissive sandbox umask.
+    const mkdirCall = execCalls.find((c) => c.cmd === 'mkdir');
+    expect(mkdirCall).toBeDefined();
+    expect(mkdirCall?.args).toContain('-m');
+    expect(mkdirCall?.args).toContain('700');
   });
 
   it('falls back to x-access-token when no githubLogin is provided', async () => {

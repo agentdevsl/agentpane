@@ -41,7 +41,6 @@ const log = createLogger('GitHubCredentialsInjector');
 const GIT_CREDENTIALS_FILENAME = '.git-credentials';
 const GH_CONFIG_DIR = '.config/gh';
 const GH_HOSTS_FILENAME = 'hosts.yml';
-const GITCONFIG_FILENAME = '.gitconfig';
 
 export interface GitHubInjectionInput {
   /** GitHub token (PAT, OAuth, or App installation token). */
@@ -61,10 +60,6 @@ function gitCredentialsPath(): string {
 
 function ghHostsPath(): string {
   return `${SANDBOX_DEFAULTS.userHome}/${GH_CONFIG_DIR}/${GH_HOSTS_FILENAME}`;
-}
-
-function gitconfigPath(): string {
-  return `${SANDBOX_DEFAULTS.userHome}/${GITCONFIG_FILENAME}`;
 }
 
 /**
@@ -93,16 +88,6 @@ function buildGhHostsFile(token: string, login: string): string {
   ].join('\n');
 }
 
-/**
- * Build a minimal `~/.gitconfig` enabling the store credential helper.
- * Idempotent: contains only `[credential] helper=store`. The image-baked
- * system gitconfig provides `user.name` / `user.email` and `safe.directory`
- * so this file does not duplicate them.
- */
-function buildGitconfigSnippet(): string {
-  return ['[credential]', '\thelper = store', ''].join('\n');
-}
-
 export class GitHubCredentialsInjector {
   /**
    * Write GitHub credentials into the sandbox. Fails closed if the provider
@@ -123,7 +108,11 @@ export class GitHubCredentialsInjector {
     try {
       // Ensure ~/.config/gh exists before writeFile lands files in it.
       // mkdir -p is idempotent and arguments are fixed (no user data).
+      // -m 700 forces restrictive permissions even when the sandbox umask
+      // is permissive, since this directory holds the gh oauth_token.
       const mkdirResult = await sandbox.exec('mkdir', [
+        '-m',
+        '700',
         '-p',
         `${SANDBOX_DEFAULTS.userHome}/${GH_CONFIG_DIR}`,
       ]);
@@ -157,16 +146,19 @@ export class GitHubCredentialsInjector {
         );
       }
 
-      // ~/.gitconfig — enable credential.helper=store. We write rather than
-      // append because the file may not exist and append-via-writeFile is
-      // not part of the Sandbox interface. Image-baked system gitconfig
-      // still applies user.name/user.email/safe.directory for commits.
-      try {
-        await sandbox.writeFile(gitconfigPath(), buildGitconfigSnippet(), 0o644);
-      } catch (writeErr) {
+      // Set credential.helper=store via `git config --global` instead of
+      // overwriting ~/.gitconfig. Idempotent — replaces the helper line and
+      // preserves any existing user config (aliases, image-baked settings).
+      const configResult = await sandbox.exec('git', [
+        'config',
+        '--global',
+        'credential.helper',
+        'store',
+      ]);
+      if (configResult.exitCode !== 0) {
         return err(
           SandboxErrors.CREDENTIALS_INJECTION_FAILED(
-            `Failed to write ~/.gitconfig: ${errorMessage(writeErr)}`
+            `Failed to configure git credential.helper: ${configResult.stderr}`
           )
         );
       }

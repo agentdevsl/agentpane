@@ -194,10 +194,15 @@ describe('arch29-W2-I (F04-12) — K8s git clone never puts token in URL argv', 
     });
 
     // The token MUST land in a writeFile call (out-of-band tar) — never argv.
-    const credWrite = writeFileCalls.find((w) => w.path.endsWith('git-credentials'));
+    // The transient clone credential file is per-task to prevent collisions
+    // between concurrent inits in a shared sandbox, so we match by substring.
+    const credWrite = writeFileCalls.find((w) => w.path.includes('git-credentials'));
     expect(credWrite).toBeDefined();
     expect(credWrite?.content).toContain(SECRET_TOKEN);
     expect(credWrite?.mode).toBe(0o600);
+    // taskId must be present in the path so concurrent tasks in the same
+    // sandbox don't overwrite each other's transient credentials file.
+    expect(credWrite?.path).toContain('task-file123');
 
     // No git invocation may carry the token in plaintext OR via x-access-token: in argv.
     const gitCalls = calls.filter((c) => c.cmd === 'git');
@@ -220,8 +225,9 @@ describe('arch29-W2-I (F04-12) — K8s git clone never puts token in URL argv', 
     }
 
     // Cleanup: the transient credential file should be rm'd after fetch.
+    // Per-task path so we match by substring rather than exact suffix.
     const rmCalls = calls.filter(
-      (c) => c.cmd === 'rm' && c.args.some((a) => a.endsWith('git-credentials'))
+      (c) => c.cmd === 'rm' && c.args.some((a) => a.includes('git-credentials'))
     );
     expect(rmCalls.length).toBeGreaterThan(0);
   });
