@@ -21,7 +21,7 @@ import { layoutTopology } from './topology-layout';
 
 const nodeTypes = { agentNode: AgentNode, skillNode: SkillNode };
 const edgeTypes = { agentEdge: AgentEdge, skillEdge: SkillEdge };
-const FIT_VIEW_OPTIONS = { padding: 0.3, maxZoom: 1 };
+const FIT_VIEW_OPTIONS = { padding: 0.15, maxZoom: 1.1 };
 
 function TopologyInner(): React.JSX.Element {
   const { state, dispatch, selectedNode, sessionId } = useTopology();
@@ -43,12 +43,17 @@ function TopologyInner(): React.JSX.Element {
       const result = await layoutTopology(graphRef.current);
       setNodes(result.nodes);
       setEdges(result.edges);
+      // Re-fit after the new positions render so the view stays centered
+      // when nodes are added/removed.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => fitView(FIT_VIEW_OPTIONS));
+      });
     } catch (err) {
       console.error('[AgentTopology] Layout error:', err);
     } finally {
       layoutInFlight.current = false;
     }
-  }, []);
+  }, [fitView]);
 
   // Structural changes -- trigger full ELK relayout
   useWatchEffect(() => {

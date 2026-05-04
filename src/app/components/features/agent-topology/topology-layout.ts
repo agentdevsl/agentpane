@@ -5,8 +5,8 @@ import { getElk } from '@/lib/workflow-dsl/layout';
 import type { AgentNodeData } from './nodes/agent-node';
 import type { SkillNodeData } from './nodes/skill-node';
 
-const NODE_WIDTH = 200;
-const NODE_HEIGHT = 145;
+const NODE_WIDTH = 170;
+const NODE_HEIGHT = 130;
 const SKILL_NODE_WIDTH = 160;
 const SKILL_NODE_HEIGHT = 50;
 
@@ -93,17 +93,19 @@ export async function layoutTopology(
     layoutOptions: {
       'elk.algorithm': 'layered',
       'elk.direction': 'DOWN',
-      'elk.spacing.nodeNode': '160',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '130',
-      'elk.edgeRouting': 'SPLINES',
+      'elk.spacing.nodeNode': '60',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '90',
+      'elk.edgeRouting': 'ORTHOGONAL',
       'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
       'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
       'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
+      'elk.layered.layering.strategy': 'NETWORK_SIMPLEX',
+      'elk.alignment': 'CENTER',
       'elk.contentAlignment': 'H_CENTER V_TOP',
       'elk.layered.mergeEdges': 'false',
-      'elk.spacing.edgeNode': '80',
-      'elk.layered.spacing.edgeEdgeBetweenLayers': '40',
-      'elk.layered.spacing.edgeNodeBetweenLayers': '80',
+      'elk.spacing.edgeNode': '30',
+      'elk.layered.spacing.edgeEdgeBetweenLayers': '20',
+      'elk.layered.spacing.edgeNodeBetweenLayers': '30',
     },
     children: topChildren,
     edges: graph.edges.map((e) => ({
