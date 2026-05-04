@@ -110,12 +110,15 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
     : `${safeTurns}t · ${formatTokens(safeTokens)} · $${safeCost.toFixed(2)}`;
 
   return (
-    <div style={{ width: 120, height: 145, overflow: 'visible' }}>
+    <div style={{ width: 120, height: 145, overflow: 'visible', position: 'relative' }}>
+      {/* Handles attach at the visible circle edges (top y=22, bottom y=78
+          relative to the 145px container) so edges land on the circle, not
+          on the labels below it. */}
       <Handle
         type="target"
         position={Position.Top}
         id="target"
-        style={{ opacity: 0, width: 1, height: 1 }}
+        style={{ opacity: 0, width: 1, height: 1, top: 22 }}
       />
 
       <svg
@@ -292,7 +295,7 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
         type="source"
         position={Position.Bottom}
         id="source"
-        style={{ opacity: 0, width: 1, height: 1 }}
+        style={{ opacity: 0, width: 1, height: 1, top: 78, bottom: 'auto' }}
       />
     </div>
   );
