@@ -11,7 +11,7 @@ function createMockSandbox() {
 }
 
 const defaultOptions = {
-  gitToken: { token: 'ghp_test123', owner: 'acme', repo: 'my-app' },
+  gitToken: { token: 'ghp_test123', owner: 'acme', repo: 'my-app', type: 'pat' as const },
   taskTitle: 'Fix login bug',
   taskId: 'task_abc123def456',
 };

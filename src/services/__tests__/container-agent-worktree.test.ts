@@ -559,6 +559,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
       token: 'ghp_test',
       owner: 'test-org',
       repo: 'test-repo',
+      type: 'pat',
     });
     vi.mocked(initializeK8sWorkspace).mockResolvedValue({
       worktreePath: '/workspace/.worktrees/fix-login-bug-abc123',
@@ -587,6 +588,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
       token: 'ghp_test',
       owner: 'org',
       repo: 'repo',
+      type: 'pat',
     });
     vi.mocked(initializeK8sWorkspace).mockResolvedValue({
       worktreePath: '/workspace/.worktrees/fix-bug-abc123',
@@ -634,6 +636,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
       token: 'ghp_test',
       owner: 'test-org',
       repo: 'test-repo',
+      type: 'pat',
     });
     // Simulate clone/worktree failure — initializeK8sWorkspace returns fallback
     vi.mocked(initializeK8sWorkspace).mockResolvedValue({
@@ -670,6 +673,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
       token: 'ghp_docker_token',
       owner: 'test-org',
       repo: 'test-repo',
+      type: 'pat',
     });
 
     await dockerService.startAgent({

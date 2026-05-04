@@ -62,7 +62,12 @@ describe('arch29-W2-I (F04-12) — K8s git clone never puts token in URL argv', 
 
     await initializeK8sWorkspace({
       sandbox,
-      gitToken: { token: SECRET_TOKEN, owner: 'agentdevsl', repo: 'agentpane' },
+      gitToken: {
+        token: SECRET_TOKEN,
+        owner: 'agentdevsl',
+        repo: 'agentpane',
+        type: 'app' as const,
+      },
       taskTitle: 'fix-the-thing',
       taskId: 'task-abcd1234',
       baseBranch: 'main',
@@ -121,7 +126,12 @@ describe('arch29-W2-I (F04-12) — K8s git clone never puts token in URL argv', 
 
     await initializeK8sWorkspace({
       sandbox,
-      gitToken: { token: SECRET_TOKEN, owner: 'agentdevsl', repo: 'agentpane' },
+      gitToken: {
+        token: SECRET_TOKEN,
+        owner: 'agentdevsl',
+        repo: 'agentpane',
+        type: 'app' as const,
+      },
       taskTitle: 'feature-x',
       taskId: 'task-efgh5678',
       baseBranch: 'main',

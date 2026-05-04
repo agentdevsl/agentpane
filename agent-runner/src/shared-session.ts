@@ -91,6 +91,66 @@ export async function writeCredentialsFile(
 }
 
 // ---------------------------------------------------------------------------
+// GitHub credential writing
+// ---------------------------------------------------------------------------
+
+/**
+ * Write GitHub credentials so `git push` and `gh` work inside the runtime.
+ *
+ * Mirrors the host-side `GitHubCredentialsInjector` (src/lib/sandbox/
+ * github-credentials-injector.ts) so the on-disk shape is identical
+ * regardless of which path delivered the token (Docker/K8s/Nomad vs
+ * AgentCore). Three artifacts are written under `$HOME`, all with
+ * restrictive modes so a co-tenant cannot read the token:
+ *
+ *   ~/.git-credentials        (0o600) — `https://x-access-token:TOKEN@github.com`
+ *   ~/.config/gh/hosts.yml    (0o600) — gh CLI auth blob
+ *   ~/.gitconfig              (0o644) — `[credential] helper = store`
+ *
+ * No throw on missing token — caller decides whether GitHub auth is required.
+ */
+export async function writeGitHubCredentialFiles(
+  token: string,
+  login = 'x-access-token'
+): Promise<void> {
+  const home = homedir();
+  const gitCredentialsPath = join(home, '.git-credentials');
+  const ghConfigDir = join(home, '.config', 'gh');
+  const ghHostsPath = join(ghConfigDir, 'hosts.yml');
+  const gitconfigPath = join(home, '.gitconfig');
+
+  if (!token) {
+    throw new Error('No GitHub token provided to writeGitHubCredentialFiles');
+  }
+
+  const safeLogin = login.trim() || 'x-access-token';
+
+  await mkdir(ghConfigDir, { recursive: true, mode: 0o700 });
+
+  await writeFile(gitCredentialsPath, `https://x-access-token:${token}@github.com\n`, {
+    mode: 0o600,
+  });
+
+  await writeFile(
+    ghHostsPath,
+    [
+      'github.com:',
+      `    oauth_token: ${token}`,
+      `    user: ${safeLogin}`,
+      '    git_protocol: https',
+      '',
+    ].join('\n'),
+    { mode: 0o600 }
+  );
+
+  await writeFile(gitconfigPath, ['[credential]', '\thelper = store', ''].join('\n'), {
+    mode: 0o644,
+  });
+
+  log.error(`[shared-session] GitHub credential files written under ${home}`);
+}
+
+// ---------------------------------------------------------------------------
 // Stop-file checking
 // ---------------------------------------------------------------------------
 

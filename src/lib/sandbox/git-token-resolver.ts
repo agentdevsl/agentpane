@@ -12,6 +12,13 @@ export interface GitTokenResult {
   readonly token: string;
   readonly owner: string;
   readonly repo: string;
+  /**
+   * Token kind. App installation tokens are ~1h-lived and repo-scoped;
+   * PATs are typically long-lived and broader-scoped. Surfaces enough
+   * information for callers (notably AgentCore) to refuse PATs when
+   * policy requires short-lived tokens.
+   */
+  readonly type: 'app' | 'pat';
 }
 
 export interface GitTokenResolverDeps {
@@ -71,7 +78,7 @@ export async function resolveGitToken(
           const { data } = await appOctokit.rest.apps.createInstallationAccessToken({
             installation_id: numericId,
           });
-          return { token: data.token, owner, repo };
+          return { token: data.token, owner, repo, type: 'app' };
         }
       } else {
         // No installation record found — fall through to PAT fallback
@@ -96,7 +103,7 @@ export async function resolveGitToken(
         ? await githubTokenService.resolveGitHubTokenForCodespace(project.codespaceId)
         : await githubTokenService.getDecryptedToken();
       if (token) {
-        return { token, owner, repo };
+        return { token, owner, repo, type: 'pat' };
       }
     } catch (error) {
       log.debug('Failed to get GitHub PAT token', { error });

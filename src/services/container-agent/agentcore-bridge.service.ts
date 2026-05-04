@@ -11,17 +11,22 @@
 
 import { eq } from 'drizzle-orm';
 
-import { agents, sessions, tasks } from '../../db/schema';
+import { agents, codespaces, sessions, tasks } from '../../db/schema';
 import { createAgentCoreBridge } from '../../lib/agents/agentcore-bridge.js';
 import { DEFAULT_AGENT_MODEL, getFullModelId } from '../../lib/constants/models.js';
 import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
+import { resolveGitToken } from '../../lib/sandbox/git-token-resolver.js';
 import type { SSEEvent } from '../../lib/sandbox/providers/agentcore-sandbox-instance.js';
 import type { AgentCoreSandboxProvider } from '../../lib/sandbox/providers/agentcore-sandbox-provider.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
-import { getAgentMaxRuntimeMs, getGlobalDefaultModel } from '../settings.service.js';
+import {
+  getAgentMaxRuntimeMs,
+  getGlobalDefaultModel,
+  SettingsService,
+} from '../settings.service.js';
 import type { ContainerExecService } from './container-exec.service.js';
 import type { SandboxStateManager } from './sandbox-state.js';
 import {
@@ -242,6 +247,64 @@ export class AgentCoreBridgeService {
     // env-var fallback (`CLAUDE_OAUTH_REFRESH_TOKEN`) and finally to null.
     const oauthRefreshToken = await apiKeyService.getDecryptedRefreshToken('anthropic');
 
+    // Resolve GitHub credentials. AgentCore receives the token in the
+    // signed invocation payload — there is no exec/writeFile channel to
+    // the runtime. Policy: by default we require a short-lived App
+    // installation token (1h TTL, repo-scoped) and refuse long-lived
+    // PATs, because the token lands at rest in the AgentCore VM and any
+    // compromise of the runtime or its handler would leak it. Admins
+    // can opt out via the `agentcore.requireAppToken` setting.
+    let gitHubTokenForPayload: string | null = null;
+    let gitHubTokenType: 'app' | 'pat' | null = null;
+    try {
+      const fullCodespace = await db.query.codespaces.findFirst({
+        where: eq(codespaces.id, codespaceId),
+      });
+      if (fullCodespace?.githubOwner && fullCodespace.githubRepo) {
+        const settingsService = new SettingsService(db);
+        const requireApp = (await settingsService.getValue<boolean>(
+          'agentcore.requireAppToken',
+          true
+        )) as boolean;
+        const gitToken = await resolveGitToken(
+          {
+            githubOwner: fullCodespace.githubOwner,
+            githubRepo: fullCodespace.githubRepo,
+            githubInstallationId: fullCodespace.githubInstallationId,
+            codespaceId,
+          },
+          { db, githubTokenService: this.deps.githubTokenService }
+        );
+        if (gitToken) {
+          if (requireApp && gitToken.type !== 'app') {
+            log.warn(
+              'agentcore.requireAppToken=true but only a PAT was available; refusing to ship PAT to AgentCore runtime',
+              { data: { taskId, codespaceId } }
+            );
+            await streams.publish(sessionId, 'container-agent:message', {
+              taskId,
+              sessionId,
+              role: 'system',
+              content:
+                'AgentCore policy requires a GitHub App installation token (1h TTL, repo-scoped). ' +
+                'Install the GitHub App on this repo or set agentcore.requireAppToken=false in settings ' +
+                'to allow long-lived PATs (not recommended).',
+            });
+          } else {
+            gitHubTokenForPayload = gitToken.token;
+            gitHubTokenType = gitToken.type;
+            log.info('GitHub credentials resolved for AgentCore payload', {
+              data: { taskId, type: gitToken.type, owner: gitToken.owner, repo: gitToken.repo },
+            });
+          }
+        }
+      }
+    } catch (ghErr) {
+      log.warn('Failed to resolve GitHub token for AgentCore (continuing without)', {
+        data: { taskId, error: ghErr instanceof Error ? ghErr.message : String(ghErr) },
+      });
+    }
+
     // Build invocation payload
     const payload: Record<string, unknown> = {
       prompt,
@@ -253,6 +316,7 @@ export class AgentCoreBridgeService {
       oauthToken,
       ...(oauthExpiresAtMs ? { oauthExpiresAt: oauthExpiresAtMs } : {}),
       ...(oauthRefreshToken ? { oauthRefreshToken } : {}),
+      ...(gitHubTokenForPayload ? { gitHubToken: gitHubTokenForPayload, gitHubTokenType } : {}),
       cwd: '/workspace',
       ...(sdkSessionId ? { sdkSessionId } : {}),
     };

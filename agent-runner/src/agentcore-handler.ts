@@ -44,6 +44,7 @@ import {
   getAssistantText,
   shouldStop,
   writeCredentialsFile,
+  writeGitHubCredentialFiles,
 } from './shared-session.js';
 
 // F10-05: structured runner logger (see index.ts for rationale).
@@ -79,6 +80,16 @@ interface InvocationPayload {
   oauthExpiresAt?: number;
   /** theme-03 F11: OAuth refresh token when the host has one. */
   oauthRefreshToken?: string | null;
+  /**
+   * GitHub token (App installation token preferred — short-lived, repo-scoped).
+   * When present, written to disk so `git push` / `gh pr create` work inside
+   * the runtime. Token never crosses any logging or env boundary.
+   */
+  gitHubToken?: string;
+  /** Type tag for the GitHub token. Surfaced for observability/logging only. */
+  gitHubTokenType?: 'app' | 'pat';
+  /** GitHub login the token authenticates as (used by gh CLI). */
+  gitHubLogin?: string;
   /** Path to a sentinel file — when it exists the agent stops. */
   stopFile?: string;
 }
@@ -136,6 +147,9 @@ async function* handleInvocation(
     oauthToken,
     oauthExpiresAt,
     oauthRefreshToken,
+    gitHubToken,
+    gitHubTokenType,
+    gitHubLogin,
     stopFile,
   } = payload;
 
@@ -188,6 +202,24 @@ async function* handleInvocation(
       turnCount: 0,
     });
     return;
+  }
+
+  // -- Write GitHub credentials (best-effort) -----------------------------
+  // The host bridge prefers short-lived App installation tokens (1h TTL,
+  // repo-scoped). PATs only reach here if `agentcore.requireAppToken` is
+  // explicitly disabled. Failure here does NOT abort the run — agents can
+  // still operate on the workspace; only push/PR will be blocked.
+  if (gitHubToken) {
+    try {
+      await writeGitHubCredentialFiles(gitHubToken, gitHubLogin);
+      log.error(
+        `[agentcore-handler] GitHub credentials written (type=${gitHubTokenType ?? 'unknown'})`
+      );
+    } catch (ghErr) {
+      log.error(
+        `[agentcore-handler] Failed to write GitHub credentials: ${ghErr instanceof Error ? ghErr.message : String(ghErr)}`
+      );
+    }
   }
 
   // -- Emit started -------------------------------------------------------
