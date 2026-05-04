@@ -265,5 +265,40 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     });
   }
 
+  // Resolve horizontal overlaps between adjacent groups by shrinking
+  // their inward edges to a shared midpoint. ELK lays out the nodes
+  // with `nodeNode` spacing but doesn't account for our cluster boxes,
+  // so two clusters under the same parent can end up with boxes that
+  // visually touch even when the underlying nodes have plenty of slack.
+  // Trimming both sides equally keeps each box centred on its nodes
+  // and never crosses the cluster boundary.
+  const MIN_INTER_GROUP_GAP = 8;
+  groups.sort((a, b) => a.y - b.y || a.x - b.x);
+  for (let i = 0; i < groups.length; i++) {
+    for (let j = i + 1; j < groups.length; j++) {
+      const a = groups[i];
+      const b = groups[j];
+      if (!a || !b) continue;
+      // Only check pairs that share a vertical band — non-overlapping
+      // y-ranges can't visually collide regardless of x.
+      const aBottom = a.y + a.height;
+      const bBottom = b.y + b.height;
+      if (aBottom <= b.y || bBottom <= a.y) continue;
+      const aRight = a.x + a.width;
+      const bLeft = b.x;
+      if (aRight + MIN_INTER_GROUP_GAP <= bLeft) continue; // already clean
+      // Push edges apart symmetrically to a midpoint with a min gap.
+      const mid = (aRight + bLeft) / 2;
+      const newARight = mid - MIN_INTER_GROUP_GAP / 2;
+      const newBLeft = mid + MIN_INTER_GROUP_GAP / 2;
+      a.width = Math.max(0, newARight - a.x);
+      const shift = newBLeft - b.x;
+      if (shift > 0) {
+        b.x += shift;
+        b.width = Math.max(0, b.width - shift);
+      }
+    }
+  }
+
   return { nodes: rfNodes, edges: rfEdges, groups };
 }
