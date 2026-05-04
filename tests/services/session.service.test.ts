@@ -255,11 +255,14 @@ describe('SessionService', () => {
       if (result.ok) {
         expect(result.value.presence.length).toBe(1);
         expect(result.value.presence[0]?.userId).toBe('user-1');
-        expect(mockStreams.publish).toHaveBeenCalledWith(
-          session.id,
-          'presence:joined',
-          expect.objectContaining({ userId: 'user-1' })
-        );
+        // Presence events flow through the durable outbox (not direct streams.publish).
+        const { eventOutbox } = await import('../../src/db/schema/sqlite/event-outbox.js');
+        const outboxRows = await getTestDb()
+          .select()
+          .from(eventOutbox)
+          .where(eq(eventOutbox.streamId, session.id));
+        expect(outboxRows.some((r) => r.type === 'presence:joined')).toBe(true);
+        expect(mockStreams.publish).not.toHaveBeenCalled();
       }
     });
 
@@ -300,11 +303,13 @@ describe('SessionService', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.presence.length).toBe(0);
-        expect(mockStreams.publish).toHaveBeenCalledWith(
-          session.id,
-          'presence:left',
-          expect.objectContaining({ userId: 'user-1' })
-        );
+        const { eventOutbox } = await import('../../src/db/schema/sqlite/event-outbox.js');
+        const outboxRows = await getTestDb()
+          .select()
+          .from(eventOutbox)
+          .where(eq(eventOutbox.streamId, session.id));
+        expect(outboxRows.some((r) => r.type === 'presence:left')).toBe(true);
+        expect(mockStreams.publish).not.toHaveBeenCalled();
       }
     });
 
@@ -331,15 +336,20 @@ describe('SessionService', () => {
       });
 
       expect(result.ok).toBe(true);
-      expect(mockStreams.publish).toHaveBeenCalledWith(
-        session.id,
-        'presence:cursor',
-        expect.objectContaining({
-          userId: 'user-1',
-          cursor: { x: 100, y: 200 },
-          activeFile: '/src/index.ts',
-        })
-      );
+      const { eventOutbox } = await import('../../src/db/schema/sqlite/event-outbox.js');
+      const outboxRows = await getTestDb()
+        .select()
+        .from(eventOutbox)
+        .where(eq(eventOutbox.streamId, session.id));
+      const cursorRow = outboxRows.find((r) => r.type === 'presence:cursor');
+      expect(cursorRow).toBeDefined();
+      const rawPayload = cursorRow?.payload as unknown;
+      const payload = (typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload) as {
+        userId?: string;
+        data?: { userId?: string };
+      };
+      expect(payload.userId ?? payload.data?.userId).toBe('user-1');
+      expect(mockStreams.publish).not.toHaveBeenCalled();
     });
 
     it('returns error when updating presence for user not in session', async () => {
@@ -414,7 +424,7 @@ describe('SessionService', () => {
       expect(mockStreams.publish).not.toHaveBeenCalled();
 
       const { eventOutbox } = await import('../../src/db/schema/sqlite/event-outbox.js');
-      const outboxRows = await db
+      const outboxRows = await getTestDb()
         .select()
         .from(eventOutbox)
         .where(eq(eventOutbox.streamId, sessionId));

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SessionErrors } from '../../src/lib/errors/session-errors';
+import { SessionStreamService } from '../../src/services/session/session-stream.service';
 import { SessionService } from '../../src/services/session.service';
 import { flushPromises } from '../helpers/async';
 
@@ -35,11 +36,18 @@ describe('Presence Service', () => {
   let db: ReturnType<typeof createDbMock>;
   let streams: ReturnType<typeof createStreamsMock>;
   let service: SessionService;
+  // Presence events now flow through SessionStreamService.publish (which routes
+  // to the durable outbox), not directly via streams.publish. Spy on the new
+  // boundary so the assertions reflect actual behavior.
+  let streamPublishSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     db = createDbMock();
     streams = createStreamsMock();
+    streamPublishSpy = vi
+      .spyOn(SessionStreamService.prototype, 'publish')
+      .mockResolvedValue({ ok: true, value: { offset: 0 } });
     service = new SessionService(db as never, streams as never, {
       baseUrl: 'http://localhost:3000',
     });
@@ -71,14 +79,13 @@ describe('Presence Service', () => {
         expect(result.value.presence[0]?.lastSeen).toBeDefined();
         expect(typeof result.value.presence[0]?.lastSeen).toBe('number');
       }
-      expect(streams.publish).toHaveBeenCalledWith(
+      expect(streamPublishSpy).toHaveBeenCalledWith(
         's1',
-        'presence:joined',
         expect.objectContaining({
-          userId: 'user1',
-          meta: expect.objectContaining({
-            streamId: 's1',
-            partType: 'lifecycle',
+          type: 'presence:joined',
+          data: expect.objectContaining({
+            userId: 'user1',
+            meta: expect.objectContaining({ streamId: 's1', partType: 'lifecycle' }),
           }),
         })
       );
@@ -103,14 +110,13 @@ describe('Presence Service', () => {
       if (result.ok) {
         expect(result.value.presence).toHaveLength(0);
       }
-      expect(streams.publish).toHaveBeenCalledWith(
+      expect(streamPublishSpy).toHaveBeenCalledWith(
         's1',
-        'presence:left',
         expect.objectContaining({
-          userId: 'user1',
-          meta: expect.objectContaining({
-            streamId: 's1',
-            partType: 'lifecycle',
+          type: 'presence:left',
+          data: expect.objectContaining({
+            userId: 'user1',
+            meta: expect.objectContaining({ streamId: 's1', partType: 'lifecycle' }),
           }),
         })
       );
@@ -135,16 +141,15 @@ describe('Presence Service', () => {
       });
 
       expect(result.ok).toBe(true);
-      expect(streams.publish).toHaveBeenCalledWith(
+      expect(streamPublishSpy).toHaveBeenCalledWith(
         's1',
-        'presence:cursor',
         expect.objectContaining({
-          userId: 'user1',
-          cursor: { x: 150, y: 300 },
-          activeFile: 'src/components/App.tsx',
-          meta: expect.objectContaining({
-            streamId: 's1',
-            partType: 'system',
+          type: 'presence:cursor',
+          data: expect.objectContaining({
+            userId: 'user1',
+            cursor: { x: 150, y: 300 },
+            activeFile: 'src/components/App.tsx',
+            meta: expect.objectContaining({ streamId: 's1', partType: 'system' }),
           }),
         })
       );
@@ -532,14 +537,13 @@ describe('Presence Service', () => {
 
       await service.join('bc-s1', 'user1');
 
-      expect(streams.publish).toHaveBeenCalledWith(
+      expect(streamPublishSpy).toHaveBeenCalledWith(
         'bc-s1',
-        'presence:joined',
         expect.objectContaining({
-          userId: 'user1',
-          meta: expect.objectContaining({
-            streamId: 'bc-s1',
-            partType: 'lifecycle',
+          type: 'presence:joined',
+          data: expect.objectContaining({
+            userId: 'user1',
+            meta: expect.objectContaining({ streamId: 'bc-s1', partType: 'lifecycle' }),
           }),
         })
       );
@@ -557,14 +561,13 @@ describe('Presence Service', () => {
       vi.clearAllMocks();
       await service.leave('bc-s2', 'user1');
 
-      expect(streams.publish).toHaveBeenCalledWith(
+      expect(streamPublishSpy).toHaveBeenCalledWith(
         'bc-s2',
-        'presence:left',
         expect.objectContaining({
-          userId: 'user1',
-          meta: expect.objectContaining({
-            streamId: 'bc-s2',
-            partType: 'lifecycle',
+          type: 'presence:left',
+          data: expect.objectContaining({
+            userId: 'user1',
+            meta: expect.objectContaining({ streamId: 'bc-s2', partType: 'lifecycle' }),
           }),
         })
       );
@@ -586,29 +589,27 @@ describe('Presence Service', () => {
         activeFile: 'src/index.ts',
       });
 
-      expect(streams.publish).toHaveBeenCalledWith(
+      expect(streamPublishSpy).toHaveBeenCalledWith(
         'bc-s3',
-        'presence:cursor',
         expect.objectContaining({
-          userId: 'user1',
-          cursor: { x: 500, y: 250 },
-          activeFile: 'src/index.ts',
-          meta: expect.objectContaining({
-            streamId: 'bc-s3',
-            partType: 'system',
+          type: 'presence:cursor',
+          data: expect.objectContaining({
+            userId: 'user1',
+            cursor: { x: 500, y: 250 },
+            activeFile: 'src/index.ts',
+            meta: expect.objectContaining({ streamId: 'bc-s3', partType: 'system' }),
           }),
         })
       );
     });
 
     it('handles stream publish failure gracefully for join', async () => {
-      // Create a new service with a failing publish
-      const failingStreams = {
-        ...createStreamsMock(),
-        publish: vi.fn().mockRejectedValue(new Error('stream error')),
-      };
-      const failingService = new SessionService(db as never, failingStreams as never, {
-        baseUrl: 'http://localhost:3000',
+      // SessionStreamService.publish returns a Result rather than throwing.
+      // Simulate a publish failure by returning an err Result; the presence
+      // service ignores the result and the join still succeeds.
+      streamPublishSpy.mockResolvedValueOnce({
+        ok: false,
+        error: SessionErrors.SYNC_FAILED('stream error'),
       });
 
       db.query.sessions.findFirst.mockResolvedValue({
@@ -621,17 +622,15 @@ describe('Presence Service', () => {
       // The join adds user to presence BEFORE calling publish, and publish errors
       // are caught internally. The join still succeeds even if publish fails,
       // because the user is already added to the presence store.
-      const result = await failingService.join('bc-s4', 'user1');
+      const result = await service.join('bc-s4', 'user1');
 
-      // The result should succeed - presence was added before publish was called
-      // The publish failure is logged but doesn't cause join to fail
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.presence).toHaveLength(1);
         expect(result.value.presence[0]?.userId).toBe('user1');
       }
-      // Verify publish was attempted
-      expect(failingStreams.publish).toHaveBeenCalled();
+      // Verify the durable publish path was attempted
+      expect(streamPublishSpy).toHaveBeenCalled();
     });
   });
 
@@ -701,15 +700,14 @@ describe('Presence Service', () => {
       // Join triggers a publish which should persist
       await service.join('int-s1', 'user1');
 
-      // The publish should be called
-      expect(streams.publish).toHaveBeenCalledWith(
+      // The publish should route through the durable stream service
+      expect(streamPublishSpy).toHaveBeenCalledWith(
         'int-s1',
-        'presence:joined',
         expect.objectContaining({
-          userId: 'user1',
-          meta: expect.objectContaining({
-            streamId: 'int-s1',
-            partType: 'lifecycle',
+          type: 'presence:joined',
+          data: expect.objectContaining({
+            userId: 'user1',
+            meta: expect.objectContaining({ streamId: 'int-s1', partType: 'lifecycle' }),
           }),
         })
       );
