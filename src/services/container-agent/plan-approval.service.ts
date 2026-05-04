@@ -189,8 +189,11 @@ export class PlanApprovalService {
 
     if (approvalMode === 'agent') {
       // Surface the imminent auto-review so users see the chain
-      // `plan_ready → agent reviewing → approve/flag` end-to-end.
-      streams
+      // `plan_ready → agent reviewing → approve/flag` end-to-end. Awaited so
+      // this message lands before the subsequent "Agent reviewing plan…"
+      // emission ordering depends on it; fall back to a logged warning if
+      // the publish fails so the review still runs.
+      await streams
         .publish(sessionId, 'container-agent:message', {
           taskId,
           sessionId,

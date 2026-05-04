@@ -302,9 +302,12 @@ interface TopologyTracker {
  * case `canUseTool` cannot capture one).
  *
  * SubagentStart fires when the subagent process begins; canUseTool fires
- * when the orchestrator calls the Agent tool. To avoid double-pushing the
- * same value (when both paths fire for the same subagent), we skip pushing
- * if the queue's tail already matches what SubagentStart wants to add.
+ * when the orchestrator calls the Agent tool. Each SubagentStart corresponds
+ * to a distinct subagent that will have its own task_started event, so we
+ * always push — including when several subagents of the same type spawn
+ * back-to-back. A previous tail-check dedup dropped queue entries for
+ * concurrent same-type subagents, leaving the later ones to fall back to
+ * the SDK's "local_agent" raw type and showing the wrong label in topology.
  *
  * The queue reference is captured once and remains valid because tracker
  * objects assign the same array; mutating the array updates both views.
@@ -318,9 +321,7 @@ function buildSubagentStartHook(pendingSubagentTypes: string[]): HookCallbackMat
         if (typeof agentType !== 'string' || agentType.length === 0) {
           return {};
         }
-        if (pendingSubagentTypes[pendingSubagentTypes.length - 1] !== agentType) {
-          pendingSubagentTypes.push(agentType);
-        }
+        pendingSubagentTypes.push(agentType);
         return {};
       },
     ],
@@ -491,7 +492,7 @@ function setRunFlushHook(hook: typeof currentRunFlush): void {
  * cleanly. Without this the host re-spawns or reconciles into an
  * inconsistent UI state where tools appear stuck running.
  */
-async function handleTerminationSignal(signal: 'SIGTERM' | 'SIGINT'): Promise<never> {
+async function handleTerminationSignal(signal: 'SIGTERM' | 'SIGINT'): Promise<void> {
   log.error(`[agent-runner] Received ${signal}, flushing in-flight tool tracking…`);
   try {
     currentRunFlush?.(signal);
@@ -1923,6 +1924,12 @@ async function runExecutionPhase(): Promise<void> {
 
 /**
  * Main agent entry point - routes to planning or execution phase.
+ *
+ * Wraps the phase call in a try/finally so the SIGTERM/SIGINT flush hook
+ * (registered inside each phase) is always cleared on phase exit. Without
+ * this, a signal arriving after a phase returns but before the surrounding
+ * `runAgent().then(flushAndExit)` chain fires would invoke the prior
+ * phase's stale `events`/`activeTools` closures.
  */
 async function runAgent(): Promise<void> {
   validateConfig();
@@ -1933,10 +1940,14 @@ async function runAgent(): Promise<void> {
 
   log.error(`[agent-runner] Phase: ${config.phase}`);
 
-  if (config.phase === 'plan') {
-    await runPlanningPhase();
-  } else {
-    await runExecutionPhase();
+  try {
+    if (config.phase === 'plan') {
+      await runPlanningPhase();
+    } else {
+      await runExecutionPhase();
+    }
+  } finally {
+    setRunFlushHook(null);
   }
 }
 

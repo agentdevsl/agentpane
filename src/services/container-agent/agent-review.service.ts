@@ -95,15 +95,19 @@ Only include "concerns" when flagging for review.
 Do not call any tools. Do not explore the workspace. Just return the JSON.`;
 
 /**
- * Strip optional markdown fences around a JSON payload. The system prompt
- * forbids fences, but models occasionally still wrap responses in ```json
- * blocks; tolerating both keeps the parser robust without retry overhead.
+ * Extract a JSON object from a model response. The system prompt forbids
+ * markdown fences and conversational preamble, but models occasionally wrap
+ * the JSON in ```json fences or include a sentence before/after it. Locate
+ * the outermost `{...}` span so the parser tolerates both shapes without
+ * retries.
  */
 function unwrapJsonResponse(raw: string): string {
-  return raw
-    .trim()
-    .replace(/^```(?:json)?\s*\n?/i, '')
-    .replace(/\n?```\s*$/i, '');
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end >= start) {
+    return raw.slice(start, end + 1);
+  }
+  return raw.trim();
 }
 
 export class AgentReviewService {

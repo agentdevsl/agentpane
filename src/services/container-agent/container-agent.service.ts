@@ -14,7 +14,7 @@
  * - PlanApprovalService:    plan ready/approve/reject handlers
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import { codespaces, sessionEvents, sessions, tasks } from '../../db/schema';
 import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
@@ -336,7 +336,10 @@ export class ContainerAgentService {
     });
     for (const { id: sessionId } of taskSessions) {
       const allToolEvents = await this.deps.db.query.sessionEvents.findMany({
-        where: eq(sessionEvents.sessionId, sessionId),
+        where: and(
+          eq(sessionEvents.sessionId, sessionId),
+          inArray(sessionEvents.type, ['container-agent:tool:start', 'container-agent:tool:result'])
+        ),
         columns: { type: true, data: true, timestamp: true },
       });
 
