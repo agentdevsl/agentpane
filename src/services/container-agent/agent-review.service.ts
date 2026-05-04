@@ -231,9 +231,20 @@ export class AgentReviewService {
     // longer-horizon retry that honours the `retry-after` header so a brief
     // rate-limit storm (concurrent reviews colliding) doesn't drop the task
     // back to human approval unnecessarily.
+    //
+    // The credential we resolve may be either a long-lived API key
+    // (`sk-ant-api...`) or an OAuth access token from
+    // `~/.claude/.credentials.json` (`sk-ant-oat...`). They authenticate via
+    // different headers — `x-api-key` vs `Authorization: Bearer` — so route
+    // each to the matching SDK option. Using `apiKey` with an OAuth token
+    // sends the wrong header and the API rejects it.
+    const isOAuthToken = apiKey.startsWith('sk-ant-oat');
     let reviewResult: AgentReviewResult;
     try {
-      const client = new Anthropic({ apiKey, maxRetries: 2 });
+      const client = new Anthropic({
+        ...(isOAuthToken ? { authToken: apiKey, apiKey: null } : { apiKey }),
+        maxRetries: 2,
+      });
       const requestBody: Anthropic.MessageCreateParamsNonStreaming = {
         model,
         max_tokens: 1024,
