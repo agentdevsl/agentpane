@@ -20,7 +20,12 @@ if (process.env.SKIP_AUTH === 'true') {
   process.env.NODE_ENV = 'development';
 }
 const API_URL = `http://localhost:${API_PORT}`;
-const HEALTH_URL = `${API_URL}/api/health`;
+// Use the liveness probe — it confirms the API process is up and serving
+// without waiting for the sandbox provider readiness gate. The comprehensive
+// `/api/health` endpoint returns 503 until sandbox init completes, and that
+// can include a 120s `minikube start` on first run, which would always blow
+// past the dev startup budget. The liveness endpoint is what this gate is for.
+const HEALTH_URL = `${API_URL}/api/health/liveness`;
 const MAX_RETRIES = 30;
 const RETRY_DELAY_MS = 500;
 
@@ -49,7 +54,9 @@ async function checkHealth(): Promise<{ ok: boolean; details?: unknown }> {
     const response = await fetch(HEALTH_URL);
     if (!response.ok) return { ok: false };
     const data = await response.json();
-    return { ok: data.ok === true, details: data.data };
+    // Liveness shape: { ok: true, status: 'alive' }
+    // Comprehensive health shape: { ok: true, data: {...} }
+    return { ok: data.ok === true, details: data.data ?? { status: data.status } };
   } catch {
     return { ok: false };
   }
@@ -67,10 +74,15 @@ async function waitForHealthy(): Promise<boolean> {
       process.stdout.write(`\r${' '.repeat(60)}\r`); // Clear spinner line
       log('✅', `API server healthy!`, colors.green);
       if (result.details) {
-        const details = result.details as { status: string; responseTimeMs: number };
-        console.log(
-          `   ${colors.dim}Status: ${details.status}, Response: ${details.responseTimeMs}ms${colors.reset}`
-        );
+        const details = result.details as { status?: string; responseTimeMs?: number };
+        const parts: string[] = [];
+        if (details.status) parts.push(`Status: ${details.status}`);
+        if (typeof details.responseTimeMs === 'number') {
+          parts.push(`Response: ${details.responseTimeMs}ms`);
+        }
+        if (parts.length > 0) {
+          console.log(`   ${colors.dim}${parts.join(', ')}${colors.reset}`);
+        }
       }
       return true;
     }

@@ -222,7 +222,13 @@ async function securityHeaders(c: Context, next: Next) {
 function createAuthMiddleware(db: Database) {
   return async function authMiddleware(c: Context, next: Next) {
     const path = c.req.path;
-    if (path === '/api/health' || path === '/api/healthz' || path === '/api/readyz') {
+    if (
+      path === '/api/health' ||
+      path === '/api/health/liveness' ||
+      path === '/api/health/readiness' ||
+      path === '/api/healthz' ||
+      path === '/api/readyz'
+    ) {
       return next();
     }
     if (path.startsWith('/api/auth/')) {
