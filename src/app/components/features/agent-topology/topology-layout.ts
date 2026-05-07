@@ -449,24 +449,57 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     rootChild.x = centroidX - NODE_WIDTH / 2;
   }
 
-  // Re-pin skill nodes directly above their parent agent. mrtree puts
-  // the skill in the same row as agent clusters (which then drifts off
-  // to the far right after cluster-shift), and the previous "right of
-  // parent" placement caused skills to overlap neighbouring clusters
-  // when the inter-cluster gap was tight. Centring the skill above the
-  // parent keeps the (skill → agent) flow visually obvious and the
-  // ~20px overflow per side fits inside the inter-cluster gap.
-  const SKILL_VERTICAL_GAP = 16; // gap between skill bottom and parent top
+  // Re-pin skill nodes above the centre of their cluster's bounding
+  // box. Each skill node is built per-cluster (build-from-events.ts:614)
+  // and its `parentId` points at the first cluster member; from that we
+  // derive the cluster key (parentId, agentType) and look up all
+  // members to find the cluster's horizontal centre. Skills then sit
+  // above the cluster box rather than above one specific agent, and
+  // the edge from first member → skill visually anchors at the cluster.
+  const SKILL_VERTICAL_GAP = 16; // gap between skill bottom and cluster box top
+  const clusterMembersByKey = new Map<string, string[]>();
+  for (const cluster of splitClusters.values()) {
+    const key = `${cluster.parentKey}::${cluster.agentType}`;
+    clusterMembersByKey.set(key, cluster.ids);
+  }
   for (const n of graph.nodes) {
     if (n.type !== 'skill') continue;
     const skillPos = positionById.get(n.id);
     if (!skillPos) continue;
     const parentId = n.parentId;
     if (!parentId) continue;
+    const parentNode = nodeById.get(parentId)?.node;
+    if (!parentNode) continue;
+    // Skill might point at a non-clustered parent (e.g. orchestrator
+    // for context.skillId injection). Fall back to centring above the
+    // single parent in that case.
+    const clusterKey = parentNode.agentType
+      ? `${parentNode.parentId ?? 'root'}::${parentNode.agentType}`
+      : null;
+    const memberIds = clusterKey ? clusterMembersByKey.get(clusterKey) : undefined;
+    if (memberIds && memberIds.length > 0) {
+      let minX = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      for (const mid of memberIds) {
+        const mp = positionById.get(mid);
+        if (!mp) continue;
+        const isSkill = nodeById.get(mid)?.node.type === 'skill';
+        const w = isSkill ? SKILL_NODE_WIDTH : NODE_WIDTH;
+        if (mp.x < minX) minX = mp.x;
+        if (mp.x + w > maxX) maxX = mp.x + w;
+        if (mp.y < minY) minY = mp.y;
+      }
+      if (Number.isFinite(minX)) {
+        skillPos.x = (minX + maxX) / 2 - SKILL_NODE_WIDTH / 2;
+        skillPos.y = minY - GROUP_BOX_TOP - SKILL_NODE_HEIGHT - SKILL_VERTICAL_GAP;
+        continue;
+      }
+    }
+    // Fallback: centre above the single parent.
     const parentPos = positionById.get(parentId);
     if (!parentPos) continue;
-    const parentNode = nodeById.get(parentId)?.node;
-    const parentWidth = parentNode?.type === 'skill' ? SKILL_NODE_WIDTH : NODE_WIDTH;
+    const parentWidth = parentNode.type === 'skill' ? SKILL_NODE_WIDTH : NODE_WIDTH;
     skillPos.x = parentPos.x + (parentWidth - SKILL_NODE_WIDTH) / 2;
     skillPos.y = parentPos.y - SKILL_NODE_HEIGHT - SKILL_VERTICAL_GAP;
   }

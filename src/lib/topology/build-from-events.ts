@@ -611,16 +611,42 @@ export function buildTopologyFromEvents(
   }
 
   // --- Synthetic skill nodes ---
-  // For each agent node with agentMeta?.skills, create shared skill dependency nodes
+  // Skills attach to *clusters* (groups of agents sharing parentId+agentType),
+  // not to individual agents. One skill node per (cluster, skill) keeps the
+  // graph from spider-webbing — five sibling agents that all declare the
+  // same skill share one skill node above the cluster, but two different
+  // clusters that both declare the skill get separate nodes (no cross-
+  // cluster linkage). Layout positions the skill node above the cluster
+  // box so the visual reads as `skill → box`.
   const skillNodeMap = new Map<string, TopologyNode>();
   const allNodes = Array.from(nodes.values());
 
+  // Bucket agents by their cluster key: `${parentId ?? 'root'}::${agentType}`
+  const agentsByCluster = new Map<string, TopologyNode[]>();
   for (const agentNode of allNodes) {
-    const skills = agentNode.agentMeta?.skills;
-    if (!skills || skills.length === 0) continue;
+    if (agentNode.type === 'skill') continue;
+    if (!agentNode.agentType) continue;
+    const clusterKey = `${agentNode.parentId ?? 'root'}::${agentNode.agentType}`;
+    const list = agentsByCluster.get(clusterKey) ?? [];
+    list.push(agentNode);
+    agentsByCluster.set(clusterKey, list);
+  }
 
-    for (const skillName of skills) {
-      const skillNodeId = `skill-${skillName}`;
+  for (const [clusterKey, agentsInCluster] of agentsByCluster) {
+    // Union of skills declared by any agent in the cluster.
+    const clusterSkills = new Set<string>();
+    for (const agent of agentsInCluster) {
+      for (const skill of agent.agentMeta?.skills ?? []) {
+        clusterSkills.add(skill);
+      }
+    }
+    if (clusterSkills.size === 0) continue;
+
+    const firstAgent = agentsInCluster[0];
+    if (!firstAgent) continue;
+
+    for (const skillName of clusterSkills) {
+      const skillNodeId = `skill-cluster-${clusterKey}::${skillName}`;
       if (!skillNodeMap.has(skillNodeId)) {
         const skillNode: TopologyNode = {
           id: skillNodeId,
@@ -633,7 +659,11 @@ export function buildTopologyFromEvents(
           skillCalls: [],
           agentMeta: null,
           status: 'completed',
-          parentId: null,
+          // parentId points at the first cluster member so layout's
+          // skill-positioning pass can find the cluster via the existing
+          // (parentId, agentType) keying. Visual placement is the
+          // cluster centroid, not this individual agent.
+          parentId: firstAgent.id,
           childIds: [],
           progress: 100,
           tokens: 0,
@@ -648,13 +678,14 @@ export function buildTopologyFromEvents(
         };
         skillNodeMap.set(skillNodeId, skillNode);
       }
-      // Add edge from agent -> skill
-      const edgeId = `${agentNode.id}->skill-${skillName}`;
-      // Avoid duplicate edges
+      // One edge per cluster — sourced from the first agent so the line
+      // visually terminates inside the cluster box. Using all agents
+      // would re-introduce the spider-web problem the user called out.
+      const edgeId = `${firstAgent.id}->${skillNodeId}`;
       if (!edges.some((e) => e.id === edgeId)) {
         edges.push({
           id: edgeId,
-          sourceId: agentNode.id,
+          sourceId: firstAgent.id,
           targetId: skillNodeId,
         });
       }
