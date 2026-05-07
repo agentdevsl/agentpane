@@ -224,7 +224,7 @@ function TopologyInner(): React.JSX.Element {
         </div>
 
         {/* Toolbar overlay */}
-        <div className="absolute left-4 top-4 flex flex-col gap-1">
+        <div className="absolute left-4 bottom-4 flex flex-col gap-1">
           <button
             type="button"
             onClick={() => zoomIn()}
