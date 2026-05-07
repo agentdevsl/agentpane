@@ -44,7 +44,7 @@ const GENERIC_AGENT_TYPES = new Set(['local_agent', 'general-purpose']);
  *     a little extra keeps it visually inside the box rather than flush
  *     against the border)
  */
-const GROUP_BOX_TOP = 32;
+const GROUP_BOX_TOP = 44;
 const GROUP_BOX_SIDE = 24;
 const GROUP_BOX_BOTTOM = 20;
 /**
