@@ -678,17 +678,10 @@ export function buildTopologyFromEvents(
         };
         skillNodeMap.set(skillNodeId, skillNode);
       }
-      // One edge per cluster — sourced from the first agent so the line
-      // visually terminates inside the cluster box. Using all agents
-      // would re-introduce the spider-web problem the user called out.
-      const edgeId = `${firstAgent.id}->${skillNodeId}`;
-      if (!edges.some((e) => e.id === edgeId)) {
-        edges.push({
-          id: edgeId,
-          sourceId: firstAgent.id,
-          targetId: skillNodeId,
-        });
-      }
+      // No edge: rely purely on the skill's vertical position above the
+      // cluster box to convey ownership. Adding an edge here brought
+      // visible cross-cluster linkage lines back even with one node per
+      // cluster, which is exactly the spider-web the user wanted gone.
     }
   }
 
