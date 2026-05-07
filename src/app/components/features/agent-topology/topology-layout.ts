@@ -422,6 +422,33 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     }
   }
 
+  // Re-centre each root horizontally above the centre of its direct
+  // children's rendered span. mrtree centres a parent over its
+  // *subtree* centroid, which is biased by descendant counts and pulls
+  // the root off-axis when one branch fans out wider than another. The
+  // user's mental model is "root sits above the row" — that's only
+  // true if the root x is the midpoint of the visible row. Pure x
+  // shift on roots; doesn't move any descendants.
+  for (const rootId of rootIds) {
+    const rootChild = flatChildren.find((c) => c.id === rootId);
+    if (!rootChild) continue;
+    const childIds = directChildIdsByParent.get(rootId) ?? [];
+    if (childIds.length === 0) continue;
+    let childMinX = Number.POSITIVE_INFINITY;
+    let childMaxX = Number.NEGATIVE_INFINITY;
+    for (const cid of childIds) {
+      const childPos = positionById.get(cid);
+      if (!childPos) continue;
+      const isSkill = nodeById.get(cid)?.node.type === 'skill';
+      const w = isSkill ? SKILL_NODE_WIDTH : NODE_WIDTH;
+      if (childPos.x < childMinX) childMinX = childPos.x;
+      if (childPos.x + w > childMaxX) childMaxX = childPos.x + w;
+    }
+    if (!Number.isFinite(childMinX)) continue;
+    const centroidX = (childMinX + childMaxX) / 2;
+    rootChild.x = centroidX - NODE_WIDTH / 2;
+  }
+
   // Re-pin skill nodes next to their parent agent. mrtree treats the skill
   // as just another child of the orchestrator and lays it out in the same
   // row as agent clusters; with many subagent clusters that row gets very
