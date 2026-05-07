@@ -16,11 +16,16 @@ import { SkillEdge } from './edges/skill-edge';
 import { TopologyGroupOverlay } from './groups/topology-group-overlay';
 import { TopologyLegend } from './legend/topology-legend';
 import { AgentNode, type AgentNodeData } from './nodes/agent-node';
+import { ClusterAnchorNode } from './nodes/cluster-anchor-node';
 import { SkillNode } from './nodes/skill-node';
 import { useTopology } from './topology-context';
 import { layoutTopology, type TopologyGroupBox } from './topology-layout';
 
-const nodeTypes = { agentNode: AgentNode, skillNode: SkillNode };
+const nodeTypes = {
+  agentNode: AgentNode,
+  skillNode: SkillNode,
+  clusterAnchor: ClusterAnchorNode,
+};
 const edgeTypes = { agentEdge: AgentEdge, skillEdge: SkillEdge };
 const FIT_VIEW_OPTIONS = { padding: 0.02, maxZoom: 3 };
 

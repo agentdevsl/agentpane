@@ -678,62 +678,49 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
   // padded bbox naturally has a clean horizontal channel to its
   // neighbour. Boxes are computed from the post-shift positions.
 
-  // --- Per-visual-cluster skill pills ---
+  // --- Per-visual-cluster skill pills + root skills ---
   // Generated here (not in build-from-events) because the visual cluster
   // splits are a layout artefact — one data-level (parentId, agentType)
   // cluster can render as two separate boxes when mrtree puts members
   // far apart, and each visual box needs its own skill pill above it.
-  // For each split cluster we union member-declared skills, then emit
-  // one synthetic skill rfNode per (split, skill). A dashed edge from
-  // skill → first cluster member visually anchors the skill to the
-  // cluster box (the first member sits inside the box, so the line
-  // terminates at the box visually).
-  for (const [splitKey, cluster] of splitClusters) {
-    const skillUnion = new Set<string>();
-    for (const memberId of cluster.ids) {
-      const memberNode = nodeById.get(memberId)?.node;
-      const memberSkills = memberNode?.agentMeta?.skills;
-      if (!memberSkills) continue;
-      for (const s of memberSkills) skillUnion.add(s);
-    }
-    if (skillUnion.size === 0) continue;
+  // For each cluster (and the root agents themselves) we union the
+  // member-declared skills, emit one synthetic skill rfNode per
+  // (cluster, skill), and route a dashed edge from skill → an
+  // invisible "cluster anchor" sitting at the cluster box's top-centre
+  // so the line terminates at the box outline rather than at one
+  // specific member inside.
 
-    let minX = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    for (const memberId of cluster.ids) {
-      const mp = positionById.get(memberId);
-      if (!mp) continue;
-      if (mp.x < minX) minX = mp.x;
-      if (mp.x + NODE_WIDTH > maxX) maxX = mp.x + NODE_WIDTH;
-    }
-    if (!Number.isFinite(minX)) continue;
-    const centroidX = (minX + maxX) / 2;
-
-    const firstMemberId = cluster.ids[0];
-    if (!firstMemberId) continue;
-    const firstMember = nodeById.get(firstMemberId)?.node;
-    const owningRootId = firstMember?.parentId;
-    const owningRootPos =
-      owningRootId && rootIdSet.has(owningRootId) ? positionById.get(owningRootId) : null;
-    if (!owningRootPos) continue;
-
-    // Stack a cluster's skills VERTICALLY (one above the next) instead
-    // of horizontally. A horizontal stack at 200px-per-pill quickly
-    // overflows the cluster's own width and collides with adjacent
-    // clusters' skill bands. Vertical stacking keeps each pill centred
-    // over the cluster's centroidX with zero horizontal overlap risk.
-    // The bottom-most pill sits just above the root; subsequent pills
-    // stack upward.
-    const skillsArr = [...skillUnion].sort();
+  // Helper: emit pills + anchor + edges for a "skill source" — either
+  // a cluster of agents or a root agent on its own.
+  const emitSkillsForSource = (
+    sourceId: string,
+    skills: Set<string>,
+    centroidX: number,
+    boxTopY: number,
+    bandBottomY: number
+  ) => {
+    if (skills.size === 0) return;
+    const skillsArr = [...skills].sort();
     const PILL_VERTICAL_GAP = 8;
     const skillX = centroidX - SKILL_NODE_WIDTH / 2;
-    const bottomY = owningRootPos.y - SKILL_NODE_HEIGHT - SKILL_GAP_ABOVE_ROOT;
+
+    // Anchor sits at the box top-centre. Edges target it so the dashed
+    // line terminates at the box outline, not at any individual member.
+    const anchorId = `cluster-anchor::${sourceId}`;
+    rfNodes.push({
+      id: anchorId,
+      type: 'clusterAnchor' as const,
+      position: { x: centroidX, y: boxTopY },
+      data: {},
+      draggable: false,
+      connectable: false,
+    });
 
     for (let i = 0; i < skillsArr.length; i++) {
       const skillName = skillsArr[i];
       if (skillName === undefined) continue;
-      const skillId = `vcluster-skill::${splitKey}::${skillName}`;
-      const skillY = bottomY - i * (SKILL_NODE_HEIGHT + PILL_VERTICAL_GAP);
+      const skillId = `vcluster-skill::${sourceId}::${skillName}`;
+      const skillY = bandBottomY - i * (SKILL_NODE_HEIGHT + PILL_VERTICAL_GAP);
       rfNodes.push({
         id: skillId,
         type: 'skillNode' as const,
@@ -746,15 +733,72 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
         connectable: false,
       });
       rfEdges.push({
-        id: `${skillId}->${firstMemberId}`,
+        id: `${skillId}->${anchorId}`,
         source: skillId,
-        target: firstMemberId,
+        target: anchorId,
         sourceHandle: 'source',
         targetHandle: 'target',
         type: 'skillEdge',
         data: {},
       });
     }
+  };
+
+  // Sub-cluster skills.
+  for (const [splitKey, cluster] of splitClusters) {
+    const skillUnion = new Set<string>();
+    for (const memberId of cluster.ids) {
+      const memberNode = nodeById.get(memberId)?.node;
+      const memberSkills = memberNode?.agentMeta?.skills;
+      if (!memberSkills) continue;
+      for (const s of memberSkills) skillUnion.add(s);
+    }
+    if (skillUnion.size === 0) continue;
+
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    for (const memberId of cluster.ids) {
+      const mp = positionById.get(memberId);
+      if (!mp) continue;
+      if (mp.x < minX) minX = mp.x;
+      if (mp.x + NODE_WIDTH > maxX) maxX = mp.x + NODE_WIDTH;
+      if (mp.y < minY) minY = mp.y;
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) continue;
+    const centroidX = (minX + maxX) / 2;
+    const boxTopY = minY - GROUP_BOX_TOP;
+
+    const firstMemberId = cluster.ids[0];
+    if (!firstMemberId) continue;
+    const firstMember = nodeById.get(firstMemberId)?.node;
+    const owningRootId = firstMember?.parentId;
+    const owningRootPos =
+      owningRootId && rootIdSet.has(owningRootId) ? positionById.get(owningRootId) : null;
+    if (!owningRootPos) continue;
+
+    const bandBottomY = owningRootPos.y - SKILL_NODE_HEIGHT - SKILL_GAP_ABOVE_ROOT;
+    emitSkillsForSource(splitKey, skillUnion, centroidX, boxTopY, bandBottomY);
+  }
+
+  // Root agents' own declared skills. Roots aren't in `splitClusters`
+  // (clusters are subagent groupings under a parent); their skills come
+  // straight from agentMeta.skills resolved via knownAgents. Without
+  // this pass the orchestrator-level skill never renders.
+  for (const rootId of rootIds) {
+    const rootEntry = nodeById.get(rootId);
+    if (!rootEntry) continue;
+    const rootSkills = rootEntry.node.agentMeta?.skills;
+    if (!rootSkills || rootSkills.length === 0) continue;
+    const rootPos = positionById.get(rootId);
+    if (!rootPos) continue;
+    const skillSet = new Set<string>(rootSkills);
+    const centroidX = rootPos.x + NODE_WIDTH / 2;
+    // The root has no enclosing cluster box, so anchor at the root's
+    // own top edge and stack the band right above it.
+    const boxTopY = rootPos.y;
+    const bandBottomY = rootPos.y - SKILL_NODE_HEIGHT - SKILL_GAP_ABOVE_ROOT;
+    emitSkillsForSource(`root::${rootId}`, skillSet, centroidX, boxTopY, bandBottomY);
   }
 
   return { nodes: rfNodes, edges: rfEdges, groups };
