@@ -449,14 +449,19 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     rootChild.x = centroidX - NODE_WIDTH / 2;
   }
 
-  // Re-pin skill nodes above the centre of their cluster's bounding
-  // box. Each skill node is built per-cluster (build-from-events.ts:614)
-  // and its `parentId` points at the first cluster member; from that we
-  // derive the cluster key (parentId, agentType) and look up all
-  // members to find the cluster's horizontal centre. Skills then sit
-  // above the cluster box rather than above one specific agent, and
-  // the edge from first member → skill visually anchors at the cluster.
-  const SKILL_VERTICAL_GAP = 16; // gap between skill bottom and cluster box top
+  // Re-pin skill nodes. The horizontal position is each skill's
+  // cluster's centroid (so the pill lines up over its cluster's
+  // column). The vertical position is uniform across all skills whose
+  // cluster is a direct child of a root: they form a single band
+  // ABOVE the root, never overlapping it. Skills attached to deeper
+  // clusters (rare) fall back to sitting above their own cluster's
+  // bounding box.
+  const SKILL_VERTICAL_GAP = 16; // skill bottom → cluster box top (deep-cluster fallback)
+  // Agent-node SVG viewBox is `-80 -60 160 200`, so its visual content
+  // extends 60px above the node's y position. The skill must clear that
+  // overflow to avoid covering the root's status badge / label area.
+  const SKILL_GAP_ABOVE_ROOT = 88;
+  const rootIdSet = new Set(rootIds);
   const clusterMembersByKey = new Map<string, string[]>();
   for (const cluster of splitClusters.values()) {
     const key = `${cluster.parentKey}::${cluster.agentType}`;
@@ -470,13 +475,18 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     if (!parentId) continue;
     const parentNode = nodeById.get(parentId)?.node;
     if (!parentNode) continue;
-    // Skill might point at a non-clustered parent (e.g. orchestrator
-    // for context.skillId injection). Fall back to centring above the
-    // single parent in that case.
+
+    // Find the cluster's members so we can centre over the cluster's
+    // bounding box. The skill's parentId points at the first cluster
+    // member; we re-derive the cluster key the same way buildClusterMembers
+    // would.
     const clusterKey = parentNode.agentType
       ? `${parentNode.parentId ?? 'root'}::${parentNode.agentType}`
       : null;
     const memberIds = clusterKey ? clusterMembersByKey.get(clusterKey) : undefined;
+
+    let centroidX: number | null = null;
+    let clusterMinY: number | null = null;
     if (memberIds && memberIds.length > 0) {
       let minX = Number.POSITIVE_INFINITY;
       let maxX = Number.NEGATIVE_INFINITY;
@@ -491,12 +501,37 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
         if (mp.y < minY) minY = mp.y;
       }
       if (Number.isFinite(minX)) {
-        skillPos.x = (minX + maxX) / 2 - SKILL_NODE_WIDTH / 2;
-        skillPos.y = minY - GROUP_BOX_TOP - SKILL_NODE_HEIGHT - SKILL_VERTICAL_GAP;
-        continue;
+        centroidX = (minX + maxX) / 2;
+        clusterMinY = minY;
       }
     }
-    // Fallback: centre above the single parent.
+
+    // Lift the skill to sit in a uniform band above the cluster's owning
+    // root. This guarantees no overlap with the root (the previous
+    // behaviour put skill.y just above the cluster, which collided with
+    // the root when the cluster sat directly under it).
+    const owningRootId = parentNode.parentId;
+    const owningRoot =
+      owningRootId && rootIdSet.has(owningRootId) ? positionById.get(owningRootId) : null;
+
+    if (owningRoot) {
+      skillPos.x =
+        centroidX !== null
+          ? centroidX - SKILL_NODE_WIDTH / 2
+          : owningRoot.x + (NODE_WIDTH - SKILL_NODE_WIDTH) / 2;
+      skillPos.y = owningRoot.y - SKILL_NODE_HEIGHT - SKILL_GAP_ABOVE_ROOT;
+      continue;
+    }
+
+    // Fallback for deeply-nested clusters (no direct root parent):
+    // centre above the cluster bounding box, like before.
+    if (centroidX !== null && clusterMinY !== null) {
+      skillPos.x = centroidX - SKILL_NODE_WIDTH / 2;
+      skillPos.y = clusterMinY - GROUP_BOX_TOP - SKILL_NODE_HEIGHT - SKILL_VERTICAL_GAP;
+      continue;
+    }
+
+    // Final fallback: centre above the single parent.
     const parentPos = positionById.get(parentId);
     if (!parentPos) continue;
     const parentWidth = parentNode.type === 'skill' ? SKILL_NODE_WIDTH : NODE_WIDTH;
@@ -642,6 +677,77 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
   // already pushed clusters apart at the node level, so each cluster's
   // padded bbox naturally has a clean horizontal channel to its
   // neighbour. Boxes are computed from the post-shift positions.
+
+  // --- Per-visual-cluster skill pills ---
+  // Generated here (not in build-from-events) because the visual cluster
+  // splits are a layout artefact — one data-level (parentId, agentType)
+  // cluster can render as two separate boxes when mrtree puts members
+  // far apart, and each visual box needs its own skill pill above it.
+  // For each split cluster we union member-declared skills, then emit
+  // one synthetic skill rfNode per (split, skill). A dashed edge from
+  // skill → first cluster member visually anchors the skill to the
+  // cluster box (the first member sits inside the box, so the line
+  // terminates at the box visually).
+  for (const [splitKey, cluster] of splitClusters) {
+    const skillUnion = new Set<string>();
+    for (const memberId of cluster.ids) {
+      const memberNode = nodeById.get(memberId)?.node;
+      const memberSkills = memberNode?.agentMeta?.skills;
+      if (!memberSkills) continue;
+      for (const s of memberSkills) skillUnion.add(s);
+    }
+    if (skillUnion.size === 0) continue;
+
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    for (const memberId of cluster.ids) {
+      const mp = positionById.get(memberId);
+      if (!mp) continue;
+      if (mp.x < minX) minX = mp.x;
+      if (mp.x + NODE_WIDTH > maxX) maxX = mp.x + NODE_WIDTH;
+    }
+    if (!Number.isFinite(minX)) continue;
+    const centroidX = (minX + maxX) / 2;
+
+    const firstMemberId = cluster.ids[0];
+    if (!firstMemberId) continue;
+    const firstMember = nodeById.get(firstMemberId)?.node;
+    const owningRootId = firstMember?.parentId;
+    const owningRootPos =
+      owningRootId && rootIdSet.has(owningRootId) ? positionById.get(owningRootId) : null;
+    if (!owningRootPos) continue;
+
+    const skillsArr = [...skillUnion].sort();
+    const PILL_GAP = 8;
+    const totalWidth = skillsArr.length * SKILL_NODE_WIDTH + (skillsArr.length - 1) * PILL_GAP;
+    let xCursor = centroidX - totalWidth / 2;
+    const skillY = owningRootPos.y - SKILL_NODE_HEIGHT - SKILL_GAP_ABOVE_ROOT;
+
+    for (const skillName of skillsArr) {
+      const skillId = `vcluster-skill::${splitKey}::${skillName}`;
+      rfNodes.push({
+        id: skillId,
+        type: 'skillNode' as const,
+        position: { x: xCursor, y: skillY },
+        data: {
+          name: skillName,
+          skillId: skillName,
+        } satisfies SkillNodeData,
+        draggable: false,
+        connectable: false,
+      });
+      rfEdges.push({
+        id: `${skillId}->${firstMemberId}`,
+        source: skillId,
+        target: firstMemberId,
+        sourceHandle: 'source',
+        targetHandle: 'target',
+        type: 'skillEdge',
+        data: {},
+      });
+      xCursor += SKILL_NODE_WIDTH + PILL_GAP;
+    }
+  }
 
   return { nodes: rfNodes, edges: rfEdges, groups };
 }

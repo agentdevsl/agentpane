@@ -611,79 +611,15 @@ export function buildTopologyFromEvents(
   }
 
   // --- Synthetic skill nodes ---
-  // Skills attach to *clusters* (groups of agents sharing parentId+agentType),
-  // not to individual agents. One skill node per (cluster, skill) keeps the
-  // graph from spider-webbing — five sibling agents that all declare the
-  // same skill share one skill node above the cluster, but two different
-  // clusters that both declare the skill get separate nodes (no cross-
-  // cluster linkage). Layout positions the skill node above the cluster
-  // box so the visual reads as `skill → box`.
+  // Per-cluster agent skill rendering is handled in topology-layout.ts,
+  // not here. The layout layer knows about *visual* cluster splits (one
+  // data-level (parentId, agentType) cluster can render as two boxes
+  // when mrtree puts members far apart) and emits one skill pill per
+  // visual sub-cluster — that data isn't available at this layer.
+  // The map below still holds the task-level injection node from
+  // context.skillId, which IS data-driven.
   const skillNodeMap = new Map<string, TopologyNode>();
   const allNodes = Array.from(nodes.values());
-
-  // Bucket agents by their cluster key: `${parentId ?? 'root'}::${agentType}`
-  const agentsByCluster = new Map<string, TopologyNode[]>();
-  for (const agentNode of allNodes) {
-    if (agentNode.type === 'skill') continue;
-    if (!agentNode.agentType) continue;
-    const clusterKey = `${agentNode.parentId ?? 'root'}::${agentNode.agentType}`;
-    const list = agentsByCluster.get(clusterKey) ?? [];
-    list.push(agentNode);
-    agentsByCluster.set(clusterKey, list);
-  }
-
-  for (const [clusterKey, agentsInCluster] of agentsByCluster) {
-    // Union of skills declared by any agent in the cluster.
-    const clusterSkills = new Set<string>();
-    for (const agent of agentsInCluster) {
-      for (const skill of agent.agentMeta?.skills ?? []) {
-        clusterSkills.add(skill);
-      }
-    }
-    if (clusterSkills.size === 0) continue;
-
-    const firstAgent = agentsInCluster[0];
-    if (!firstAgent) continue;
-
-    for (const skillName of clusterSkills) {
-      const skillNodeId = `skill-cluster-${clusterKey}::${skillName}`;
-      if (!skillNodeMap.has(skillNodeId)) {
-        const skillNode: TopologyNode = {
-          id: skillNodeId,
-          name: skillName,
-          role: 'skill',
-          type: 'skill',
-          agentType: null,
-          skillId: skillName,
-          skillName,
-          skillCalls: [],
-          agentMeta: null,
-          status: 'completed',
-          // parentId points at the first cluster member so layout's
-          // skill-positioning pass can find the cluster via the existing
-          // (parentId, agentType) keying. Visual placement is the
-          // cluster centroid, not this individual agent.
-          parentId: firstAgent.id,
-          childIds: [],
-          progress: 100,
-          tokens: 0,
-          cost: 0,
-          turns: 0,
-          messages: 0,
-          startedAt: null,
-          completedAt: null,
-          verified: false,
-          verificationScore: 0,
-          decisions: [],
-        };
-        skillNodeMap.set(skillNodeId, skillNode);
-      }
-      // No edge: rely purely on the skill's vertical position above the
-      // cluster box to convey ownership. Adding an edge here brought
-      // visible cross-cluster linkage lines back even with one node per
-      // cluster, which is exactly the spider-web the user wanted gone.
-    }
-  }
 
   // --- Task-level skill injection node ---
   // When the task has a skill assigned (context.skillId), show it as
