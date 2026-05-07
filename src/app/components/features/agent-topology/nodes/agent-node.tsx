@@ -36,13 +36,15 @@ const COLOR_NAME_MAP: Record<string, string> = {
   pink: '#F472B6',
 };
 
-const RADIUS = 28;
-const ARC_R = RADIUS + 4; // 32
-const PULSE_R = RADIUS + 8; // 36
-const SELECTION_R = RADIUS + 10; // 38
+const RADIUS = 36;
+const ARC_R = RADIUS + 5;
+const PULSE_R = RADIUS + 10;
+const SELECTION_R = RADIUS + 12;
 const CIRCUMFERENCE = 2 * Math.PI * ARC_R;
-const ICON_SIZE = Math.max(14, RADIUS * 0.6);
-const MAX_NAME_CHARS = 22;
+const ICON_SIZE = Math.max(18, RADIUS * 0.6);
+const MAX_NAME_LINES = 3;
+const MAX_NAME_CHARS_PER_LINE = 18;
+const NAME_LINE_HEIGHT = 16;
 
 function formatTokens(n: number): string {
   if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return '0';
@@ -51,9 +53,36 @@ function formatTokens(n: number): string {
   return String(Math.round(n));
 }
 
-function truncateName(name: string): string {
-  if (name.length <= MAX_NAME_CHARS) return name;
-  return `${name.slice(0, MAX_NAME_CHARS - 1).trimEnd()}…`;
+/**
+ * Word-wrap a name onto up to 2 lines, breaking on whitespace where
+ * possible. If the second line still overflows, ellipsise it. This
+ * replaces the previous single-line "…" truncation so long
+ * agent names like `Research aws_s3_bucket_versioning` stay readable.
+ */
+function wrapName(name: string): string[] {
+  const trimmed = name.trim();
+  if (trimmed.length <= MAX_NAME_CHARS_PER_LINE) return [trimmed];
+  const lines: string[] = [];
+  let remaining = trimmed;
+  while (remaining.length > 0 && lines.length < MAX_NAME_LINES) {
+    if (lines.length === MAX_NAME_LINES - 1) {
+      lines.push(
+        remaining.length > MAX_NAME_CHARS_PER_LINE
+          ? `${remaining.slice(0, MAX_NAME_CHARS_PER_LINE - 1).trimEnd()}…`
+          : remaining
+      );
+      break;
+    }
+    if (remaining.length <= MAX_NAME_CHARS_PER_LINE) {
+      lines.push(remaining);
+      break;
+    }
+    const wordBreak = remaining.lastIndexOf(' ', MAX_NAME_CHARS_PER_LINE);
+    const breakIdx = wordBreak >= MAX_NAME_CHARS_PER_LINE / 2 ? wordBreak : MAX_NAME_CHARS_PER_LINE;
+    lines.push(remaining.slice(0, breakIdx).trimEnd());
+    remaining = remaining.slice(breakIdx).trimStart();
+  }
+  return lines;
 }
 
 function AgentNodeComponent({ data, selected }: NodeProps) {
@@ -80,8 +109,9 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
   const isVerifying = status === 'verifying';
   const isCompleted = status === 'completed';
   const isQueued = status === 'queued';
-  const displayName = truncateName(name);
-  const isTruncated = displayName !== name;
+  const nameLines = wrapName(name);
+  const isTruncated = nameLines[nameLines.length - 1]?.endsWith('…') ?? false;
+  const extraNameLines = Math.max(0, nameLines.length - 1);
   const circleFill = isCompleted ? statusColor : isQueued ? 'var(--bg-subtle)' : roleColor;
   const iconChar = isCompleted ? '✓' : roleConfig.icon;
   const iconColor = isCompleted
@@ -110,21 +140,21 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
     : `${safeTurns}t · ${formatTokens(safeTokens)} · $${safeCost.toFixed(2)}`;
 
   return (
-    <div style={{ width: 120, height: 145, overflow: 'visible', position: 'relative' }}>
-      {/* Handles attach at the visible circle edges (top y=22, bottom y=78
-          relative to the 145px container) so edges land on the circle, not
+    <div style={{ width: 160, height: 200, overflow: 'visible', position: 'relative' }}>
+      {/* Handles attach at the visible circle edges (top y=24, bottom y=96
+          relative to the 200px container) so edges land on the circle, not
           on the labels below it. */}
       <Handle
         type="target"
         position={Position.Top}
         id="target"
-        style={{ opacity: 0, width: 1, height: 1, top: 22 }}
+        style={{ opacity: 0, width: 1, height: 1, top: 24 }}
       />
 
       <svg
-        viewBox="-60 -50 120 145"
-        width={120}
-        height={145}
+        viewBox="-80 -60 160 200"
+        width={160}
+        height={200}
         overflow="visible"
         role="img"
         aria-label={`${name} - ${roleConfig.label} agent`}
@@ -219,14 +249,18 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
         {/* Name label */}
         <text
           x={0}
-          y={RADIUS + 20}
+          y={RADIUS + 22}
           textAnchor="middle"
-          fontSize={12}
+          fontSize={14}
           fill="var(--fg-default)"
-          fontWeight={500}
+          fontWeight={600}
           style={{ pointerEvents: 'none' }}
         >
-          {displayName}
+          {nameLines.map((line, i) => (
+            <tspan key={`${line}-${i}`} x={0} dy={i === 0 ? 0 : NAME_LINE_HEIGHT}>
+              {line}
+            </tspan>
+          ))}
           {isTruncated && <title>{name}</title>}
         </text>
 
@@ -234,10 +268,10 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
         {!isCompleted && (
           <text
             x={0}
-            y={RADIUS + 38}
+            y={RADIUS + 42 + extraNameLines * NAME_LINE_HEIGHT}
             textAnchor="middle"
-            fontSize={10}
-            fill="var(--fg-muted)"
+            fontSize={12}
+            fill="var(--fg-default)"
             style={{ pointerEvents: 'none' }}
           >
             {phase
@@ -253,10 +287,10 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
         {metricsText && (
           <text
             x={0}
-            y={RADIUS + (isCompleted ? 38 : 54)}
+            y={RADIUS + (isCompleted ? 42 : 60) + extraNameLines * NAME_LINE_HEIGHT}
             textAnchor="middle"
-            fontSize={isCompleted ? 10 : 9}
-            fill="var(--fg-subtle)"
+            fontSize={isCompleted ? 12 : 11}
+            fill="var(--fg-muted)"
             style={{ pointerEvents: 'none' }}
           >
             {metricsText}
@@ -295,7 +329,7 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
         type="source"
         position={Position.Bottom}
         id="source"
-        style={{ opacity: 0, width: 1, height: 1, top: 78, bottom: 'auto' }}
+        style={{ opacity: 0, width: 1, height: 1, top: 96, bottom: 'auto' }}
       />
     </div>
   );

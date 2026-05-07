@@ -38,15 +38,15 @@ interface TopologyGroupOverlayProps {
 type ClusterTint = { fill: string; stroke: string; label: string };
 
 /**
- * Build a tint triple from a single design-token variable. Three
- * percentages: an 8% fill (subtle backdrop), a 55% stroke (clearly
- * visible on either theme), and a solid label colour. Pulled into a
- * helper so we don't repeat the `color-mix` boilerplate five times.
+ * Build a tint triple from a single design-token variable. The fill +
+ * stroke percentages are tuned so cluster outlines read clearly on both
+ * the dark canvas (where 8% washed out) and the light canvas. The label
+ * is solid for legibility.
  */
 function tintFromToken(varName: string): ClusterTint {
   return {
-    fill: `color-mix(in srgb, var(${varName}) 8%, transparent)`,
-    stroke: `color-mix(in srgb, var(${varName}) 55%, transparent)`,
+    fill: `color-mix(in srgb, var(${varName}) 22%, transparent)`,
+    stroke: `var(${varName})`,
     label: `var(${varName})`,
   };
 }
@@ -108,8 +108,8 @@ function fallbackTint(agentType: string): ClusterTint {
   // on dark, near-black on light).
   const chroma = `hsl(${hue}, 62%, 55%)`;
   return {
-    fill: `color-mix(in srgb, ${chroma} 8%, transparent)`,
-    stroke: `color-mix(in srgb, ${chroma} 55%, transparent)`,
+    fill: `color-mix(in srgb, ${chroma} 22%, transparent)`,
+    stroke: chroma,
     label: `color-mix(in srgb, ${chroma} 70%, var(--fg-default))`,
   };
 }
@@ -162,7 +162,7 @@ export function TopologyGroupOverlay({
             height: g.height,
             borderRadius: 18,
             backgroundColor: g.fill,
-            border: `1px dashed ${g.stroke}`,
+            border: `1.5px solid ${g.stroke}`,
             boxSizing: 'border-box',
           }}
         >
@@ -171,17 +171,16 @@ export function TopologyGroupOverlay({
               position: 'absolute',
               top: 6,
               left: 12,
-              // Single-cluster boxes (one node) are only ~200px wide; long
-              // type names like `tf-module-validator` plus the count
-              // suffix used to wrap onto two lines and visually leave the
-              // box. nowrap lets the label overflow horizontally instead
-              // of wrapping; the cluster type is still readable on hover
-              // via the title tooltip even if it does extend past the
-              // node circle.
+              right: 12,
+              // Clip overlong type names with an ellipsis so the label
+              // can never spill past the cluster outline. The full name
+              // remains discoverable via the title tooltip below.
               whiteSpace: 'nowrap',
-              fontSize: 10,
-              fontWeight: 600,
-              letterSpacing: 0.4,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              fontSize: 16,
+              fontWeight: 700,
+              letterSpacing: 0.7,
               textTransform: 'uppercase',
               color: g.label,
               fontFamily:

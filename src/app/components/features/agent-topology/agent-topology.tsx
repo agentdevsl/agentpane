@@ -22,7 +22,7 @@ import { layoutTopology, type TopologyGroupBox } from './topology-layout';
 
 const nodeTypes = { agentNode: AgentNode, skillNode: SkillNode };
 const edgeTypes = { agentEdge: AgentEdge, skillEdge: SkillEdge };
-const FIT_VIEW_OPTIONS = { padding: 0.15, maxZoom: 1.1 };
+const FIT_VIEW_OPTIONS = { padding: 0.05, maxZoom: 2.2 };
 
 function TopologyInner(): React.JSX.Element {
   const { state, dispatch, selectedNode, sessionId } = useTopology();

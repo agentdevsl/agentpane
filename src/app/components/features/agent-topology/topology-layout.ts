@@ -9,10 +9,10 @@ import type { SkillNodeData } from './nodes/skill-node';
 // thinks a node is wider than it really is, mrtree centers parent above
 // child using ELK's idea of the width and the rendered centers no longer
 // line up (edges land off-center).
-const NODE_WIDTH = 120;
-const NODE_HEIGHT = 145;
-const SKILL_NODE_WIDTH = 160;
-const SKILL_NODE_HEIGHT = 50;
+const NODE_WIDTH = 160;
+const NODE_HEIGHT = 200;
+const SKILL_NODE_WIDTH = 200;
+const SKILL_NODE_HEIGHT = 64;
 
 /**
  * Agent types that are *not* worth grouping on visually. These are the
@@ -44,9 +44,9 @@ const GENERIC_AGENT_TYPES = new Set(['local_agent', 'general-purpose']);
  *     a little extra keeps it visually inside the box rather than flush
  *     against the border)
  */
-const GROUP_BOX_TOP = 26;
-const GROUP_BOX_SIDE = 44;
-const GROUP_BOX_BOTTOM = 28;
+const GROUP_BOX_TOP = 32;
+const GROUP_BOX_SIDE = 24;
+const GROUP_BOX_BOTTOM = 20;
 /**
  * Minimum number of sibling nodes that share an agent_type to draw a box.
  * 1 means even singletons get a labelled box, which is visually noisy
@@ -57,16 +57,28 @@ const GROUP_MIN_SIZE = 1;
 
 /**
  * Maximum horizontal gap between consecutive same-cluster members
- * before they're split into separate sub-clusters. Without this, two
- * agents that share a (parentId, agentType) but were spawned in
- * different phases — and thus end up far apart in mrtree's order — get
- * drawn as a single cluster box that stretches across the canvas with
- * empty space in the middle. NODE_WIDTH * 2 is roughly "one full slot
- * for an unrelated sibling between them" — anything wider than that
- * means the cluster has discontinuous visual presence and should
- * render as two boxes instead of one.
+ * before they're split into separate sub-clusters. Two same-type
+ * agents that were spawned in different phases (and thus separated
+ * by other siblings in mrtree's order) need to render as two boxes,
+ * not one giant box stretching across the canvas. The threshold is
+ * `NODE_WIDTH + nodeNode spacing` ≈ one unrelated-sibling slot —
+ * anything wider than that means at least one foreign node sits
+ * between the two members and the cluster is discontinuous.
  */
-const MAX_INTRA_CLUSTER_GAP_X = NODE_WIDTH * 2;
+const MAX_INTRA_CLUSTER_GAP_X = NODE_WIDTH;
+
+/**
+ * When a sibling cluster has this many or more leaf members we wrap it
+ * onto two rows instead of letting mrtree spread them across one wide
+ * row. 2 yields a vertical stack, 3 yields 2+1 (bottom centred),
+ * 4 yields 2x2, 6 yields 3+3, etc. Only applied to "leaf" clusters (no
+ * agent descendants) so the second row can't collide with a layer below.
+ */
+const WRAP_THRESHOLD = 2;
+/** Vertical gap between the two rows in a wrapped cluster. */
+const WRAP_ROW_GAP_Y = 28;
+/** Horizontal step between consecutive members within a wrapped row — matches the tightened `elk.spacing.nodeNode` plus the node width. */
+const WRAP_STEP_X = NODE_WIDTH + 32;
 
 /**
  * Group nodes by `(parentId, agentType)`, then split each group into
@@ -204,12 +216,13 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     layoutOptions: {
       'elk.algorithm': 'mrtree',
       'elk.direction': 'DOWN',
-      // 80 keeps labels (which can overflow the 120px node container by up
-      // to ~30px on each side after truncation) from colliding between
-      // adjacent siblings in a horizontal row.
-      'elk.spacing.nodeNode': '80',
-      'elk.spacing.edgeNode': '20',
-      'elk.padding': '[top=20,left=20,bottom=20,right=20]',
+      // Tightened to 32 so adjacent clusters/members sit close enough
+      // that fitView can zoom up to a readable size on a wide canvas.
+      // Names now wrap to 3 lines within the node's 160px width so we
+      // don't need to leave room for label overflow between siblings.
+      'elk.spacing.nodeNode': '32',
+      'elk.spacing.edgeNode': '12',
+      'elk.padding': '[top=12,left=12,bottom=12,right=12]',
       'elk.mrtree.weighting': 'CONSTRAINT',
       'elk.mrtree.searchOrder': 'DFS',
     },
@@ -249,11 +262,71 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
   // stretched across the canvas with empty space in the middle.
   const splitClusters = buildClusterMembers(graph, positionById, isClusterEligible);
 
+  // Wrap multi-member leaf clusters onto two rows so they don't stretch
+  // the canvas horizontally and so every cluster reads as a 2-row block
+  // for visual consistency. Only applied to "leaf" clusters (no agent
+  // descendants) — pushing a member down would otherwise overlap the
+  // layer that mrtree placed below it. `wrapEdgeReroute` re-sources the
+  // bottom-row's parent edge to the matching top-row sibling so the
+  // visual chain reads parent → top → bottom instead of an edge cutting
+  // straight through the top-row node.
+  const hasAgentChild = new Set<string>();
+  for (const e of graph.edges) {
+    const target = nodeById.get(e.targetId)?.node;
+    if (!target || target.type === 'skill') continue;
+    hasAgentChild.add(e.sourceId);
+  }
+  // Wrap each leaf cluster into a 2-row block. Bottom-row members are
+  // pinned directly under their top-row partner so the cluster reads
+  // as a left-to-right, top-to-bottom grid (which preserves spawn
+  // order regardless of whether the agents ran concurrently or
+  // sequentially — the position alone tells the reader). Each
+  // bottom-row node's parent edge is re-sourced through the top-row
+  // node above it so no edge has to cut through another node's body
+  // to reach the lower row. The reroute is purely visual; the
+  // underlying topology data still has the original parent.
+  const wrapEdgeReroute = new Map<string, string>();
+  for (const cluster of splitClusters.values()) {
+    if (cluster.ids.some((id) => hasAgentChild.has(id))) continue;
+    if (cluster.ids.length < WRAP_THRESHOLD) continue;
+    const sorted = [...cluster.ids].sort((a, b) => {
+      const ax = positionById.get(a)?.x ?? 0;
+      const bx = positionById.get(b)?.x ?? 0;
+      return ax - bx;
+    });
+    const firstId = sorted[0];
+    const firstPos = firstId ? positionById.get(firstId) : undefined;
+    if (!firstPos) continue;
+    const n = sorted.length;
+    const topCount = Math.ceil(n / 2);
+    const bottomCount = n - topCount;
+    const leftX = firstPos.x;
+    const topY = firstPos.y;
+    const bottomY = topY + NODE_HEIGHT + WRAP_ROW_GAP_Y;
+    for (let i = 0; i < topCount; i++) {
+      const id = sorted[i];
+      const pos = id ? positionById.get(id) : undefined;
+      if (!pos) continue;
+      pos.x = leftX + i * WRAP_STEP_X;
+      pos.y = topY;
+    }
+    for (let i = 0; i < bottomCount; i++) {
+      const botId = sorted[topCount + i];
+      const topId = sorted[i];
+      if (!botId || !topId) continue;
+      const botPos = positionById.get(botId);
+      if (!botPos) continue;
+      botPos.x = leftX + i * WRAP_STEP_X;
+      botPos.y = bottomY;
+      wrapEdgeReroute.set(botId, topId);
+    }
+  }
+
   // Build per-cluster left/right extents grouped by the row they sit in.
   // mrtree puts all siblings on one Y, but we tolerate small drift by
   // bucketing on rounded y to handle sub-row jitter from mrtree's
   // `verticalAlignment` heuristics.
-  const MIN_INTER_CLUSTER_GAP_X = 36;
+  const MIN_INTER_CLUSTER_GAP_X = 16;
   const ROW_KEY_TOLERANCE = 30;
   type ClusterExtent = {
     key: string;
@@ -286,9 +359,13 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     });
   }
 
-  // Sweep clusters left-to-right per row and push subsequent clusters
-  // far enough right that their padded boxes leave a clean
-  // MIN_INTER_CLUSTER_GAP_X channel between cluster outlines.
+  // Sweep clusters left-to-right per row and pin every consecutive pair
+  // to the same channel width. Unlike a min-only enforcement, this both
+  // expands gaps that are too small AND compacts gaps that are too wide
+  // — mrtree spaces clusters based on the original wide single-row
+  // layout, so once the wrap pass narrows them the original gaps leave
+  // dead horizontal space between cluster outlines. The leftmost cluster
+  // in each row anchors the row's origin (we never shift it).
   const extentsByRow = new Map<number, ClusterExtent[]>();
   for (const e of extents) {
     const list = extentsByRow.get(e.rowKey) ?? [];
@@ -304,10 +381,9 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
       // Padded right edge of prev cluster + padded left edge of cur cluster.
       const prevRightPadded = prev.right + GROUP_BOX_SIDE;
       const curLeftPadded = cur.left - GROUP_BOX_SIDE;
-      if (curLeftPadded - prevRightPadded >= MIN_INTER_CLUSTER_GAP_X) continue;
-      const shift = prevRightPadded + MIN_INTER_CLUSTER_GAP_X - curLeftPadded;
-      // Move every member of `cur` (and update its extent record so the
-      // next iteration sees the new position).
+      const targetLeftPadded = prevRightPadded + MIN_INTER_CLUSTER_GAP_X;
+      const shift = targetLeftPadded - curLeftPadded;
+      if (shift === 0) continue;
       for (const id of cur.members) {
         const pos = positionById.get(id);
         if (pos) pos.x += shift;
@@ -391,7 +467,6 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     .filter(Boolean) as ReactFlowNode[];
 
   const rfEdges: ReactFlowEdge[] = graph.edges.map((e) => {
-    const sourceEntry = nodeById.get(e.sourceId);
     const targetEntry = nodeById.get(e.targetId);
     const isSkillEdge = targetEntry?.node.type === 'skill';
     if (isSkillEdge) {
@@ -405,9 +480,17 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
         data: {},
       };
     }
+    // For wrapped-cluster bottom-row nodes, re-source the parent edge
+    // to the top-row sibling directly above so the line reads as a
+    // chain (parent → top → bottom) instead of cutting through the top
+    // node. The underlying topology data still has the parent as the
+    // logical parent — this is purely a rendering routing.
+    const reroutedSource = wrapEdgeReroute.get(e.targetId);
+    const effectiveSourceId = reroutedSource ?? e.sourceId;
+    const sourceEntry = nodeById.get(effectiveSourceId);
     return {
       id: e.id,
-      source: e.sourceId,
+      source: effectiveSourceId,
       target: e.targetId,
       sourceHandle: 'source',
       targetHandle: 'target',
@@ -434,6 +517,13 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
   // shift, so reading positionById here picks up the post-shift x.
   const clustersForGroups = buildClusterMembers(graph, positionById, isClusterEligible);
 
+  // Leaf clusters always render as a 2-row block for visual
+  // consistency, even when the cluster only has 1 member or didn't hit
+  // the wrap threshold. The fixed height keeps the row of cluster
+  // outlines aligned across the canvas instead of having tall wrapped
+  // boxes next to short single-row ones. Non-leaf clusters keep their
+  // computed bbox so the box doesn't extend down into the layer below.
+  const TWO_ROW_CONTENT_HEIGHT = NODE_HEIGHT * 2 + WRAP_ROW_GAP_Y;
   const groups: TopologyGroupBox[] = [];
   for (const [key, cluster] of clustersForGroups) {
     if (cluster.ids.length < GROUP_MIN_SIZE) continue;
@@ -452,6 +542,8 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
       if (pos.y + h > maxY) maxY = pos.y + h;
     }
     if (!Number.isFinite(minX) || !Number.isFinite(minY)) continue;
+    const isLeaf = cluster.ids.every((id) => !hasAgentChild.has(id));
+    const contentHeight = isLeaf ? TWO_ROW_CONTENT_HEIGHT : maxY - minY;
     groups.push({
       id: `group::${key}`,
       agentType: cluster.agentType,
@@ -459,7 +551,7 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
       x: minX - GROUP_BOX_SIDE,
       y: minY - GROUP_BOX_TOP,
       width: maxX - minX + GROUP_BOX_SIDE * 2,
-      height: maxY - minY + GROUP_BOX_TOP + GROUP_BOX_BOTTOM,
+      height: contentHeight + GROUP_BOX_TOP + GROUP_BOX_BOTTOM,
     });
   }
 

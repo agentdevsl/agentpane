@@ -13,7 +13,7 @@ function SkillNodeComponent({ data, selected }: NodeProps) {
 
   return (
     <div
-      style={{ width: 160, height: 50, overflow: 'visible' }}
+      style={{ width: 200, height: 64, overflow: 'visible' }}
       className="flex items-center justify-center"
     >
       <Handle
@@ -42,12 +42,12 @@ function SkillNodeComponent({ data, selected }: NodeProps) {
         }}
       >
         <Lightning
-          className="h-3.5 w-3.5 shrink-0"
+          className="h-4 w-4 shrink-0"
           weight="fill"
           style={{ color: 'var(--accent-default, #388bfd)' }}
         />
         <span
-          className="truncate text-[10px] font-medium leading-tight"
+          className="truncate text-xs font-medium leading-tight"
           style={{ color: 'var(--fg-default)' }}
         >
           {name}
