@@ -449,17 +449,14 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     rootChild.x = centroidX - NODE_WIDTH / 2;
   }
 
-  // Re-pin skill nodes next to their parent agent. mrtree treats the skill
-  // as just another child of the orchestrator and lays it out in the same
-  // row as agent clusters; with many subagent clusters that row gets very
-  // wide, and once the cluster-shift pass spreads the agent siblings
-  // apart the skill node ends up at the far right edge of the canvas
-  // (often outside `fitView`'s default frame, so the user sees an empty
-  // gap where the skill should be). Anchoring the skill to the parent's
-  // top-right corner keeps it visible right next to its owner regardless
-  // of how wide the rest of the workflow grows.
-  const SKILL_PARENT_OFFSET_X = 24; // gap between parent's right edge and skill's left edge
-  const SKILL_PARENT_OFFSET_Y = -6; // small lift so the skill aligns with the parent's label, not its centre
+  // Re-pin skill nodes directly above their parent agent. mrtree puts
+  // the skill in the same row as agent clusters (which then drifts off
+  // to the far right after cluster-shift), and the previous "right of
+  // parent" placement caused skills to overlap neighbouring clusters
+  // when the inter-cluster gap was tight. Centring the skill above the
+  // parent keeps the (skill → agent) flow visually obvious and the
+  // ~20px overflow per side fits inside the inter-cluster gap.
+  const SKILL_VERTICAL_GAP = 16; // gap between skill bottom and parent top
   for (const n of graph.nodes) {
     if (n.type !== 'skill') continue;
     const skillPos = positionById.get(n.id);
@@ -468,13 +465,10 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     if (!parentId) continue;
     const parentPos = positionById.get(parentId);
     if (!parentPos) continue;
-    // Place to the right of the parent (mrtree-y aligned with the parent
-    // top, slightly offset). The parent's actual width depends on its
-    // type — orchestrator/agent uses NODE_WIDTH, skill uses SKILL_NODE_WIDTH.
     const parentNode = nodeById.get(parentId)?.node;
     const parentWidth = parentNode?.type === 'skill' ? SKILL_NODE_WIDTH : NODE_WIDTH;
-    skillPos.x = parentPos.x + parentWidth + SKILL_PARENT_OFFSET_X;
-    skillPos.y = parentPos.y + SKILL_PARENT_OFFSET_Y;
+    skillPos.x = parentPos.x + (parentWidth - SKILL_NODE_WIDTH) / 2;
+    skillPos.y = parentPos.y - SKILL_NODE_HEIGHT - SKILL_VERTICAL_GAP;
   }
 
   const rfNodes: ReactFlowNode[] = flatChildren
