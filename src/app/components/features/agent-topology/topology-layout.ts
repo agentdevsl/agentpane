@@ -242,6 +242,35 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
     (child: ElkNode) => ({ id: child.id, x: child.x ?? 0, y: child.y ?? 0 })
   );
 
+  // mrtree's vertical layer separation leaves a large gap between the
+  // root agent and its children. The row of children is the workflow
+  // signal; the empty band above it is just whitespace. Pull each root
+  // down so the gap to its nearest direct child is a tighter fixed
+  // value, shrinking the bbox vertically while preserving the row
+  // ordering and intra-cluster geometry.
+  const ROOT_TO_CHILD_GAP_Y = 56;
+  const directChildIdsByParent = new Map<string, string[]>();
+  for (const e of graph.edges) {
+    const list = directChildIdsByParent.get(e.sourceId) ?? [];
+    list.push(e.targetId);
+    directChildIdsByParent.set(e.sourceId, list);
+  }
+  const rootIds = graph.nodes.filter((n) => (incomingCount.get(n.id) ?? 0) === 0).map((n) => n.id);
+  for (const rootId of rootIds) {
+    const rootChild = flatChildren.find((c) => c.id === rootId);
+    if (!rootChild) continue;
+    const childIds = directChildIdsByParent.get(rootId) ?? [];
+    if (childIds.length === 0) continue;
+    let childMinY = Number.POSITIVE_INFINITY;
+    for (const cid of childIds) {
+      const cy = flatChildren.find((c) => c.id === cid)?.y;
+      if (cy !== undefined && cy < childMinY) childMinY = cy;
+    }
+    if (!Number.isFinite(childMinY)) continue;
+    const targetRootY = childMinY - ROOT_TO_CHILD_GAP_Y - NODE_HEIGHT;
+    if (targetRootY > rootChild.y) rootChild.y = targetRootY;
+  }
+
   // Compute per-cluster horizontal extents (per `parentId + agentType`)
   // and shift entire clusters apart so their padded boxes don't overlap.
   // Different from the per-pair box-edge resolution further down: this
