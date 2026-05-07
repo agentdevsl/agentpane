@@ -717,18 +717,27 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
       owningRootId && rootIdSet.has(owningRootId) ? positionById.get(owningRootId) : null;
     if (!owningRootPos) continue;
 
+    // Stack a cluster's skills VERTICALLY (one above the next) instead
+    // of horizontally. A horizontal stack at 200px-per-pill quickly
+    // overflows the cluster's own width and collides with adjacent
+    // clusters' skill bands. Vertical stacking keeps each pill centred
+    // over the cluster's centroidX with zero horizontal overlap risk.
+    // The bottom-most pill sits just above the root; subsequent pills
+    // stack upward.
     const skillsArr = [...skillUnion].sort();
-    const PILL_GAP = 8;
-    const totalWidth = skillsArr.length * SKILL_NODE_WIDTH + (skillsArr.length - 1) * PILL_GAP;
-    let xCursor = centroidX - totalWidth / 2;
-    const skillY = owningRootPos.y - SKILL_NODE_HEIGHT - SKILL_GAP_ABOVE_ROOT;
+    const PILL_VERTICAL_GAP = 8;
+    const skillX = centroidX - SKILL_NODE_WIDTH / 2;
+    const bottomY = owningRootPos.y - SKILL_NODE_HEIGHT - SKILL_GAP_ABOVE_ROOT;
 
-    for (const skillName of skillsArr) {
+    for (let i = 0; i < skillsArr.length; i++) {
+      const skillName = skillsArr[i];
+      if (skillName === undefined) continue;
       const skillId = `vcluster-skill::${splitKey}::${skillName}`;
+      const skillY = bottomY - i * (SKILL_NODE_HEIGHT + PILL_VERTICAL_GAP);
       rfNodes.push({
         id: skillId,
         type: 'skillNode' as const,
-        position: { x: xCursor, y: skillY },
+        position: { x: skillX, y: skillY },
         data: {
           name: skillName,
           skillId: skillName,
@@ -745,7 +754,6 @@ export async function layoutTopology(graph: TopologyGraph): Promise<{
         type: 'skillEdge',
         data: {},
       });
-      xCursor += SKILL_NODE_WIDTH + PILL_GAP;
     }
   }
 
