@@ -18,6 +18,7 @@ import { AgentTopology } from '@/app/components/features/agent-topology';
 import { Button } from '@/app/components/ui/button';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import { Skeleton, SkeletonText } from '@/app/components/ui/skeleton';
+import { useCodespaceAgents } from '@/app/hooks/use-codespace-agents';
 import type { SessionStatus } from '@/db/schema';
 import { buildTopologyFromEvents, type TopologyEvent } from '@/lib/topology/build-from-events';
 import type { TopologyGraph, TopologyNode } from '@/lib/topology/types';
@@ -66,6 +67,7 @@ export function SessionDetailView({
 }: SessionDetailViewProps): React.JSX.Element {
   const [activeView, setActiveView] = useState<ViewTab>('replay');
   const { entries, toolCalls, toolCallStats, isLoading: eventsLoading } = useSessionEvents(session);
+  const knownAgents = useCodespaceAgents(session?.codespaceId);
 
   // Build topology from historical session events (same approach as ContainerAgentPanel's TopologyTab).
   // This reconstructs subagent nodes from topology:agent_spawned events rather than showing a
@@ -91,6 +93,7 @@ export function SessionDetailView({
         lastAgentStatus: null,
         skillId: session.skillId ?? null,
         skillName: session.skillName ?? null,
+        knownAgents,
       });
     }
 
@@ -153,6 +156,7 @@ export function SessionDetailView({
     session?.taskId,
     session?.taskTitle,
     session?.events,
+    knownAgents,
   ]);
 
   // Loading state

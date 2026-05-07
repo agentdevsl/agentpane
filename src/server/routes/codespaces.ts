@@ -372,6 +372,47 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
     }
   });
 
+  // GET /api/codespaces/:id/agents - List available agents for a codespace
+  //
+  // Returns the merged template's CachedAgent entries (name + skills + tools +
+  // model + color). Consumed by the topology view so it can resolve
+  // agentMeta.skills and render the per-agent skill nodes — without this,
+  // build-from-events.ts has no way to map an agentType to its declared
+  // skills and the skill-node graph stays empty.
+  app.get('/:id/agents', async (c) => {
+    const { id: codespaceId, error } = validateIdParam(c, 'id');
+    if (error) return error;
+
+    const result = await templateService.getMergedConfig(codespaceId);
+
+    if (!result.ok) {
+      logger.error('Failed to load merged template config for agents list', {
+        data: { codespaceId, error: result.error },
+      });
+      return json(
+        {
+          ok: false,
+          error: {
+            code: result.error.code ?? 'TEMPLATE_CONFIG_ERROR',
+            message: result.error.message ?? 'Failed to load agents for codespace',
+          },
+        },
+        result.error.status ?? 500
+      );
+    }
+
+    const agents = result.value.agents.map((agent) => ({
+      name: agent.name,
+      description: agent.description,
+      model: agent.model,
+      color: agent.color,
+      skills: agent.skills,
+      tools: agent.tools,
+    }));
+
+    return json({ ok: true, data: agents });
+  });
+
   // GET /api/codespaces/:id/skills - List available skills for a codespace
   //
   // F07-03: never mask an infrastructure failure as `{ok:true, data:[]}`.
