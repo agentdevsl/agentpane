@@ -223,4 +223,63 @@ describe('ContainerAgentService facade extras (IT-CAS-EXTRA)', () => {
     expect(() => service.dispose()).not.toThrow();
     expect(() => service.dispose()).not.toThrow();
   });
+
+  it('startAgent returns AGENT_START_FAILED when AgentCore provider is set but AGENTCORE_ENABLED is unset', async () => {
+    const codespace = await createTestProject();
+    const task = await createTestTask(codespace.id);
+
+    // Inject agentCoreProvider directly via private-field hop (simulates
+    // a stale wire from setAgentCoreProvider's mid-flight clear). This is
+    // intentionally a test-only hack to exercise the bridge-unavailable
+    // guard at line 442 without needing AGENTCORE_ENABLED in the test env.
+    const fakeProvider = {
+      get: vi.fn().mockReturnValue(null),
+      create: vi.fn(),
+      removeSession: vi.fn(),
+      getOrCreateSession: vi.fn(),
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    } as never;
+    type ProviderOwner = { agentCoreProvider: unknown };
+    (service as unknown as ProviderOwner).agentCoreProvider = fakeProvider;
+
+    const result = await service.startAgent({
+      codespaceId: codespace.id,
+      taskId: task.id,
+      sessionId: 'sess-no-bridge',
+      prompt: 'go',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('SANDBOX_AGENT_START_FAILED');
+      expect(result.error.message).toContain('AGENTCORE_ENABLED');
+    }
+    // Cleanup
+    (service as unknown as ProviderOwner).agentCoreProvider = undefined;
+  });
+
+  it('startAgent returns PROJECT_NOT_FOUND when AgentCore branch lookup misses codespace', async () => {
+    const fakeProvider = {
+      get: vi.fn().mockReturnValue(null),
+      create: vi.fn(),
+      removeSession: vi.fn(),
+      getOrCreateSession: vi.fn(),
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    } as never;
+    type ProviderOwner = { agentCoreProvider: unknown };
+    (service as unknown as ProviderOwner).agentCoreProvider = fakeProvider;
+
+    const result = await service.startAgent({
+      codespaceId: 'never-existed',
+      taskId: 'tsk-x',
+      sessionId: 'sess-x',
+      prompt: 'go',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('SANDBOX_PROJECT_NOT_FOUND');
+    }
+    (service as unknown as ProviderOwner).agentCoreProvider = undefined;
+  });
 });
