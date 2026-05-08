@@ -1,12 +1,34 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { agents, sessions, tasks, worktrees } from '../../src/db/schema';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { agents, sessionEvents, sessions, tasks, worktrees } from '../../src/db/schema';
+import { createContainerAgentService } from '../../src/services/container-agent.service';
 import { createTestAgent } from '../factories/agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestSession } from '../factories/session.factory';
 import { createTestTask } from '../factories/task.factory';
 import { createTestWorktree } from '../factories/worktree.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
+import { createInMemoryStreams } from '../helpers/mocks';
+
+function createNoopProvider() {
+  return {
+    name: 'test-provider',
+    create: vi.fn(),
+    get: vi.fn(),
+    getById: vi.fn(),
+    list: vi.fn(async () => []),
+    pullImage: vi.fn(),
+    isImageAvailable: vi.fn(async () => true),
+    healthCheck: vi.fn(async () => ({ healthy: true })),
+    cleanup: vi.fn(async () => 0),
+  };
+}
+
+function createNoopApiKeyService() {
+  return {
+    getDecryptedKey: vi.fn(async () => null),
+  };
+}
 
 describe('ContainerAgentService — DB-level integration tests', () => {
   beforeEach(async () => {
@@ -251,6 +273,75 @@ describe('ContainerAgentService — DB-level integration tests', () => {
     });
     expect(remaining).toHaveLength(1);
     expect(remaining[0]?.id).toBe(task1.id);
+  });
+
+  it('IT-108b: reconcile flushes orphaned tool starts through the real container-agent service', async () => {
+    const db = getTestDb();
+    const streams = createInMemoryStreams();
+    const project = await createTestProject();
+    const task = await createTestTask(project.id, {
+      column: 'in_progress',
+      lastAgentStatus: 'running',
+    });
+    const session = await createTestSession(project.id, { taskId: task.id });
+
+    await db.insert(sessionEvents).values([
+      {
+        sessionId: session.id,
+        streamKind: 'session',
+        offset: 0,
+        type: 'container-agent:tool:start',
+        channel: 'toolCalls',
+        data: { toolId: 'tool-orphaned', toolName: 'Bash' },
+        timestamp: 1_000,
+      },
+      {
+        sessionId: session.id,
+        streamKind: 'session',
+        offset: 1,
+        type: 'container-agent:tool:start',
+        channel: 'toolCalls',
+        data: { toolId: 'tool-finished', toolName: 'Read' },
+        timestamp: 2_000,
+      },
+      {
+        sessionId: session.id,
+        streamKind: 'session',
+        offset: 2,
+        type: 'container-agent:tool:result',
+        channel: 'toolCalls',
+        data: { toolId: 'tool-finished', result: 'ok', isError: false },
+        timestamp: 2_100,
+      },
+    ]);
+
+    const service = createContainerAgentService(
+      db as any,
+      createNoopProvider() as any,
+      streams as any,
+      createNoopApiKeyService() as any
+    );
+
+    await service.reconcile();
+
+    const reconciledTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+    expect(reconciledTask?.column).toBe('backlog');
+    expect(reconciledTask?.lastAgentStatus).toBeNull();
+
+    const syntheticResults = streams
+      .getEvents(session.id)
+      .filter((event) => event.type === 'container-agent:tool:result');
+    expect(syntheticResults).toHaveLength(1);
+    expect(syntheticResults[0]?.data).toMatchObject({
+      taskId: task.id,
+      sessionId: session.id,
+      toolId: 'tool-orphaned',
+      toolName: 'Bash',
+      isError: true,
+      durationMs: 0,
+    });
+
+    service.dispose();
   });
 
   it('IT-109: deleting agents sets null on dangling task references', async () => {

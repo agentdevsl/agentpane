@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { sessions, tasks } from '../../src/db/schema';
+import { sessionEvents, sessions, tasks } from '../../src/db/schema';
+import { SessionService } from '../../src/services/session.service';
 import {
   TaskCreationErrors,
   TaskCreationService,
@@ -8,32 +9,42 @@ import {
 } from '../../src/services/task-creation.service';
 import { createTestProject } from '../factories/project.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
+import { createInMemoryStreams } from '../helpers/mocks';
 
-// Mock the Claude Agent SDK — external I/O boundary
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  unstable_v2_createSession: vi.fn().mockReturnValue({
-    send: vi.fn().mockResolvedValue(undefined),
-    stream: vi.fn().mockReturnValue(
-      (async function* () {
-        // Yield an assistant message with a task suggestion
-        yield {
-          type: 'assistant',
-          session_id: 'mock-sdk-session-1',
-          message: {
-            model: 'claude-sonnet-4-6',
-            content: [
-              {
-                type: 'text',
-                text: '```json\n{"type":"task_suggestion","title":"Test Task","description":"A test task description","labels":["feature"],"priority":"high"}\n```',
-              },
-            ],
-          },
-        };
-      })()
-    ),
-    close: vi.fn(),
-  }),
+const sdkMocks = vi.hoisted(() => ({
+  createSession: vi.fn(),
 }));
+
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  unstable_v2_createSession: sdkMocks.createSession,
+}));
+
+const DEFAULT_SUGGESTION_TEXT =
+  '```json\n{"type":"task_suggestion","title":"Test Task","description":"A test task description","labels":["feature"],"priority":"high"}\n```';
+
+function createSdkSession(messages: unknown[] = [createAssistantMessage(DEFAULT_SUGGESTION_TEXT)]) {
+  return {
+    send: vi.fn().mockResolvedValue(undefined),
+    stream: vi.fn().mockImplementation(async function* (): AsyncGenerator<unknown> {
+      for (const message of messages) {
+        yield message;
+      }
+    }),
+    close: vi.fn(),
+  };
+}
+
+function createAssistantMessage(text: string) {
+  return {
+    type: 'assistant',
+    session_id: 'mock-sdk-session-1',
+    message: {
+      model: 'claude-sonnet-4-6',
+      usage: { input_tokens: 11, output_tokens: 7 },
+      content: [{ type: 'text', text }],
+    },
+  };
+}
 
 /**
  * Mock DurableStreamsService — external I/O boundary
@@ -53,6 +64,44 @@ function createMockStreams() {
     publishTaskCreationProcessing: vi.fn().mockResolvedValue(undefined),
     subscribe: vi.fn(),
     deleteStream: vi.fn().mockResolvedValue(true),
+  };
+}
+
+function createTaskCreationStreams() {
+  const streams = createInMemoryStreams();
+  const publishTyped = async (streamId: string, type: string, data: unknown): Promise<void> => {
+    await streams.publish(streamId, type, data);
+  };
+
+  return {
+    ...streams,
+    publishTaskCreationStarted: vi.fn((streamId: string, data: unknown) =>
+      publishTyped(streamId, 'task-creation:started', data)
+    ),
+    publishTaskCreationMessage: vi.fn((streamId: string, data: unknown) =>
+      publishTyped(streamId, 'task-creation:message', data)
+    ),
+    publishTaskCreationToken: vi.fn((streamId: string, data: unknown) =>
+      publishTyped(streamId, 'task-creation:token', data)
+    ),
+    publishTaskCreationSuggestion: vi.fn((streamId: string, data: unknown) =>
+      publishTyped(streamId, 'task-creation:suggestion', data)
+    ),
+    publishTaskCreationQuestions: vi.fn((streamId: string, data: unknown) =>
+      publishTyped(streamId, 'task-creation:questions', data)
+    ),
+    publishTaskCreationCompleted: vi.fn((streamId: string, data: unknown) =>
+      publishTyped(streamId, 'task-creation:completed', data)
+    ),
+    publishTaskCreationCancelled: vi.fn((streamId: string, data: unknown) =>
+      publishTyped(streamId, 'task-creation:cancelled', data)
+    ),
+    publishTaskCreationError: vi.fn((streamId: string, data: unknown) =>
+      publishTyped(streamId, 'task-creation:error', data)
+    ),
+    publishTaskCreationProcessing: vi.fn((streamId: string, data: unknown) =>
+      publishTyped(streamId, 'task-creation:processing', data)
+    ),
   };
 }
 
@@ -82,6 +131,8 @@ describe('TaskCreationService (IT-250 to IT-275)', () => {
     db = getTestDb();
     mockStreams = createMockStreams();
     mockSessionService = createMockSessionService();
+    sdkMocks.createSession.mockReset();
+    sdkMocks.createSession.mockImplementation(() => createSdkSession());
     service = new TaskCreationService(
       db as any,
       mockStreams as any,
@@ -617,6 +668,291 @@ describe('TaskCreationService (IT-250 to IT-275)', () => {
     // Labels are stored directly from the suggestion — filtering happens during parsing
     // The suggestion was manually set, so all labels are stored as-is
     expect(dbTask!.labels).toEqual(['feature', 'invalid-label', 'bug']);
+  });
+
+  describe('real SessionService persistence', () => {
+    it('IT-276: sendMessage() persists user and assistant chunks through the real session facade', async () => {
+      const streams = createTaskCreationStreams();
+      const sessionService = new SessionService(db as never, streams as never, {
+        baseUrl: 'http://localhost:3000',
+      });
+      const realService = new TaskCreationService(
+        db as never,
+        streams as never,
+        sessionService,
+        undefined
+      );
+      sdkMocks.createSession.mockReturnValueOnce(
+        createSdkSession([
+          createAssistantMessage(
+            '```json\n{"type":"task_suggestion","title":"Persisted Task","description":"Created from real persisted messages","labels":["test"],"priority":"medium"}\n```'
+          ),
+          { type: 'result', usage: { input_tokens: 11, output_tokens: 7 } },
+        ])
+      );
+
+      try {
+        const codespace = await createTestProject();
+        const startResult = await realService.startConversation(codespace.id);
+        expect(startResult.ok).toBe(true);
+        if (!startResult.ok) return;
+
+        const result = await realService.sendMessage(startResult.value.id, 'Create coverage task');
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+
+        expect(result.value.suggestion).toMatchObject({
+          title: 'Persisted Task',
+          priority: 'medium',
+        });
+        expect(result.value.dbSessionId).toBeTruthy();
+
+        const persistedEvents = await db.query.sessionEvents.findMany({
+          where: eq(sessionEvents.sessionId, result.value.dbSessionId!),
+          orderBy: [sessionEvents.offset],
+        });
+        expect(persistedEvents.map((event) => event.type)).toEqual(['chunk', 'chunk']);
+        expect(persistedEvents[0].data).toMatchObject({
+          role: 'user',
+          content: 'Create coverage task',
+        });
+        expect(persistedEvents[1].data).toMatchObject({
+          role: 'assistant',
+          content: expect.stringContaining('Persisted Task'),
+          usage: { inputTokens: 11, outputTokens: 7, totalTokens: 18 },
+        });
+
+        const streamEvents = streams.getEvents(startResult.value.id);
+        expect(streamEvents.map((event) => event.type)).toContain('task-creation:suggestion');
+      } finally {
+        realService.destroy();
+        sessionService.destroy();
+      }
+    });
+
+    it('IT-277: stream_event tool lifecycle is persisted with parsed tool input', async () => {
+      const streams = createTaskCreationStreams();
+      const sessionService = new SessionService(db as never, streams as never, {
+        baseUrl: 'http://localhost:3000',
+      });
+      const realService = new TaskCreationService(
+        db as never,
+        streams as never,
+        sessionService,
+        undefined
+      );
+      sdkMocks.createSession.mockReturnValueOnce(
+        createSdkSession([
+          {
+            type: 'stream_event',
+            session_id: 'mock-sdk-session-1',
+            event: {
+              type: 'content_block_start',
+              index: 0,
+              content_block: { type: 'tool_use', id: 'tool-read-1', name: 'Read' },
+            },
+          },
+          {
+            type: 'stream_event',
+            session_id: 'mock-sdk-session-1',
+            event: {
+              type: 'content_block_delta',
+              index: 0,
+              delta: { type: 'input_json_delta', partial_json: '{"file_path":"README.md"}' },
+            },
+          },
+          {
+            type: 'stream_event',
+            session_id: 'mock-sdk-session-1',
+            event: { type: 'content_block_stop', index: 0 },
+          },
+          createAssistantMessage(
+            '```json\n{"type":"task_suggestion","title":"Tool Persisted Task","description":"Tool lifecycle was persisted","labels":["test"],"priority":"low"}\n```'
+          ),
+          { type: 'result', usage: { input_tokens: 8, output_tokens: 4 } },
+        ])
+      );
+
+      try {
+        const codespace = await createTestProject();
+        const startResult = await realService.startConversation(codespace.id);
+        expect(startResult.ok).toBe(true);
+        if (!startResult.ok) return;
+
+        const result = await realService.sendMessage(startResult.value.id, 'Inspect files');
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+
+        const persistedEvents = await db.query.sessionEvents.findMany({
+          where: eq(sessionEvents.sessionId, result.value.dbSessionId!),
+          orderBy: [sessionEvents.offset],
+        });
+        const toolEvents = persistedEvents.filter((event) => event.type.startsWith('tool:'));
+
+        expect(toolEvents.map((event) => event.type)).toEqual(['tool:start', 'tool:result']);
+        expect(toolEvents[0].data).toMatchObject({
+          id: 'tool-read-1',
+          tool: 'Read',
+          input: {},
+        });
+        expect(toolEvents[1].data).toMatchObject({
+          id: 'tool-read-1',
+          tool: 'Read',
+          input: { file_path: 'README.md' },
+          output: null,
+          isError: false,
+        });
+      } finally {
+        realService.destroy();
+        sessionService.destroy();
+      }
+    });
+
+    it('IT-278: answerQuestions() stores processing and AskUserQuestion result events', async () => {
+      const streams = createTaskCreationStreams();
+      const sessionService = new SessionService(db as never, streams as never, {
+        baseUrl: 'http://localhost:3000',
+      });
+      const realService = new TaskCreationService(
+        db as never,
+        streams as never,
+        sessionService,
+        undefined
+      );
+
+      try {
+        const codespace = await createTestProject();
+        const startResult = await realService.startConversation(codespace.id);
+        expect(startResult.ok).toBe(true);
+        if (!startResult.ok) return;
+
+        const session = realService.getSession(startResult.value.id);
+        expect(session).not.toBeNull();
+        if (!session) return;
+
+        const questionsId = 'questions-real-1';
+        const resolver = vi.fn();
+        session.pendingQuestions = {
+          id: questionsId,
+          questions: [
+            {
+              header: 'Kind',
+              question: 'What kind of work is this?',
+              options: [{ label: 'Bug' }, { label: 'Feature' }],
+            },
+            {
+              header: 'Scope',
+              question: 'What scope applies?',
+              options: [{ label: 'High' }, { label: 'Regression' }],
+              multiSelect: true,
+            },
+          ],
+          round: 1,
+          totalAsked: 2,
+          maxQuestions: 4,
+        };
+        session.pendingToolUseId = 'ask-user-1';
+        const pendingQuestionsInput = { questions: session.pendingQuestions.questions };
+        session.pendingQuestionsInput = pendingQuestionsInput;
+        session.pendingPermissionResolver = resolver;
+        session.status = 'waiting_user';
+
+        const result = await realService.answerQuestions(startResult.value.id, questionsId, {
+          '0': 'Bug',
+          '1': ['High', 'Regression'],
+        });
+        expect(result.ok).toBe(true);
+
+        expect(resolver).toHaveBeenCalledWith({
+          behavior: 'allow',
+          updatedInput: {
+            questions: pendingQuestionsInput.questions,
+            answers: { '0': 'Bug', '1': 'High, Regression' },
+          },
+          toolUseID: 'ask-user-1',
+        });
+
+        expect(streams.getEvents(startResult.value.id).map((event) => event.type)).toContain(
+          'task-creation:processing'
+        );
+
+        const persistedEvents = await db.query.sessionEvents.findMany({
+          where: eq(sessionEvents.sessionId, startResult.value.dbSessionId!),
+          orderBy: [sessionEvents.offset],
+        });
+        const toolResult = persistedEvents.find((event) => event.type === 'tool:result');
+        expect(toolResult?.data).toMatchObject({
+          id: 'ask-user-1',
+          tool: 'AskUserQuestion',
+          output: { answers: { '0': 'Bug', '1': 'High, Regression' } },
+          isError: false,
+        });
+      } finally {
+        realService.destroy();
+        sessionService.destroy();
+      }
+    });
+
+    it('IT-279: skipQuestions() resolves pending permission and continues with a normal message', async () => {
+      const streams = createTaskCreationStreams();
+      const sessionService = new SessionService(db as never, streams as never, {
+        baseUrl: 'http://localhost:3000',
+      });
+      const realService = new TaskCreationService(
+        db as never,
+        streams as never,
+        sessionService,
+        undefined
+      );
+      const sdkSession = createSdkSession([
+        createAssistantMessage(
+          '```json\n{"type":"task_suggestion","title":"Skipped Questions Task","description":"Generated after skipping questions","labels":["feature"],"priority":"medium"}\n```'
+        ),
+      ]);
+      sdkMocks.createSession.mockReturnValueOnce(sdkSession);
+
+      try {
+        const codespace = await createTestProject();
+        const startResult = await realService.startConversation(codespace.id);
+        expect(startResult.ok).toBe(true);
+        if (!startResult.ok) return;
+
+        const session = realService.getSession(startResult.value.id);
+        expect(session).not.toBeNull();
+        if (!session) return;
+
+        const resolver = vi.fn();
+        session.pendingQuestions = {
+          id: 'skip-questions',
+          questions: [{ header: 'Kind', question: 'What kind?', options: [{ label: 'Bug' }] }],
+          round: 1,
+          totalAsked: 1,
+          maxQuestions: 4,
+        };
+        session.pendingToolUseId = 'ask-user-skip';
+        const pendingQuestionsInput = { questions: session.pendingQuestions.questions };
+        session.pendingQuestionsInput = pendingQuestionsInput;
+        session.pendingPermissionResolver = resolver;
+        session.status = 'waiting_user';
+
+        const result = await realService.skipQuestions(startResult.value.id);
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+
+        expect(resolver).toHaveBeenCalledWith({
+          behavior: 'allow',
+          updatedInput: { questions: pendingQuestionsInput.questions, answers: {} },
+          toolUseID: 'ask-user-skip',
+        });
+        expect(sdkSession.send).toHaveBeenCalledWith(
+          expect.stringContaining('Please proceed with generating the task')
+        );
+        expect(result.value.suggestion).toMatchObject({ title: 'Skipped Questions Task' });
+      } finally {
+        realService.destroy();
+        sessionService.destroy();
+      }
+    });
   });
 
   // ===== Multiple sessions =====

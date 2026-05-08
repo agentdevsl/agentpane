@@ -2,6 +2,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { templateCodespaces, templates } from '../../src/db/schema';
+import { TemplateService } from '../../src/services/template.service';
 import { createTestProject } from '../factories/project.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
 
@@ -503,5 +504,175 @@ describe('TemplateService — DB-level integration tests', () => {
     const csAgents = projectTemplates[0]?.cachedAgents ?? [];
     expect(csAgents).toHaveLength(1);
     expect(csAgents[0]?.name).toBe('test-agent');
+  });
+  describe('TemplateService real service integration', () => {
+    it('IT-143: creates, lists, updates, and deletes codespace associations through TemplateService', async () => {
+      const db = getTestDb();
+      const service = new TemplateService(db as any);
+      const project1 = await createTestProject({ name: 'Template Service One' });
+      const project2 = await createTestProject({ name: 'Template Service Two' });
+      const project3 = await createTestProject({ name: 'Template Service Three' });
+
+      const created = await service.create({
+        name: 'Service-backed Template',
+        scope: 'codespace',
+        githubUrl: 'acme/service-template',
+        codespaceIds: [project1.id, project2.id],
+        syncIntervalMinutes: 10,
+      });
+
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      expect(created.value.codespaceIds).toEqual([project1.id, project2.id]);
+      expect(created.value.codespaceId).toBe(project1.id);
+      expect(created.value.nextSyncAt).toBeTruthy();
+
+      const listedForProject1 = await service.list({ codespaceId: project1.id });
+      expect(listedForProject1.ok).toBe(true);
+      if (!listedForProject1.ok) return;
+      expect(listedForProject1.value.map((template) => template.id)).toContain(created.value.id);
+
+      const updated = await service.update(created.value.id, {
+        name: 'Service-backed Template Updated',
+        branch: 'develop',
+        codespaceIds: [project3.id],
+        syncIntervalMinutes: null,
+      });
+
+      expect(updated.ok).toBe(true);
+      if (!updated.ok) return;
+      expect(updated.value.name).toBe('Service-backed Template Updated');
+      expect(updated.value.branch).toBe('develop');
+      expect(updated.value.codespaceIds).toEqual([project3.id]);
+      expect(updated.value.nextSyncAt).toBeNull();
+
+      const listedForProject2 = await service.list({ codespaceId: project2.id });
+      expect(listedForProject2.ok).toBe(true);
+      if (!listedForProject2.ok) return;
+      expect(listedForProject2.value.map((template) => template.id)).not.toContain(
+        created.value.id
+      );
+
+      const deleteResult = await service.delete(created.value.id);
+      expect(deleteResult.ok).toBe(true);
+      const afterDelete = await service.getById(created.value.id);
+      expect(afterDelete.ok).toBe(false);
+    });
+
+    it('IT-144: rejects duplicate repos per scope while allowing the same repo in another scope', async () => {
+      const db = getTestDb();
+      const service = new TemplateService(db as any);
+      const project = await createTestProject({ name: 'Duplicate Scope Project' });
+
+      const orgTemplate = await service.create({
+        name: 'Org Duplicate Base',
+        scope: 'org',
+        githubUrl: 'shared-org/shared-template',
+      });
+      expect(orgTemplate.ok).toBe(true);
+
+      const duplicateOrg = await service.create({
+        name: 'Org Duplicate',
+        scope: 'org',
+        githubUrl: 'shared-org/shared-template',
+      });
+      expect(duplicateOrg.ok).toBe(false);
+      if (!duplicateOrg.ok) {
+        expect(duplicateOrg.error.code).toBe('TEMPLATE_ALREADY_EXISTS');
+      }
+
+      const codespaceTemplate = await service.create({
+        name: 'Codespace Duplicate Allowed',
+        scope: 'codespace',
+        githubUrl: 'shared-org/shared-template',
+        codespaceIds: [project.id],
+      });
+      expect(codespaceTemplate.ok).toBe(true);
+
+      const byRepo = await service.findByRepo('shared-org', 'shared-template');
+      expect(byRepo.ok).toBe(true);
+      if (!byRepo.ok) return;
+      expect(byRepo.value.map((template) => template.scope).sort()).toEqual(['codespace', 'org']);
+    });
+
+    it('IT-145: merges org, codespace, and local config with TemplateService precedence', async () => {
+      const db = getTestDb();
+      const service = new TemplateService(db as any);
+      const project = await createTestProject({ name: 'Merge Precedence Project' });
+      const now = new Date().toISOString();
+
+      await db.insert(templates).values([
+        {
+          id: createId(),
+          name: 'Org Merge Template',
+          scope: 'org',
+          githubOwner: 'org',
+          githubRepo: 'merge-org',
+          status: 'active',
+          cachedSkills: [{ id: 'skill-shared', name: 'Shared', content: 'org content' }],
+          cachedCommands: [{ name: 'deploy', content: 'org deploy' }],
+          cachedAgents: [{ name: 'reviewer', content: 'org reviewer' }],
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: createId(),
+          name: 'Codespace Merge Template',
+          scope: 'codespace',
+          githubOwner: 'org',
+          githubRepo: 'merge-project',
+          codespaceId: project.id,
+          status: 'active',
+          cachedSkills: [{ id: 'skill-shared', name: 'Shared', content: 'project content' }],
+          cachedCommands: [{ name: 'plan', content: 'project plan' }],
+          cachedAgents: [{ name: 'reviewer', content: 'project reviewer' }],
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      const merged = await service.getMergedConfig(project.id, {
+        skills: [{ id: 'skill-local', name: 'Local', content: 'local content' }],
+        commands: [{ name: 'deploy', content: 'local deploy' }],
+        agents: [{ name: 'local-agent', content: 'local agent' }],
+      });
+
+      expect(merged.ok).toBe(true);
+      if (!merged.ok) return;
+      expect(merged.value.skills).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'skill-shared',
+            content: 'project content',
+            sourceType: 'project',
+          }),
+          expect.objectContaining({
+            id: 'skill-local',
+            content: 'local content',
+            sourceType: 'local',
+          }),
+        ])
+      );
+      expect(merged.value.commands).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'deploy', content: 'local deploy', sourceType: 'local' }),
+          expect.objectContaining({ name: 'plan', content: 'project plan', sourceType: 'project' }),
+        ])
+      );
+      expect(merged.value.agents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'reviewer',
+            content: 'project reviewer',
+            sourceType: 'project',
+          }),
+          expect.objectContaining({
+            name: 'local-agent',
+            content: 'local agent',
+            sourceType: 'local',
+          }),
+        ])
+      );
+    });
   });
 });
