@@ -235,6 +235,7 @@ describe('Host-Mode Agent Error Recovery (arch29-W2-B / F03-06)', () => {
     expect(plannedTask?.sessionId).toBeTruthy();
     expect(plannedTask?.worktreeId).toBeTruthy();
 
+    // TEST-SETUP: Restore the task state required before exercising resume().
     await db
       .update(tasks)
       .set({
