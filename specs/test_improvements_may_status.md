@@ -44,20 +44,28 @@ Updated: 2026-05-08
 | P1 — sandbox lifecycle lookup parity | `tests/integration/sandbox-unique-lifecycle.test.ts` now proves `SandboxService.getByCodespaceId()` prefers the active sandbox row when older stopped/error rows coexist under the partial unique-index lifecycle. |
 | Phase 5.2 — PG-backed concurrency harness | Covered by `tests/integration/concurrency-pg/plan-approval-pg.test.ts`; local default runs skip it unless the Postgres env is configured. |
 | Phase 5.3 — property-test callouts | Added fast-check coverage for stream-id prefix/routing invariants, `AgentReviewService` prompt-boundary sanitization, concurrent `TaskService.create()` position assignment, approve/reject/cancel ordering around pending plans, and task workflow state-machine parity with the `TaskService` transition matrix. |
+| Phase 5.1 — database helper split and production runner adoption | `tests/helpers/database/cleanup.ts`, `connection.ts`, `schema-metadata.ts`, and `seed.ts` now own focused helper responsibilities while `tests/helpers/database.ts` remains the stable public import path and initializes SQLite through the production `runMigrations(testSqlite, MIGRATIONS)` path. |
+| Phase 5.4 — SQLite FK enforcement | `tests/integration/database-helper-fk.test.ts` proves SQLite foreign keys are enabled immediately after `setupTestDatabase()`; FK-on fallout was fixed in `plan-recovery.test.ts` plus `scheduler-event-pipeline.test.ts` fixtures. |
+| Runtime migration drift fixes | Added v41 `codespace-era-table-rebuilds` for current Drizzle writes without legacy `project_id` columns and v42 `sqlite-schema-parity-catchup` for remaining Drizzle/runtime SQLite drift; `migration-ordering.test.ts` now covers codespace-era writes through the production runner. |
 
 ## Still Roadmap Work
 
 - Phase 3.2 and 3.3: lifecycle harness/proof-point migration is intentionally superseded by the newer direction to prefer fewer mock abstractions and more integration coverage.
 - Phase 4: remaining P1 scenario files: deeper sandbox provisioning failure paths beyond active-row lookup and retry safety.
 - Integration-first follow-up: move suitable plan approval/concurrency assertions into integration or PG-backed suites rather than adding more functional mocks.
-- Phase 5.1 and 5.4 remain large test-infrastructure migrations: splitting the database helper/production migration runner adoption, and enabling SQLite FKs by default with legacy schema cleanup.
+- Phase 5.4 remaining follow-up: audit any explicit test-local `PRAGMA foreign_keys = OFF` blocks and legacy schema table rewrites; FK enforcement is now on by default after setup.
 
 ## Validation
 
 - `bunx vitest run --project functional` passed: 15 files, 103 tests.
 - `bunx biome check src/services/agent/agent-queue.service.ts src/services/container-agent/sandbox-state.ts src/services/container-agent/plan-approval.service.ts src/services/container-agent/agent-review.service.ts src/services/container-agent/__tests__/agent-review-sanitize.property.test.ts src/services/task.service.ts tests specs` passed: 451 files.
-- `bunx vitest run --project integration` passed: 185 files passed, 3 skipped; 2361 tests passed, 11 skipped.
+- `bunx vitest run --project integration` passed: 186 files passed, 3 skipped; 2362 tests passed, 11 skipped.
 - `bunx vitest run --project unit src/lib/state-machines/__tests__/state-machines.property.test.ts src/lib/state-machines/__tests__/task-workflow.model.test.ts src/lib/state-machines/__tests__/state-machines.test.ts` passed: 3 files, 256 tests.
+- `bunx biome check tests/helpers/database.ts tests/helpers/database/cleanup.ts tests/helpers/database/schema-metadata.ts tests/helpers/database/seed.ts tests/integration/database-helper-fk.test.ts tests/integration/plan-recovery.test.ts tests/integration/scheduler-event-pipeline.test.ts specs/test_improvements_may_status.md` passed: 7 files.
+- `bunx vitest run --project integration tests/integration/database-helper-fk.test.ts tests/integration/plan-recovery.test.ts tests/integration/scheduler-event-pipeline.test.ts` passed: 3 files, 14 tests.
+- `bunx vitest run --project integration tests/integration/database-helper-fk.test.ts tests/integration/codespace-cascade.test.ts tests/integration/codespace-cascade-delete.test.ts tests/integration/codespace-delete-api-tokens.test.ts` passed: 4 files, 10 tests.
+- `bunx vitest run --project unit src/lib/bootstrap/__tests__/migration-ordering.test.ts` passed: 1 file, 7 tests.
+- `bunx vitest run --project integration tests/integration/schema-drift-all-tables.test.ts tests/integration/database-helper-fk.test.ts tests/integration/api-keys-schema-drift.test.ts tests/integration/codespace-cascade.test.ts tests/integration/codespace-cascade-delete.test.ts tests/integration/codespace-delete-api-tokens.test.ts` passed: 6 files, 67 tests.
 - `bunx vitest run --project integration tests/integration/concurrency-pg/plan-approval-pg.test.ts` passed in default local mode: 1 file skipped, 2 tests skipped.
 - `bunx vitest run --project integration tests/integration/codespace-cascade.test.ts` passed: 1 file, 3 tests.
 - `bunx vitest run --project integration tests/integration/plan-approval-flow.test.ts` passed: 1 file, 26 tests.

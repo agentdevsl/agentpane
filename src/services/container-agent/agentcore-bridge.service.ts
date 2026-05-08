@@ -125,7 +125,7 @@ export class AgentCoreBridgeService {
           type: 'task',
           status: 'starting',
           currentTaskId: taskId,
-          currentSessionId: sessionId,
+          currentSessionId: null,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })
@@ -134,7 +134,7 @@ export class AgentCoreBridgeService {
           set: {
             status: 'starting',
             currentTaskId: taskId,
-            currentSessionId: sessionId,
+            currentSessionId: null,
           },
         });
     } catch (dbErr) {
@@ -172,6 +172,22 @@ export class AgentCoreBridgeService {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
       log.error('Failed to create session record', { data: { sessionId, error: errorMessage } });
       return err(SandboxErrors.SESSION_CREATE_FAILED(errorMessage, dbErr));
+    }
+
+    // The agents.current_session_id and sessions.agent_id FKs are circular:
+    // create/upsert the agent with a null session pointer, create/upsert the
+    // session, then link the agent to the now-existing session.
+    try {
+      await db
+        .update(agents)
+        .set({ currentSessionId: sessionId, updatedAt: new Date().toISOString() })
+        .where(eq(agents.id, agentId));
+    } catch (dbErr) {
+      const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      log.error('Failed to link agent to session', {
+        data: { agentId, sessionId, error: errorMessage },
+      });
+      return err(SandboxErrors.AGENT_RECORD_FAILED(errorMessage, dbErr));
     }
 
     // Link agent and session to task

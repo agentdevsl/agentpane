@@ -16,6 +16,7 @@ import type { DurableStreamsServer } from '../../src/services/session/types';
 import { createTestAgent } from '../factories/agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestSession } from '../factories/session.factory';
+import { createTestTask } from '../factories/task.factory';
 import { createTestWorktree } from '../factories/worktree.factory';
 import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
 import { createInMemoryStreams } from '../helpers/mocks';
@@ -713,6 +714,10 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
       const agent = await createTestAgent(codespace.id, {
         status: 'idle',
       });
+      const task = await createTestTask(codespace.id, {
+        id: 'task-partial-1',
+        title: 'Partial creation test',
+      });
 
       const { WorktreeService } = await import('../../src/services/worktree.service');
 
@@ -740,8 +745,8 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
         {
           codespaceId: codespace.id,
           agentId: agent.id,
-          taskId: 'task-partial-1',
-          taskTitle: 'Partial creation test',
+          taskId: task.id,
+          taskTitle: task.title,
         },
         { skipEnvCopy: true, skipDepsInstall: true, skipInitScript: true }
       );

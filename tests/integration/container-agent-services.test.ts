@@ -1221,7 +1221,7 @@ describe('AgentCoreBridgeService — DB-level state (IT-307)', () => {
         type: 'task',
         status: 'starting',
         currentTaskId: task.id,
-        currentSessionId: sessionId,
+        currentSessionId: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       })
@@ -1230,7 +1230,7 @@ describe('AgentCoreBridgeService — DB-level state (IT-307)', () => {
         set: {
           status: 'starting',
           currentTaskId: task.id,
-          currentSessionId: sessionId,
+          currentSessionId: null,
         },
       });
 
@@ -1247,6 +1247,7 @@ describe('AgentCoreBridgeService — DB-level state (IT-307)', () => {
       createdAt: new Date().toISOString(),
     });
 
+    await db.update(agents).set({ currentSessionId: sessionId }).where(eq(agents.id, agentId));
     await db.update(tasks).set({ agentId, sessionId }).where(eq(tasks.id, task.id));
 
     // Verify all records
@@ -1283,7 +1284,27 @@ describe('AgentCoreBridgeService — DB-level state (IT-307)', () => {
       type: 'task',
       status: 'starting',
       currentTaskId: task1.id,
-      currentSessionId: 'session-1',
+      currentSessionId: null,
+    });
+    await db.insert(sessions).values({
+      id: 'session-1',
+      codespaceId: codespace.id,
+      taskId: task1.id,
+      agentId,
+      status: 'active',
+      title: 'Session 1',
+      url: `/codespaces/${codespace.id}/sessions/session-1`,
+    });
+    await db.update(agents).set({ currentSessionId: 'session-1' }).where(eq(agents.id, agentId));
+
+    await db.insert(sessions).values({
+      id: 'session-2',
+      codespaceId: codespace.id,
+      taskId: task2.id,
+      agentId,
+      status: 'active',
+      title: 'Session 2',
+      url: `/codespaces/${codespace.id}/sessions/session-2`,
     });
 
     // Upsert with different task
@@ -1410,7 +1431,7 @@ describe('ContainerExecService — DB-level state (IT-308)', () => {
       type: 'task',
       status: 'starting',
       currentTaskId: task.id,
-      currentSessionId: sessionId,
+      currentSessionId: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -1428,6 +1449,7 @@ describe('ContainerExecService — DB-level state (IT-308)', () => {
       createdAt: new Date().toISOString(),
     });
 
+    await db.update(agents).set({ currentSessionId: sessionId }).where(eq(agents.id, agentId));
     await db.update(tasks).set({ agentId, sessionId }).where(eq(tasks.id, task.id));
 
     // Update agent to planning status

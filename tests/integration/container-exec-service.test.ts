@@ -484,7 +484,7 @@ describe('ContainerExecService (IT-1400)', () => {
         type: 'task',
         status: 'running',
         currentTaskId: task.id,
-        currentSessionId: 'session-complete-1',
+        currentSessionId: null,
       });
 
       // Register running agent in state
@@ -536,7 +536,7 @@ describe('ContainerExecService (IT-1400)', () => {
         type: 'task',
         status: 'running',
         currentTaskId: task.id,
-        currentSessionId: 'session-sentinel',
+        currentSessionId: null,
       });
 
       state.setRunningAgent(task.id, {
@@ -597,7 +597,7 @@ describe('ContainerExecService (IT-1400)', () => {
         type: 'task',
         status: 'running',
         currentTaskId: task.id,
-        currentSessionId: 'session-dequeue',
+        currentSessionId: null,
       });
 
       state.setRunningAgent(task.id, {
@@ -641,7 +641,7 @@ describe('ContainerExecService (IT-1400)', () => {
         type: 'task',
         status: 'running',
         currentTaskId: task.id,
-        currentSessionId: 'session-race',
+        currentSessionId: null,
       });
 
       const runningAgent = {
@@ -687,7 +687,7 @@ describe('ContainerExecService (IT-1400)', () => {
         type: 'task',
         status: 'running',
         currentTaskId: task.id,
-        currentSessionId: 'session-error-1',
+        currentSessionId: null,
       });
 
       state.setRunningAgent(task.id, {
@@ -738,7 +738,7 @@ describe('ContainerExecService (IT-1400)', () => {
         type: 'task',
         status: 'running',
         currentTaskId: task.id,
-        currentSessionId: 'session-wt-error',
+        currentSessionId: null,
       });
 
       state.setRunningAgent(task.id, {

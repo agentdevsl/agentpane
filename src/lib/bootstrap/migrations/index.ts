@@ -759,4 +759,218 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_status ON api_tokens(status);
       `ALTER TABLE plan_sessions ADD COLUMN completed_at TEXT`,
     ],
   },
+
+  // 41. MAY-14: rebuild legacy project_id tables to match the codespace-era
+  // Drizzle write shape.
+  //
+  // The v19 project-folder migration added codespace_id / target_codespace_id
+  // compatibility columns but could not remove NOT NULL from the legacy
+  // project_id / target_project_id columns. Current Drizzle schemas write
+  // through codespace_id only, so fresh runtime-migrated SQLite databases
+  // rejected inserts into tasks, worktrees, agent_runs, and event_subscriptions
+  // unless callers also supplied legacy project ids. The test harness had a
+  // patched copy of MIGRATION_SQL for this; production should own the fix.
+  {
+    version: 41,
+    name: 'codespace-era-table-rebuilds',
+    sql: `
+DROP TABLE IF EXISTS tasks_new_v41;
+CREATE TABLE tasks_new_v41 (
+  id TEXT PRIMARY KEY NOT NULL,
+  codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+  session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  "column" TEXT DEFAULT 'backlog' NOT NULL,
+  position INTEGER DEFAULT 0 NOT NULL,
+  labels TEXT DEFAULT '[]',
+  priority TEXT DEFAULT 'medium',
+  model_override TEXT,
+  branch TEXT,
+  diff_summary TEXT,
+  approved_at TEXT,
+  approved_by TEXT,
+  rejection_count INTEGER DEFAULT 0,
+  rejection_reason TEXT,
+  plan_options TEXT,
+  plan TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  last_agent_status TEXT,
+  skill_id TEXT,
+  skill_name TEXT,
+  execution_skill_id TEXT,
+  execution_skill_name TEXT,
+  approval_mode TEXT,
+  agent_review_result TEXT,
+  agent_reviewed_at TEXT
+);
+
+INSERT OR IGNORE INTO tasks_new_v41 (
+  id, codespace_id, agent_id, session_id, worktree_id, title, description,
+  "column", position, labels, priority, model_override, branch, diff_summary,
+  approved_at, approved_by, rejection_count, rejection_reason, plan_options,
+  plan, created_at, updated_at, started_at, completed_at, last_agent_status,
+  skill_id, skill_name, execution_skill_id, execution_skill_name,
+  approval_mode, agent_review_result, agent_reviewed_at
+)
+SELECT
+  id, COALESCE(codespace_id, project_id), agent_id, session_id, worktree_id,
+  title, description, "column", position, labels, priority, model_override,
+  branch, diff_summary, approved_at, approved_by, rejection_count,
+  rejection_reason, plan_options, plan, created_at, updated_at, started_at,
+  completed_at, last_agent_status, skill_id, skill_name, execution_skill_id,
+  execution_skill_name, NULL, NULL, NULL
+FROM tasks
+WHERE COALESCE(codespace_id, project_id) IS NOT NULL
+  AND COALESCE(codespace_id, project_id) IN (SELECT id FROM codespaces);
+
+DROP TABLE tasks;
+ALTER TABLE tasks_new_v41 RENAME TO tasks;
+CREATE INDEX IF NOT EXISTS idx_tasks_agent_id ON tasks(agent_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_kanban ON tasks(codespace_id, "column", position);
+
+DROP TABLE IF EXISTS worktrees_new_v41;
+CREATE TABLE worktrees_new_v41 (
+  id TEXT PRIMARY KEY NOT NULL,
+  codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+  task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  branch TEXT NOT NULL,
+  path TEXT NOT NULL,
+  base_branch TEXT DEFAULT 'main' NOT NULL,
+  status TEXT DEFAULT 'creating' NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  merged_at TEXT,
+  removed_at TEXT
+);
+
+INSERT OR IGNORE INTO worktrees_new_v41 (
+  id, codespace_id, agent_id, task_id, branch, path, base_branch, status,
+  created_at, updated_at, merged_at, removed_at
+)
+SELECT
+  id, COALESCE(codespace_id, project_id), agent_id, task_id, branch, path,
+  base_branch, status, created_at, updated_at, merged_at, removed_at
+FROM worktrees
+WHERE COALESCE(codespace_id, project_id) IS NOT NULL
+  AND COALESCE(codespace_id, project_id) IN (SELECT id FROM codespaces);
+
+DROP TABLE worktrees;
+ALTER TABLE worktrees_new_v41 RENAME TO worktrees;
+CREATE INDEX IF NOT EXISTS idx_worktrees_codespace_id ON worktrees(codespace_id);
+CREATE INDEX IF NOT EXISTS idx_worktrees_branch ON worktrees(codespace_id, branch);
+CREATE INDEX IF NOT EXISTS idx_worktrees_status ON worktrees(status);
+
+DROP TABLE IF EXISTS agent_runs_new_v41;
+CREATE TABLE agent_runs_new_v41 (
+  id TEXT PRIMARY KEY NOT NULL,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  status TEXT NOT NULL,
+  started_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  completed_at TEXT,
+  turns_used INTEGER DEFAULT 0,
+  tokens_used INTEGER DEFAULT 0,
+  error_message TEXT
+);
+
+INSERT OR IGNORE INTO agent_runs_new_v41 (
+  id, agent_id, task_id, codespace_id, session_id, status, started_at,
+  completed_at, turns_used, tokens_used, error_message
+)
+SELECT
+  id, agent_id, task_id, COALESCE(codespace_id, project_id), session_id,
+  status, started_at, completed_at, turns_used, tokens_used, error_message
+FROM agent_runs
+WHERE COALESCE(codespace_id, project_id) IS NOT NULL
+  AND COALESCE(codespace_id, project_id) IN (SELECT id FROM codespaces);
+
+DROP TABLE agent_runs;
+ALTER TABLE agent_runs_new_v41 RENAME TO agent_runs;
+CREATE INDEX IF NOT EXISTS idx_agent_runs_agent_id ON agent_runs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_codespace_id ON agent_runs(codespace_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_task_id ON agent_runs(task_id);
+
+DROP TABLE IF EXISTS event_subscriptions_new_v41;
+CREATE TABLE event_subscriptions_new_v41 (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  event_source_id TEXT NOT NULL REFERENCES event_sources(id) ON DELETE CASCADE,
+  target_codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  is_enabled INTEGER DEFAULT 1 NOT NULL,
+  event_types TEXT DEFAULT '[]',
+  filters TEXT DEFAULT '[]',
+  prompt_template TEXT NOT NULL,
+  auto_start_agent INTEGER DEFAULT 0 NOT NULL,
+  task_column TEXT DEFAULT 'backlog' NOT NULL,
+  task_priority TEXT DEFAULT 'medium' NOT NULL,
+  task_labels TEXT DEFAULT '[]',
+  matched_count INTEGER DEFAULT 0 NOT NULL,
+  last_matched_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+INSERT OR IGNORE INTO event_subscriptions_new_v41 (
+  id, name, event_source_id, target_codespace_id, is_enabled, event_types,
+  filters, prompt_template, auto_start_agent, task_column, task_priority,
+  task_labels, matched_count, last_matched_at, created_at, updated_at
+)
+SELECT
+  id, name, event_source_id, COALESCE(target_codespace_id, target_project_id),
+  is_enabled, event_types, filters, prompt_template, auto_start_agent,
+  task_column, task_priority, task_labels, matched_count, last_matched_at,
+  created_at, updated_at
+FROM event_subscriptions
+WHERE COALESCE(target_codespace_id, target_project_id) IS NOT NULL
+  AND COALESCE(target_codespace_id, target_project_id) IN (SELECT id FROM codespaces);
+
+DROP TABLE event_subscriptions;
+ALTER TABLE event_subscriptions_new_v41 RENAME TO event_subscriptions;
+CREATE INDEX IF NOT EXISTS event_subscriptions_source_idx ON event_subscriptions(event_source_id);
+CREATE INDEX IF NOT EXISTS event_subscriptions_codespace_idx ON event_subscriptions(target_codespace_id);
+CREATE INDEX IF NOT EXISTS event_subscriptions_source_enabled_idx ON event_subscriptions(event_source_id, is_enabled);
+`,
+  },
+  // 42. MAY-15: finish SQLite runtime schema parity with Drizzle.
+  //
+  // These columns/tables were previously patched only by tests/helpers/database.ts,
+  // which meant integration tests could write through Drizzle while a freshly
+  // runtime-migrated SQLite database still drifted from the application schema.
+  // Keep these as idempotent per-statement catch-ups so production, local dev,
+  // and tests all converge through the same migration runner.
+  {
+    version: 42,
+    name: 'sqlite-schema-parity-catchup',
+    statements: [
+      `ALTER TABLE api_keys ADD COLUMN encrypted_refresh_token TEXT`,
+      `ALTER TABLE cli_sessions ADD COLUMN slug TEXT`,
+      `ALTER TABLE cli_sessions ADD COLUMN cli_version TEXT`,
+      `ALTER TABLE cli_sessions ADD COLUMN permission_mode TEXT`,
+      `ALTER TABLE cli_sessions ADD COLUMN topology TEXT`,
+      `ALTER TABLE cli_sessions ADD COLUMN queue_operations TEXT`,
+      `ALTER TABLE cli_sessions ADD COLUMN tool_invocations TEXT`,
+      `CREATE TABLE IF NOT EXISTS sandbox_tmux_sessions (
+        id TEXT PRIMARY KEY NOT NULL,
+        sandbox_id TEXT NOT NULL REFERENCES sandbox_instances(id) ON DELETE CASCADE,
+        session_name TEXT NOT NULL,
+        task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        window_count INTEGER DEFAULT 1 NOT NULL,
+        attached INTEGER DEFAULT 0 NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+        last_activity_at TEXT DEFAULT (datetime('now')) NOT NULL,
+        CONSTRAINT sandbox_session_unique UNIQUE (sandbox_id, session_name)
+      )`,
+      `ALTER TABLE skill_executions ADD COLUMN duration_api_ms INTEGER`,
+      `ALTER TABLE skill_metrics ADD COLUMN avg_duration_api_ms REAL`,
+    ],
+  },
 ];

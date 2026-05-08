@@ -5,6 +5,7 @@ import { ok } from '../../src/lib/utils/result';
 import { TaskService } from '../../src/services/task.service';
 import { createTestProject } from '../factories/project.factory';
 import { createTestTask } from '../factories/task.factory';
+import { createTestWorktree } from '../factories/worktree.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
 
 describe('IT-019: Plan Recovery from Database', () => {
@@ -19,11 +20,15 @@ describe('IT-019: Plan Recovery from Database', () => {
   it('recovers plan data stored on the task record', async () => {
     const db = getTestDb();
     const codespace = await createTestProject();
+    const worktree = await createTestWorktree(codespace.id, {
+      id: 'wt-123',
+      branch: 'agent/task/feature',
+    });
 
     const task = await createTestTask(codespace.id, {
       column: 'in_progress',
-      worktreeId: 'wt-123',
-      branch: 'agent/task/feature',
+      worktreeId: worktree.id,
+      branch: worktree.branch,
     });
 
     await db
