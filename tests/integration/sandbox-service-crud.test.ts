@@ -13,11 +13,13 @@
 
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { sandboxInstances, sandboxTmuxSessions } from '../../src/db/schema';
+import { type CodespaceConfig, sandboxInstances, sandboxTmuxSessions } from '../../src/db/schema';
+import type { SandboxConfig } from '../../src/lib/sandbox/types';
 import { SandboxService } from '../../src/services/sandbox.service';
 import { createTestProject } from '../factories/project.factory';
+import { createTestTask } from '../factories/task.factory';
 import { TEST_AGENT_SANDBOX_IMAGE } from '../fixtures/sandbox-image';
-import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
+import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
 import {
   createMockDurableStreamsService,
   createMockSandbox,
@@ -52,6 +54,18 @@ vi.mock('../../src/lib/sandbox/tmux-manager.js', () => ({
   },
 }));
 
+const SANDBOX_ENABLED_CONFIG: Partial<CodespaceConfig> = {
+  sandbox: { enabled: true, provider: 'docker', idleTimeoutMinutes: 30 },
+};
+
+async function createSandboxProject(id: string, path = '/project'): Promise<void> {
+  await createTestProject({
+    id,
+    path,
+    config: SANDBOX_ENABLED_CONFIG,
+  });
+}
+
 describe('SandboxService (IT-1550)', () => {
   let db: ReturnType<typeof getTestDb>;
   let service: SandboxService;
@@ -64,47 +78,6 @@ describe('SandboxService (IT-1550)', () => {
     db = getTestDb();
     vi.clearAllMocks();
 
-    // H4: Recreate sandbox_instances and sandbox_tmux_sessions without the
-    // codespace_id FK constraint. F09-21 (arch29-W2-Q) added these tables to
-    // the base test harness with a `REFERENCES codespaces(id) ON DELETE CASCADE`
-    // FK; this CRUD test inserts arbitrary `codespaceId` values for service-
-    // unit-level coverage and does not seed real codespaces. DROP+CREATE
-    // mirrors the sandbox-unique-lifecycle pattern.
-    execRawSql('DROP TABLE IF EXISTS sandbox_tmux_sessions');
-    execRawSql('DROP TABLE IF EXISTS sandbox_instances');
-    execRawSql(`
-      CREATE TABLE "sandbox_instances" (
-        "id" TEXT PRIMARY KEY NOT NULL,
-        "codespace_id" TEXT NOT NULL UNIQUE,
-        "container_id" TEXT NOT NULL,
-        "status" TEXT NOT NULL DEFAULT 'stopped',
-        "image" TEXT NOT NULL,
-        "memory_mb" INTEGER NOT NULL,
-        "cpu_cores" INTEGER NOT NULL,
-        "idle_timeout_minutes" INTEGER NOT NULL DEFAULT 30,
-        "volume_mounts" TEXT DEFAULT '[]',
-        "env" TEXT,
-        "error_message" TEXT,
-        "created_at" TEXT NOT NULL DEFAULT (datetime('now')),
-        "last_activity_at" TEXT NOT NULL DEFAULT (datetime('now')),
-        "stopped_at" TEXT,
-        "updated_at" TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-    `);
-    execRawSql(`
-      CREATE TABLE "sandbox_tmux_sessions" (
-        "id" TEXT PRIMARY KEY NOT NULL,
-        "sandbox_id" TEXT NOT NULL,
-        "session_name" TEXT NOT NULL,
-        "task_id" TEXT,
-        "window_count" INTEGER NOT NULL DEFAULT 1,
-        "attached" INTEGER NOT NULL DEFAULT 0,
-        "created_at" TEXT NOT NULL DEFAULT (datetime('now')),
-        "last_activity_at" TEXT NOT NULL DEFAULT (datetime('now')),
-        UNIQUE("sandbox_id", "session_name")
-      );
-    `);
-
     mockSandbox = createMockSandbox({
       id: 'sandbox-crud-1',
       codespaceId: 'proj-1',
@@ -113,7 +86,14 @@ describe('SandboxService (IT-1550)', () => {
     });
 
     mockProvider = createMockSandboxProvider({
-      create: vi.fn().mockResolvedValue(mockSandbox),
+      create: vi.fn().mockImplementation(async (config: SandboxConfig) =>
+        createMockSandbox({
+          id: config.id ?? mockSandbox.id,
+          codespaceId: config.codespaceId,
+          containerId: mockSandbox.containerId,
+          status: mockSandbox.status,
+        })
+      ),
       get: vi.fn().mockResolvedValue(null),
       getById: vi.fn().mockResolvedValue(mockSandbox),
       isImageAvailable: vi.fn().mockResolvedValue(true),
@@ -127,18 +107,13 @@ describe('SandboxService (IT-1550)', () => {
 
   afterEach(async () => {
     service.stopIdleChecker();
-    // Clean up sandbox tables before the general clearTestDatabase
-    try {
-      execRawSql('DELETE FROM sandbox_tmux_sessions');
-      execRawSql('DELETE FROM sandbox_instances');
-    } catch (e: unknown) {
-      if (!(e instanceof Error) || !e.message.includes('no such table')) throw e;
-    }
     await clearTestDatabase();
   });
 
   describe('create (IT-1551)', () => {
     it('IT-1552a: stream ID is prefixed with sandbox:<id>', async () => {
+      await createSandboxProject('proj-1');
+
       const result = await service.create({
         codespaceId: 'proj-1',
         codespacePath: '/project',
@@ -159,6 +134,7 @@ describe('SandboxService (IT-1550)', () => {
     });
 
     it('IT-1552b: pulls image if not available locally', async () => {
+      await createSandboxProject('proj-pull-1');
       (mockProvider.isImageAvailable as ReturnType<typeof vi.fn>).mockResolvedValue(false);
 
       await service.create({
@@ -175,6 +151,7 @@ describe('SandboxService (IT-1550)', () => {
     });
 
     it('IT-1552c: skips image pull if already available', async () => {
+      await createSandboxProject('proj-nopull-1');
       (mockProvider.isImageAvailable as ReturnType<typeof vi.fn>).mockResolvedValue(true);
 
       await service.create({
@@ -191,6 +168,8 @@ describe('SandboxService (IT-1550)', () => {
     });
 
     it('IT-1552d: persists sandbox to database', async () => {
+      await createSandboxProject('proj-db-1');
+
       const result = await service.create({
         codespaceId: 'proj-db-1',
         codespacePath: '/project',
@@ -218,6 +197,8 @@ describe('SandboxService (IT-1550)', () => {
     });
 
     it('IT-1552e: publishes creating -> ready event sequence', async () => {
+      await createSandboxProject('proj-events-1');
+
       await service.create({
         codespaceId: 'proj-events-1',
         codespacePath: '/project',
@@ -256,6 +237,8 @@ describe('SandboxService (IT-1550)', () => {
       // Re-create service with the new mock
       service = new SandboxService(db as any, mockProvider, mockStreams as any);
 
+      await createSandboxProject('proj-cred-fail-1');
+
       const result = await service.create({
         codespaceId: 'proj-cred-fail-1',
         codespacePath: '/project',
@@ -279,6 +262,8 @@ describe('SandboxService (IT-1550)', () => {
     });
 
     it('IT-1552g: passes sandboxId to provider via config.id', async () => {
+      await createSandboxProject('proj-id-pass-1');
+
       await service.create({
         codespaceId: 'proj-id-pass-1',
         codespacePath: '/project',
@@ -292,9 +277,15 @@ describe('SandboxService (IT-1550)', () => {
       const createCall = (mockProvider.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(createCall.id).toBeDefined();
       expect(typeof createCall.id).toBe('string');
+
+      const dbSandbox = await db.query.sandboxInstances.findFirst({
+        where: eq(sandboxInstances.codespaceId, 'proj-id-pass-1'),
+      });
+      expect(dbSandbox?.id).toBe(createCall.id);
     });
 
     it('IT-1552h: publishes error event on creation failure', async () => {
+      await createSandboxProject('proj-create-fail-1');
       (mockProvider.create as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error('Docker not running')
       );
@@ -393,6 +384,8 @@ describe('SandboxService (IT-1550)', () => {
 
   describe('stop (IT-1553)', () => {
     it('IT-1554a: publishes stopping -> stopped, updates DB to stopped', async () => {
+      await createSandboxProject('proj-stop-1');
+
       // Insert a running sandbox in DB
       await db.insert(sandboxInstances).values({
         id: 'sandbox-stop-1',
@@ -429,6 +422,8 @@ describe('SandboxService (IT-1550)', () => {
     });
 
     it('IT-1554b: calls sandbox stop on provider', async () => {
+      await createSandboxProject('proj-stop-2');
+
       await db.insert(sandboxInstances).values({
         id: 'sandbox-provider-stop-1',
         codespaceId: 'proj-stop-2',
@@ -446,6 +441,7 @@ describe('SandboxService (IT-1550)', () => {
     });
 
     it('IT-1554c: sets error status in DB on stop failure', async () => {
+      await createSandboxProject('proj-stop-fail');
       (mockSandbox.stop as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Stop failed'));
 
       await db.insert(sandboxInstances).values({
@@ -488,10 +484,17 @@ describe('SandboxService (IT-1550)', () => {
 
   describe('createTmuxSessionForTask (IT-1554)', () => {
     it('IT-1555a: creates tmux session and persists to DB', async () => {
+      const project = await createTestProject({
+        id: 'proj-tmux-1',
+        path: '/project',
+        config: SANDBOX_ENABLED_CONFIG,
+      });
+      const task = await createTestTask(project.id, { id: 'task-tmux-1' });
+
       // Create a sandbox in DB that getByCodespaceId will find
       await db.insert(sandboxInstances).values({
         id: 'sandbox-tmux-1',
-        codespaceId: 'proj-tmux-1',
+        codespaceId: project.id,
         containerId: 'container-tmux-1',
         status: 'running',
         image: TEST_AGENT_SANDBOX_IMAGE,
@@ -500,13 +503,13 @@ describe('SandboxService (IT-1550)', () => {
         idleTimeoutMinutes: 30,
       });
 
-      const result = await service.createTmuxSessionForTask('proj-tmux-1', 'task-tmux-1');
+      const result = await service.createTmuxSessionForTask(project.id, task.id);
 
       expect(result.ok).toBe(true);
 
       // Verify DB record for tmux session
       const dbSession = await db.query.sandboxTmuxSessions.findFirst({
-        where: eq(sandboxTmuxSessions.taskId, 'task-tmux-1'),
+        where: eq(sandboxTmuxSessions.taskId, task.id),
       });
       expect(dbSession).toBeDefined();
       expect(dbSession?.sandboxId).toBe('sandbox-tmux-1');
@@ -581,6 +584,8 @@ describe('SandboxService (IT-1550)', () => {
 
   describe('getById (IT-1556)', () => {
     it('IT-1557a: returns sandbox info from DB', async () => {
+      await createSandboxProject('proj-getbyid-1');
+
       await db.insert(sandboxInstances).values({
         id: 'sandbox-getbyid-1',
         codespaceId: 'proj-getbyid-1',

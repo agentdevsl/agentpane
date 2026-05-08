@@ -54,13 +54,14 @@ Updated: 2026-05-08
 | P1 — cancel during agent review | `tests/integration/task-update-delete.test.ts` now proves `TaskService.cancelTask()` can cancel a `waiting_approval` task whose `lastAgentStatus` is `agent_reviewing`, clearing plan and review metadata. |
 | P1 — reject cleanup failure | `tests/integration/agent-execution-service.test.ts` now proves host-mode `rejectPlanForTask()` treats worktree removal failure as best-effort while still clearing task plan/worktree state. |
 | P2 — verified reopen guard | `tests/integration/task-state-transitions.test.ts` now explicitly covers `verified -> backlog` reopen and rejects direct `verified -> in_progress` with `allowedTransitions=['backlog']`. |
+| Phase 5.4 — legacy sandbox table workaround audit | `tests/integration/sandbox-service.test.ts` and `tests/integration/sandbox-service-crud.test.ts` no longer create/drop shadow sandbox tables; both seed real codespaces/tasks and run against the production migration output with SQLite FK enforcement on. |
 
 ## Still Roadmap Work
 
 - Phase 3.2 and 3.3: lifecycle harness/proof-point migration is intentionally superseded by the newer direction to prefer fewer mock abstractions and more integration coverage.
 - Phase 4: remaining long-tail defensive scenarios are now covered by targeted integration assertions; future work should come from fresh coverage/mutation data rather than the original static review list.
 - Integration-first follow-up: move suitable plan approval/concurrency assertions into integration or PG-backed suites rather than adding more functional mocks.
-- Phase 5.4 remaining follow-up: audit any explicit test-local `PRAGMA foreign_keys = OFF` blocks and legacy schema table rewrites; FK enforcement is now on by default after setup.
+- Residual raw-SQL rewrites are now limited to intentional legacy-schema/migration tests or non-integration service-unit fixtures; future cleanup should be driven by fresh coverage/mutation data and by moving service-unit fixtures toward real factories when they graduate to integration coverage.
 
 ## Validation
 
@@ -83,6 +84,8 @@ Updated: 2026-05-08
 - `bunx vitest run --project integration tests/integration/task-update-delete.test.ts` passed: 1 file, 11 tests.
 - `bunx vitest run --project integration tests/integration/task-state-transitions.test.ts -t "verified task"` passed: 1 file, 2 tests.
 - `bunx vitest run --project integration tests/integration/task-state-transitions.test.ts` passed: 1 file, 30 tests.
+- `bunx biome check tests/integration/sandbox-service.test.ts tests/integration/sandbox-service-crud.test.ts` passed: 2 files.
+- `bunx vitest run --project integration tests/integration/sandbox-service.test.ts tests/integration/sandbox-service-crud.test.ts` passed: 2 files, 45 tests.
 - `bunx vitest run --project functional tests/functional/prove-session-worktree-bugs.test.ts` passed: 1 file, 18 tests.
 - `bunx biome check src/services/container-agent/container-exec.service.ts src/services/container-agent/agentcore-bridge.service.ts tests/integration/container-agent-services.test.ts tests/integration/container-exec-service.test.ts tests/functional/prove-session-worktree-bugs.test.ts specs/test_improvements_may_status.md tests/helpers/database.ts src/lib/bootstrap/migrations/index.ts src/lib/bootstrap/__tests__/migration-ordering.test.ts` passed: 8 files.
 - `bunx vitest run --project integration tests/integration/concurrency-pg/plan-approval-pg.test.ts` passed in default local mode: 1 file skipped, 2 tests skipped.
