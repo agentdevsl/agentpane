@@ -291,6 +291,97 @@ describe('ContainerExecService (IT-1400)', () => {
       expect(mockProvider.getById).toHaveBeenCalledWith(mockSandbox.id);
     });
 
+    it('IT-1402a.2: returns typed error with no DB or stream side effects when provider lookup throws', async () => {
+      const project = await createTestProject({ id: 'proj-1' });
+      const task = await createTestTask(project.id, {
+        title: 'Provider lookup failure',
+        column: 'in_progress',
+      });
+
+      (mockProvider.get as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('provider registry unavailable')
+      );
+
+      const result = await service.startAgent({
+        codespaceId: project.id,
+        taskId: task.id,
+        sessionId: 'session-provider-lookup-failure',
+        prompt: 'Implement feature X',
+        phase: 'plan',
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('SANDBOX_CONTAINER_NOT_FOUND');
+      }
+
+      expect(mockProvider.create).not.toHaveBeenCalled();
+      expect(mockStreams.createStream).not.toHaveBeenCalled();
+
+      const agentRow = await db.query.agents.findFirst({
+        where: eq(agents.id, `agent-${task.id}`),
+      });
+      const sessionRow = await db.query.sessions.findFirst({
+        where: eq(sessions.id, 'session-provider-lookup-failure'),
+      });
+      expect(agentRow).toBeUndefined();
+      expect(sessionRow).toBeUndefined();
+    });
+
+    it('IT-1402a.3: returns sandbox-service error without falling back to provider.create', async () => {
+      const project = await createTestProject({ id: 'proj-1' });
+      const task = await createTestTask(project.id, {
+        title: 'Sandbox service failure',
+        column: 'in_progress',
+      });
+      const sandboxService = {
+        getOrCreateForCodespace: vi.fn().mockResolvedValue({
+          ok: false,
+          error: {
+            code: 'SANDBOX_IMAGE_PULL_FAILED',
+            message: 'image pull failed',
+            status: 500,
+            name: 'AppError',
+          },
+        }),
+      };
+      mockProvider.get.mockResolvedValueOnce(null);
+
+      const serviceWithSandboxService = new ContainerExecService(
+        {
+          db: db as any,
+          provider: mockProvider,
+          streams: mockStreams,
+          apiKeyService: mockApiKeyService,
+          worktreeService: undefined,
+          githubTokenService: undefined,
+          skillTrackingService: null,
+          sandboxService,
+        },
+        state,
+        mockWorktreeInit as any,
+        mockOnPlanReady,
+        mockOnAgentCompleteCallback
+      );
+
+      const result = await serviceWithSandboxService.startAgent({
+        codespaceId: project.id,
+        taskId: task.id,
+        sessionId: 'session-sandbox-service-failure',
+        prompt: 'Implement feature X',
+        phase: 'plan',
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('SANDBOX_IMAGE_PULL_FAILED');
+      }
+
+      expect(sandboxService.getOrCreateForCodespace).toHaveBeenCalledWith(project.id);
+      expect(mockProvider.create).not.toHaveBeenCalled();
+      expect(mockStreams.createStream).not.toHaveBeenCalled();
+    });
+
     it('IT-1402b: recreates sandbox when in terminal state (error/stopped)', async () => {
       const stoppedSandbox = createMockSandbox({
         id: 'sandbox-stopped',

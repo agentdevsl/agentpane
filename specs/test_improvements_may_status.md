@@ -48,11 +48,13 @@ Updated: 2026-05-08
 | Phase 5.4 — SQLite FK enforcement | `tests/integration/database-helper-fk.test.ts` proves SQLite foreign keys are enabled immediately after `setupTestDatabase()`; FK-on fallout was fixed in `plan-recovery.test.ts` plus `scheduler-event-pipeline.test.ts` fixtures. |
 | Runtime migration drift fixes | Added v41 `codespace-era-table-rebuilds` for current Drizzle writes without legacy `project_id` columns and v42 `sqlite-schema-parity-catchup` for remaining Drizzle/runtime SQLite drift; `migration-ordering.test.ts` now covers codespace-era writes through the production runner. |
 | Agent/session circular FK bug | Full-suite FK enforcement exposed `ContainerExecService` and `AgentCoreBridgeService` inserting agents with `current_session_id` before the session row existed; both now create/upsert the agent with a null session pointer, create/upsert the session, then link the agent back to the existing session. |
+| P1 — sandbox provisioning failure cascade | `tests/integration/container-exec-service.test.ts` now covers provider lookup throws and sandbox-service provisioning errors before agent/session/stream side effects; `ContainerExecService.startAgent()` converts provider lookup exceptions into typed sandbox errors. |
+| P1 — orphan sweep coverage | `tests/integration/agent-execution-service.test.ts` now proves `AgentExecutionService.startOrphanSweep()` removes over-runtime agents from memory and marks the DB agent row `error`. |
 
 ## Still Roadmap Work
 
 - Phase 3.2 and 3.3: lifecycle harness/proof-point migration is intentionally superseded by the newer direction to prefer fewer mock abstractions and more integration coverage.
-- Phase 4: remaining P1 scenario files: deeper sandbox provisioning failure paths beyond active-row lookup and retry safety.
+- Phase 4: remaining P1 scenario files: resume-after-restart paths still have room for deeper integration coverage.
 - Integration-first follow-up: move suitable plan approval/concurrency assertions into integration or PG-backed suites rather than adding more functional mocks.
 - Phase 5.4 remaining follow-up: audit any explicit test-local `PRAGMA foreign_keys = OFF` blocks and legacy schema table rewrites; FK enforcement is now on by default after setup.
 
@@ -60,14 +62,17 @@ Updated: 2026-05-08
 
 - `bunx vitest run --project functional` passed: 15 files, 103 tests.
 - `bunx biome check src/services/agent/agent-queue.service.ts src/services/container-agent/sandbox-state.ts src/services/container-agent/plan-approval.service.ts src/services/container-agent/agent-review.service.ts src/services/container-agent/__tests__/agent-review-sanitize.property.test.ts src/services/task.service.ts tests specs` passed: 451 files.
-- `bunx vitest run --project integration` passed: 186 files passed, 3 skipped; 2362 tests passed, 11 skipped.
+- `bunx vitest run --project integration` passed: 186 files passed, 3 skipped; 2365 tests passed, 11 skipped.
 - `bunx vitest run --project unit src/lib/state-machines/__tests__/state-machines.property.test.ts src/lib/state-machines/__tests__/task-workflow.model.test.ts src/lib/state-machines/__tests__/state-machines.test.ts` passed: 3 files, 256 tests.
 - `bunx biome check tests/helpers/database.ts tests/helpers/database/cleanup.ts tests/helpers/database/schema-metadata.ts tests/helpers/database/seed.ts tests/integration/database-helper-fk.test.ts tests/integration/plan-recovery.test.ts tests/integration/scheduler-event-pipeline.test.ts specs/test_improvements_may_status.md` passed: 7 files.
 - `bunx vitest run --project integration tests/integration/database-helper-fk.test.ts tests/integration/plan-recovery.test.ts tests/integration/scheduler-event-pipeline.test.ts` passed: 3 files, 14 tests.
 - `bunx vitest run --project integration tests/integration/database-helper-fk.test.ts tests/integration/codespace-cascade.test.ts tests/integration/codespace-cascade-delete.test.ts tests/integration/codespace-delete-api-tokens.test.ts` passed: 4 files, 10 tests.
 - `bunx vitest run --project unit src/lib/bootstrap/__tests__/migration-ordering.test.ts` passed: 1 file, 7 tests.
 - `bunx vitest run --project integration tests/integration/schema-drift-all-tables.test.ts tests/integration/database-helper-fk.test.ts tests/integration/api-keys-schema-drift.test.ts tests/integration/codespace-cascade.test.ts tests/integration/codespace-cascade-delete.test.ts tests/integration/codespace-delete-api-tokens.test.ts` passed: 6 files, 67 tests.
-- `bunx vitest run --project integration tests/integration/container-agent-services.test.ts tests/integration/container-exec-service.test.ts tests/integration/agentcore-bridge-service.test.ts tests/integration/agent-oauth-refresh.test.ts` passed: 4 files, 92 tests.
+- `bunx vitest run --project integration tests/integration/container-agent-services.test.ts tests/integration/container-exec-service.test.ts tests/integration/agentcore-bridge-service.test.ts tests/integration/agent-oauth-refresh.test.ts` passed: 4 files, 94 tests.
+- `bunx vitest run --project integration tests/integration/container-exec-service.test.ts -t "IT-1402a.2|IT-1402a.3"` passed: 1 file, 2 tests.
+- `bunx vitest run --project integration tests/integration/agent-execution-service.test.ts -t "IT-202.5a"` passed: 1 file, 1 test.
+- `bunx vitest run --project integration tests/integration/agent-execution-service.test.ts` passed: 1 file, 37 tests.
 - `bunx vitest run --project functional tests/functional/prove-session-worktree-bugs.test.ts` passed: 1 file, 18 tests.
 - `bunx biome check src/services/container-agent/container-exec.service.ts src/services/container-agent/agentcore-bridge.service.ts tests/integration/container-agent-services.test.ts tests/integration/container-exec-service.test.ts tests/functional/prove-session-worktree-bugs.test.ts specs/test_improvements_may_status.md tests/helpers/database.ts src/lib/bootstrap/migrations/index.ts src/lib/bootstrap/__tests__/migration-ordering.test.ts` passed: 8 files.
 - `bunx vitest run --project integration tests/integration/concurrency-pg/plan-approval-pg.test.ts` passed in default local mode: 1 file skipped, 2 tests skipped.

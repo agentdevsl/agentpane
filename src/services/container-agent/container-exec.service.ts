@@ -304,15 +304,31 @@ export class ContainerExecService {
       },
     });
 
-    // Parallel fetch: codespace and sandbox lookup at the same time
-    const [codespace, initialSandbox] = await Promise.all([
+    // Parallel fetch: codespace and sandbox lookup at the same time, while
+    // preserving the Result contract if the provider registry/daemon throws.
+    const [codespace, initialSandboxResult] = await Promise.all([
       db.query.codespaces.findFirst({ where: eq(codespaces.id, codespaceId) }),
-      provider.get(codespaceId),
+      provider
+        .get(codespaceId)
+        .then((sandbox) => ({ ok: true as const, sandbox }))
+        .catch((error: unknown) => ({ ok: false as const, error })),
     ]);
 
     if (!codespace) {
       log.info('Codespace not found', { data: { codespaceId } });
       return err(SandboxErrors.PROJECT_NOT_FOUND);
+    }
+    if (!initialSandboxResult.ok) {
+      log.info('Sandbox lookup failed', {
+        data: {
+          codespaceId,
+          error:
+            initialSandboxResult.error instanceof Error
+              ? initialSandboxResult.error.message
+              : String(initialSandboxResult.error),
+        },
+      });
+      return err(SandboxErrors.CONTAINER_NOT_FOUND);
     }
 
     // F06-NEW-02 / arch29-W1-E: enforce the multi-tenant gate before any
@@ -336,7 +352,7 @@ export class ContainerExecService {
     }
 
     // Use shared sandbox mode by default (fastest path - no per-codespace container creation)
-    let sandbox = initialSandbox;
+    let sandbox = initialSandboxResult.sandbox;
 
     // Recovery: if sandbox exists but is in terminal state, tear it down and recreate
     if (sandbox && (sandbox.status === 'error' || sandbox.status === 'stopped')) {

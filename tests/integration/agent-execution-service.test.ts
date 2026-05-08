@@ -313,6 +313,49 @@ describe('AgentExecutionService (IT-200)', () => {
     });
   });
 
+  describe('orphan sweep (IT-202.5)', () => {
+    it('IT-202.5a: aborts over-runtime running agent and marks the DB row error', async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date('2026-05-08T00:00:00.000Z'));
+
+        const codespace = await createTestProject({ maxConcurrentAgents: 3 });
+        const agent = await createTestAgent(codespace.id, { status: 'idle' });
+        const task = await createTestTask(codespace.id, { column: 'backlog' });
+        const worktree = await createTestWorktree(codespace.id, { taskId: task.id });
+        const session = await createTestSession(codespace.id, {
+          taskId: task.id,
+          agentId: agent.id,
+        });
+
+        mockWorktreeService.create.mockResolvedValue({ ok: true, value: worktree });
+        mockSessionService.create.mockResolvedValue({
+          ok: true,
+          value: { ...session, presence: {} },
+        });
+
+        const startResult = await service.start(agent.id, task.id);
+        expect(startResult.ok).toBe(true);
+        expect(service.isRunning(agent.id)).toBe(true);
+
+        service.startOrphanSweep();
+        vi.setSystemTime(new Date('2026-05-08T04:10:01.000Z'));
+        await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+        expect(service.isRunning(agent.id)).toBe(false);
+
+        await vi.waitFor(async () => {
+          const dbAgent = await db.query.agents.findFirst({ where: eq(agents.id, agent.id) });
+          expect(dbAgent?.status).toBe('error');
+        });
+      } finally {
+        service.stopOrphanSweep();
+        service.stopAll();
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe('pause (IT-203)', () => {
     it('IT-203a: returns NOT_FOUND when agent does not exist', async () => {
       const result = await service.pause('nonexistent-id');
