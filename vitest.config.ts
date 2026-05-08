@@ -178,6 +178,17 @@ export default defineConfig({
         'src/lib/task-creation/**',
         'src/lib/topology/**',
         'src/lib/hooks/**',
+        // Browser-side API client (file header literally states "Browser-side
+        // API client"). Consumed by route loaders and components only; covered
+        // by jsdom-project tests (see tests/lib/api/client-full.test.ts).
+        'src/lib/api/client.ts',
+        // ELK-based workflow designer layout — UI-only. The workflow designer
+        // route is tested via routes/__tests__ but the layout helpers run in
+        // the browser only.
+        'src/lib/workflow-dsl/**',
+        // Separate npm packages with their own published tests; not part of
+        // the server runtime under measurement.
+        'packages/**',
       ],
       reporter: ['text', 'lcov', 'html', 'json-summary'],
       // Baseline measured 2026-04-21 on unit+jsdom+db projects:
