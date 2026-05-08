@@ -1010,4 +1010,100 @@ CREATE INDEX IF NOT EXISTS event_subscriptions_source_enabled_idx ON event_subsc
       `CREATE UNIQUE INDEX IF NOT EXISTS tags_folder_name_unique ON tags(project_folder_id, name)`,
     ],
   },
+
+  // 44. terraform_registries.status NOT NULL parity (schema-drift fix).
+  //
+  // Bootstrap (`phases/schema.ts:399`) creates terraform_registries with
+  // `status TEXT DEFAULT 'active'` (no NOT NULL constraint) but Drizzle
+  // declares the column `notNull().default('active')`
+  // (`src/db/schema/sqlite/terraform.ts:29`). On SQLite that means a SELECT
+  // could return NULL while Drizzle's TS type claims the value is a
+  // `TerraformRegistryStatus` string, leading to crashes like
+  // `Cannot read properties of null (reading 'toLowerCase')` in any caller
+  // that pattern-matches on status.
+  //
+  // SQLite cannot ALTER COLUMN to add NOT NULL in place. Use the established
+  // table-rebuild pattern (cf. v29/v30/v33/v36/v39) so existing rows are
+  // copied and the new shape enforces NOT NULL going forward. The migration
+  // is idempotent: a leftover staging table from a partial prior run is
+  // dropped first, and rows with NULL status are coerced to the default
+  // 'active' before the rebuild so the new constraint can be enforced.
+  {
+    version: 44,
+    name: 'terraform-registries-status-notnull',
+    sql: `
+DROP TABLE IF EXISTS terraform_registries_new_v44;
+
+CREATE TABLE terraform_registries_new_v44 (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  org_name TEXT NOT NULL,
+  token_setting_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  last_synced_at TEXT,
+  sync_error TEXT,
+  module_count INTEGER DEFAULT 0,
+  sync_interval_minutes INTEGER,
+  next_sync_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+INSERT INTO terraform_registries_new_v44 (
+  id, name, org_name, token_setting_key, status,
+  last_synced_at, sync_error, module_count, sync_interval_minutes,
+  next_sync_at, created_at, updated_at
+)
+SELECT
+  id, name, org_name, token_setting_key, COALESCE(status, 'active'),
+  last_synced_at, sync_error, module_count, sync_interval_minutes,
+  next_sync_at, created_at, updated_at
+FROM terraform_registries;
+
+DROP TABLE terraform_registries;
+ALTER TABLE terraform_registries_new_v44 RENAME TO terraform_registries;
+`,
+  },
+
+  // 45. tags.project_folder_id NOT NULL parity (schema-drift fix).
+  //
+  // The v19 migration ALTERed `tags` to ADD COLUMN project_folder_id without
+  // a NOT NULL constraint (SQLite ALTER TABLE ADD COLUMN cannot apply NOT
+  // NULL when there are pre-existing rows). v43 backfilled NULLs to
+  // 'default-folder' and dropped the legacy team_id column, but never
+  // promoted project_folder_id to NOT NULL. Drizzle's tags schema declares
+  // the column `notNull()`, so a SELECT could return null while the type
+  // claims string — sibling of the v43 team_id failure mode in the opposite
+  // direction.
+  //
+  // Same table-rebuild pattern as v44: backfill any straggler NULLs to the
+  // default folder before the rebuild so the new NOT NULL constraint can be
+  // enforced. Recreate the unique index that v43 installed.
+  {
+    version: 45,
+    name: 'tags-project-folder-id-notnull',
+    sql: `
+UPDATE tags SET project_folder_id = 'default-folder' WHERE project_folder_id IS NULL;
+
+DROP TABLE IF EXISTS tags_new_v45;
+
+CREATE TABLE tags_new_v45 (
+  id TEXT PRIMARY KEY NOT NULL,
+  project_folder_id TEXT NOT NULL REFERENCES project_folders(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '#6B7280',
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+INSERT INTO tags_new_v45 (id, project_folder_id, name, color, created_at, updated_at)
+SELECT id, project_folder_id, name, color, created_at, updated_at FROM tags;
+
+DROP TABLE tags;
+ALTER TABLE tags_new_v45 RENAME TO tags;
+
+CREATE UNIQUE INDEX IF NOT EXISTS tags_folder_name_unique ON tags(project_folder_id, name);
+CREATE INDEX IF NOT EXISTS idx_tags_team ON tags(project_folder_id);
+`,
+  },
 ];

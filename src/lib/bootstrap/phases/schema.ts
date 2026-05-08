@@ -396,7 +396,7 @@ CREATE TABLE IF NOT EXISTS "terraform_registries" (
   "name" TEXT NOT NULL,
   "org_name" TEXT NOT NULL,
   "token_setting_key" TEXT NOT NULL,
-  "status" TEXT DEFAULT 'active',
+  "status" TEXT NOT NULL DEFAULT 'active',
   "last_synced_at" TEXT,
   "sync_error" TEXT,
   "module_count" INTEGER DEFAULT 0,
