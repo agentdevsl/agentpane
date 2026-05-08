@@ -106,6 +106,27 @@ describe('Task State Transitions (IT-007)', () => {
     }
   });
 
+  it('reopens a verified task by moving it back to backlog', async () => {
+    const task = await createTestTask(codespaceId, { column: 'verified' });
+
+    const result = await taskService.moveColumn(task.id, 'backlog');
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.task.column).toBe('backlog');
+  });
+
+  it('rejects moving a verified task directly back to in_progress', async () => {
+    const task = await createTestTask(codespaceId, { column: 'verified' });
+
+    const result = await taskService.moveColumn(task.id, 'in_progress');
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('TASK_INVALID_TRANSITION');
+    expect(result.error.details?.allowedTransitions).toEqual(['backlog']);
+  });
+
   it('moving to in_progress sets startedAt', async () => {
     const task = await createTestTask(codespaceId, { column: 'backlog' });
     const result = await taskService.moveColumn(task.id, 'in_progress');

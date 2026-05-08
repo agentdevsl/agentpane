@@ -9,11 +9,16 @@ import { createTestTask } from '../factories/task.factory';
 import { createTestWorktree } from '../factories/worktree.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
 
+const streamHandlerMocks = vi.hoisted(() => ({
+  runAgentPlanning: vi.fn().mockReturnValue(new Promise(() => {})),
+  runAgentExecution: vi.fn().mockReturnValue(new Promise(() => {})),
+}));
+
 // Mock external I/O boundaries — Claude Agent SDK, Git operations, DurableStreams
 // runAgentPlanning never resolves so async background execution doesn't race with assertions
 vi.mock('../../src/lib/agents/stream-handler.js', () => ({
-  runAgentPlanning: vi.fn().mockReturnValue(new Promise(() => {})),
-  runAgentExecution: vi.fn().mockReturnValue(new Promise(() => {})),
+  runAgentPlanning: (...args: unknown[]) => streamHandlerMocks.runAgentPlanning(...args),
+  runAgentExecution: (...args: unknown[]) => streamHandlerMocks.runAgentExecution(...args),
 }));
 
 vi.mock('../../src/lib/agents/recovery.js', () => ({
@@ -412,16 +417,22 @@ describe('AgentExecutionService (IT-200)', () => {
       expect(dbAgent?.status).toBe('running');
     });
 
-    it('IT-204d: resumes planning agent and starts execution phase', async () => {
+    it('IT-204d: resumes persisted planning agent after restart and starts execution phase', async () => {
       const codespace = await createTestProject();
+      const worktree = await createTestWorktree(codespace.id);
       const task = await createTestTask(codespace.id, {
         column: 'in_progress',
+        worktreeId: worktree.id,
+        branch: worktree.branch,
       });
 
       // Set plan on the task
       await db
         .update(tasks)
-        .set({ plan: 'Execute this plan', planOptions: {} })
+        .set({
+          plan: 'Execute this plan',
+          planOptions: { sdkSessionId: 'sdk-resume-after-restart' },
+        })
         .where(eq(tasks.id, task.id));
 
       const session = await createTestSession(codespace.id, { taskId: task.id });
@@ -430,15 +441,27 @@ describe('AgentExecutionService (IT-200)', () => {
         currentTaskId: task.id,
         currentSessionId: session.id,
       });
+      expect(service.isRunning(agent.id)).toBe(false);
 
       const result = await service.resume(agent.id);
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.value.status).toBe('planning');
+      expect(service.isRunning(agent.id)).toBe(true);
 
       const dbAgent = await db.query.agents.findFirst({ where: eq(agents.id, agent.id) });
       expect(dbAgent?.status).toBe('running');
+
+      await vi.waitFor(() => {
+        expect(streamHandlerMocks.runAgentExecution).toHaveBeenCalled();
+      });
+      const executionInput = streamHandlerMocks.runAgentExecution.mock.calls[0]?.[0] as
+        | { prompt: string; sdkSessionId?: string; cwd?: string }
+        | undefined;
+      expect(executionInput?.prompt).toContain('Execute this plan');
+      expect(executionInput?.sdkSessionId).toBe('sdk-resume-after-restart');
+      expect(executionInput?.cwd).toBe(worktree.path);
     });
   });
 
@@ -633,6 +656,40 @@ describe('AgentExecutionService (IT-200)', () => {
       // remove() is fire-and-forget so give the microtask queue a tick to run.
       await new Promise((r) => setTimeout(r, 10));
       expect(mockWorktreeService.remove).toHaveBeenCalledWith(worktree.id, true);
+    });
+
+    it('IT-F6-c.1: worktree removal failure does not block host-mode plan rejection', async () => {
+      const codespace = await createTestProject();
+      const worktree = await createTestWorktree(codespace.id);
+      const task = await createTestTask(codespace.id, {
+        column: 'in_progress',
+        worktreeId: worktree.id,
+        branch: worktree.branch,
+      });
+
+      await db
+        .update(tasks)
+        .set({
+          column: 'waiting_approval' as const,
+          plan: 'Plan',
+          planOptions: {},
+          lastAgentStatus: 'planning',
+        })
+        .where(eq(tasks.id, task.id));
+      mockWorktreeService.remove.mockRejectedValueOnce(new Error('git worktree remove failed'));
+
+      const result = await service.rejectPlanForTask(task.id, 'try again');
+      expect(result.ok).toBe(true);
+
+      await vi.waitFor(() => {
+        expect(mockWorktreeService.remove).toHaveBeenCalledWith(worktree.id, true);
+      });
+      const after = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+      expect(after?.column).toBe('backlog');
+      expect(after?.plan).toBeNull();
+      expect(after?.worktreeId).toBeNull();
+      expect(after?.branch).toBeNull();
+      expect(after?.rejectionReason).toBe('try again');
     });
 
     it('IT-F6-d: CAS-protected — refuses to reject a task whose status moved on', async () => {

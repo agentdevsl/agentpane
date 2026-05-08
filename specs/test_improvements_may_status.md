@@ -50,11 +50,15 @@ Updated: 2026-05-08
 | Agent/session circular FK bug | Full-suite FK enforcement exposed `ContainerExecService` and `AgentCoreBridgeService` inserting agents with `current_session_id` before the session row existed; both now create/upsert the agent with a null session pointer, create/upsert the session, then link the agent back to the existing session. |
 | P1 — sandbox provisioning failure cascade | `tests/integration/container-exec-service.test.ts` now covers provider lookup throws and sandbox-service provisioning errors before agent/session/stream side effects; `ContainerExecService.startAgent()` converts provider lookup exceptions into typed sandbox errors. |
 | P1 — orphan sweep coverage | `tests/integration/agent-execution-service.test.ts` now proves `AgentExecutionService.startOrphanSweep()` removes over-runtime agents from memory and marks the DB agent row `error`. |
+| P1 — resume-after-restart coverage | `tests/integration/agent-execution-service.test.ts` now asserts a fresh `AgentExecutionService` can resume a persisted planning agent, set it running, and pass the stored `sdkSessionId`/worktree cwd into `runAgentExecution()`. |
+| P1 — cancel during agent review | `tests/integration/task-update-delete.test.ts` now proves `TaskService.cancelTask()` can cancel a `waiting_approval` task whose `lastAgentStatus` is `agent_reviewing`, clearing plan and review metadata. |
+| P1 — reject cleanup failure | `tests/integration/agent-execution-service.test.ts` now proves host-mode `rejectPlanForTask()` treats worktree removal failure as best-effort while still clearing task plan/worktree state. |
+| P2 — verified reopen guard | `tests/integration/task-state-transitions.test.ts` now explicitly covers `verified -> backlog` reopen and rejects direct `verified -> in_progress` with `allowedTransitions=['backlog']`. |
 
 ## Still Roadmap Work
 
 - Phase 3.2 and 3.3: lifecycle harness/proof-point migration is intentionally superseded by the newer direction to prefer fewer mock abstractions and more integration coverage.
-- Phase 4: remaining P1 scenario files: resume-after-restart paths still have room for deeper integration coverage.
+- Phase 4: remaining long-tail defensive scenarios are now covered by targeted integration assertions; future work should come from fresh coverage/mutation data rather than the original static review list.
 - Integration-first follow-up: move suitable plan approval/concurrency assertions into integration or PG-backed suites rather than adding more functional mocks.
 - Phase 5.4 remaining follow-up: audit any explicit test-local `PRAGMA foreign_keys = OFF` blocks and legacy schema table rewrites; FK enforcement is now on by default after setup.
 
@@ -62,7 +66,7 @@ Updated: 2026-05-08
 
 - `bunx vitest run --project functional` passed: 15 files, 103 tests.
 - `bunx biome check src/services/agent/agent-queue.service.ts src/services/container-agent/sandbox-state.ts src/services/container-agent/plan-approval.service.ts src/services/container-agent/agent-review.service.ts src/services/container-agent/__tests__/agent-review-sanitize.property.test.ts src/services/task.service.ts tests specs` passed: 451 files.
-- `bunx vitest run --project integration` passed: 186 files passed, 3 skipped; 2365 tests passed, 11 skipped.
+- `bunx vitest run --project integration` passed: 186 files passed, 3 skipped; 2369 tests passed, 11 skipped.
 - `bunx vitest run --project unit src/lib/state-machines/__tests__/state-machines.property.test.ts src/lib/state-machines/__tests__/task-workflow.model.test.ts src/lib/state-machines/__tests__/state-machines.test.ts` passed: 3 files, 256 tests.
 - `bunx biome check tests/helpers/database.ts tests/helpers/database/cleanup.ts tests/helpers/database/schema-metadata.ts tests/helpers/database/seed.ts tests/integration/database-helper-fk.test.ts tests/integration/plan-recovery.test.ts tests/integration/scheduler-event-pipeline.test.ts specs/test_improvements_may_status.md` passed: 7 files.
 - `bunx vitest run --project integration tests/integration/database-helper-fk.test.ts tests/integration/plan-recovery.test.ts tests/integration/scheduler-event-pipeline.test.ts` passed: 3 files, 14 tests.
@@ -72,7 +76,13 @@ Updated: 2026-05-08
 - `bunx vitest run --project integration tests/integration/container-agent-services.test.ts tests/integration/container-exec-service.test.ts tests/integration/agentcore-bridge-service.test.ts tests/integration/agent-oauth-refresh.test.ts` passed: 4 files, 94 tests.
 - `bunx vitest run --project integration tests/integration/container-exec-service.test.ts -t "IT-1402a.2|IT-1402a.3"` passed: 1 file, 2 tests.
 - `bunx vitest run --project integration tests/integration/agent-execution-service.test.ts -t "IT-202.5a"` passed: 1 file, 1 test.
-- `bunx vitest run --project integration tests/integration/agent-execution-service.test.ts` passed: 1 file, 37 tests.
+- `bunx vitest run --project integration tests/integration/agent-execution-service.test.ts -t "IT-204d|IT-202.5a"` passed: 1 file, 2 tests.
+- `bunx vitest run --project integration tests/integration/agent-execution-service.test.ts` passed: 1 file, 38 tests.
+- `bunx vitest run --project integration tests/integration/agent-execution-service.test.ts -t "IT-F6-c.1"` passed: 1 file, 1 test.
+- `bunx vitest run --project integration tests/integration/task-update-delete.test.ts -t "automated agent review"` passed: 1 file, 1 test.
+- `bunx vitest run --project integration tests/integration/task-update-delete.test.ts` passed: 1 file, 11 tests.
+- `bunx vitest run --project integration tests/integration/task-state-transitions.test.ts -t "verified task"` passed: 1 file, 2 tests.
+- `bunx vitest run --project integration tests/integration/task-state-transitions.test.ts` passed: 1 file, 30 tests.
 - `bunx vitest run --project functional tests/functional/prove-session-worktree-bugs.test.ts` passed: 1 file, 18 tests.
 - `bunx biome check src/services/container-agent/container-exec.service.ts src/services/container-agent/agentcore-bridge.service.ts tests/integration/container-agent-services.test.ts tests/integration/container-exec-service.test.ts tests/functional/prove-session-worktree-bugs.test.ts specs/test_improvements_may_status.md tests/helpers/database.ts src/lib/bootstrap/migrations/index.ts src/lib/bootstrap/__tests__/migration-ordering.test.ts` passed: 8 files.
 - `bunx vitest run --project integration tests/integration/concurrency-pg/plan-approval-pg.test.ts` passed in default local mode: 1 file skipped, 2 tests skipped.
@@ -81,7 +91,7 @@ Updated: 2026-05-08
 - `bunx vitest run --project integration tests/integration/sandbox-provider-and-id-cascade.test.ts` passed: 1 file, 2 tests.
 - `bunx vitest run --project integration tests/integration/sandbox-unique-lifecycle.test.ts tests/integration/sandbox-service.test.ts` passed: 2 files, 26 tests.
 - `bunx vitest run --project integration tests/integration/task-plan-approval.test.ts` passed: 1 file, 9 tests.
-- `bunx vitest run --project integration tests/integration/task-update-delete.test.ts` passed: 1 file, 10 tests.
+- `bunx vitest run --project integration tests/integration/task-update-delete.test.ts` passed: 1 file, 11 tests.
 - `bunx vitest run --project integration tests/integration/agent-queue-service.test.ts` passed: 1 file, 24 tests.
 - `bunx vitest run --project integration tests/integration/task-creation.test.ts` passed: 1 file, 8 tests.
 - `bunx vitest run --project unit tests/lib/streams/stream-id.property.test.ts src/services/container-agent/__tests__/agent-review-sanitize.property.test.ts` passed: 2 files, 5 tests.

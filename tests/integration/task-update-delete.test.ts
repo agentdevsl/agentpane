@@ -265,5 +265,35 @@ describe('IT-031–035: Task Update and Delete', () => {
       expect(cancelResult.value.agentId).toBeNull();
       expect(cancelResult.value.lastAgentStatus).toBe('cancelled');
     });
+
+    it('cancels a task while automated agent review is in flight and clears review state', async () => {
+      const codespace = await createTestProject();
+      const task = await createTestTask(codespace.id, {
+        title: 'Cancel Agent Reviewing Task',
+        column: 'waiting_approval',
+        lastAgentStatus: 'agent_reviewing',
+        plan: 'Review this plan',
+        planOptions: { sdkSessionId: 'sdk-agent-reviewing' },
+        agentReviewResult: {
+          approved: false,
+          concerns: ['still reviewing'],
+        },
+        agentReviewedAt: new Date().toISOString(),
+      });
+
+      const worktreeService = createMockWorktreeService();
+      const taskService = new TaskService(db as any, worktreeService);
+
+      const cancelResult = await taskService.cancelTask(task.id);
+
+      expect(cancelResult.ok).toBe(true);
+      if (!cancelResult.ok) return;
+      expect(cancelResult.value.column).toBe('backlog');
+      expect(cancelResult.value.lastAgentStatus).toBe('cancelled');
+      expect(cancelResult.value.plan).toBeNull();
+      expect(cancelResult.value.planOptions).toBeNull();
+      expect(cancelResult.value.agentReviewResult).toBeNull();
+      expect(cancelResult.value.agentReviewedAt).toBeNull();
+    });
   });
 });
