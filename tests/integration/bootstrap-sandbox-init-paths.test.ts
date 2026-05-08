@@ -304,4 +304,63 @@ describe('initSandboxProvider', () => {
     await initSandboxProvider(db, services, state, 5000, 'sqlite');
     expect(state.provider?.name).toBe('docker-empty-val');
   });
+
+  // Production-mode retry scheduling: covers scheduleSandboxRetry's
+  // "schedule next attempt" branch (NODE_ENV !== 'development' allows retries).
+  it('Production mode schedules a retry timer when initial init returns no provider', async () => {
+    process.env.NODE_ENV = 'production';
+    const db = getTestDb();
+    // K8s configured but returns null, fallback disabled → no provider
+    await db.insert(settings).values({
+      key: 'sandbox.defaults',
+      value: JSON.stringify({ provider: 'kubernetes', fallbackToDocker: false }),
+    });
+    initMocks.initK8sProvider.mockResolvedValueOnce(null);
+
+    const services = makeServices();
+    const state = makeSandboxState();
+    await initSandboxProvider(db, services, state, 5000, 'sqlite');
+    expect(state.provider).toBeNull();
+    // Production mode → retry scheduled
+    expect(state.retryTimer).not.toBeNull();
+    expect(state.retryCount).toBe(1);
+    if (state.retryTimer) clearTimeout(state.retryTimer);
+  });
+
+  // Production retry max-retries-exceeded: gives up silently
+  it('Production mode gives up after maxRetries (10) without scheduling further timers', async () => {
+    process.env.NODE_ENV = 'production';
+    const db = getTestDb();
+    await db.insert(settings).values({
+      key: 'sandbox.defaults',
+      value: JSON.stringify({ provider: 'kubernetes', fallbackToDocker: false }),
+    });
+    initMocks.initK8sProvider.mockResolvedValueOnce(null);
+
+    const services = makeServices();
+    const state = makeSandboxState();
+    state.retryCount = 10; // already at max
+    await initSandboxProvider(db, services, state, 5000, 'sqlite');
+    // No retry timer because we've exhausted attempts
+    expect(state.retryTimer).toBeNull();
+    expect(state.initAttempted).toBe(true);
+  });
+
+  // Init throws (not just returns null): timeoutTimer cleanup + scheduleSandboxRetry
+  it('initSandboxProviderCore rejecting (in production) schedules a retry from the catch path', async () => {
+    process.env.NODE_ENV = 'production';
+    const db = getTestDb();
+    await db.insert(settings).values({
+      key: 'sandbox.defaults',
+      value: JSON.stringify({ provider: 'kubernetes', fallbackToDocker: false }),
+    });
+    initMocks.initK8sProvider.mockRejectedValueOnce(new Error('cluster init exploded'));
+
+    const services = makeServices();
+    const state = makeSandboxState();
+    await initSandboxProvider(db, services, state, 5000, 'sqlite');
+    expect(state.provider).toBeNull();
+    expect(state.retryTimer).not.toBeNull();
+    if (state.retryTimer) clearTimeout(state.retryTimer);
+  });
 });
