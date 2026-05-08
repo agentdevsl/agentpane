@@ -535,12 +535,11 @@ describe('Team Routes (IT-1100)', () => {
         projectFolderId: folderId,
       });
 
-      // H4: Raw SQL required because the migration adds team_id NOT NULL to tags,
-      // but the Drizzle schema (src/db/schema/sqlite/tags.ts) doesn't define team_id.
-      // This is a known schema drift — fixing the Drizzle schema is outside this PR's scope.
+      // Migration v43 dropped the legacy team_id column; tags are scoped only
+      // to project_folder_id now.
       const tagId = createId();
       execRawSql(
-        `INSERT INTO tags (id, project_folder_id, team_id, name, color, created_at, updated_at) VALUES ('${tagId}', '${folderId}', '${teamId}', 'test-tag', '#6B7280', datetime('now'), datetime('now'))`
+        `INSERT INTO tags (id, project_folder_id, name, color, created_at, updated_at) VALUES ('${tagId}', '${folderId}', 'test-tag', '#6B7280', datetime('now'), datetime('now'))`
       );
 
       // Create codespace member with grantedByTeamId

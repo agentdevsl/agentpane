@@ -205,14 +205,14 @@ async function seedFixtures(db: ReturnType<typeof getTestDb>): Promise<Fixtures>
     })
     .onConflictDoNothing();
 
-  // Tags carry both `team_id` (legacy NOT NULL constraint) and
-  // `project_folder_id` (added by v19 migration). Use raw SQL to set both.
-  // We need a team to satisfy the FK on team_id.
+  // Tags are scoped to project folders. The legacy `team_id` column was
+  // dropped by v43 migration; only `project_folder_id` remains. The team
+  // insert is still required for other test setup in this suite.
   execRawSql(
     `INSERT OR IGNORE INTO teams (id, name, slug, description) VALUES ('team-test', 'Test Team', 'test-team', 'fixture team');
-     INSERT INTO tags (id, team_id, project_folder_id, name, color, created_at, updated_at)
-       VALUES ('tag-prod', 'team-test', '${folderId}', 'production', '#10B981', datetime('now'), datetime('now')),
-              ('tag-staging', 'team-test', '${folderId}', 'staging', '#F59E0B', datetime('now'), datetime('now'));`
+     INSERT INTO tags (id, project_folder_id, name, color, created_at, updated_at)
+       VALUES ('tag-prod', '${folderId}', 'production', '#10B981', datetime('now'), datetime('now')),
+              ('tag-staging', '${folderId}', 'staging', '#F59E0B', datetime('now'), datetime('now'));`
   );
 
   const prodCs = 'cs-prod';
