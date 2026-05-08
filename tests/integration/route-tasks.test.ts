@@ -30,6 +30,9 @@ function createMockTaskService() {
     approvePlan: vi.fn(),
     rejectPlan: vi.fn(),
     stopAgent: vi.fn(),
+    approve: vi.fn(),
+    reject: vi.fn(),
+    cancelTask: vi.fn(),
   };
 }
 
@@ -587,5 +590,163 @@ describe('Tasks Routes (IT-1350)', () => {
     for (const col of validColumns) {
       expect(body.error.message).toContain(col);
     }
+  });
+
+  // ─── POST /:id/approve ────────────────────────────────
+
+  it('IT-1382: POST /:id/approve rejects bad ID', async () => {
+    const res = await app.request('http://localhost/bad..id/approve', { method: 'POST' });
+    expect(res.status).toBe(400);
+  });
+
+  it('IT-1383: POST /:id/approve works without body (no Content-Type)', async () => {
+    mockService.approve.mockResolvedValue({
+      ok: true,
+      value: { task: { id: 'task-1', column: 'verified' } },
+    });
+    const res = await app.request('http://localhost/task-1/approve', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(mockService.approve).toHaveBeenCalledWith('task-1', {
+      approvedBy: undefined,
+      createMergeCommit: undefined,
+    });
+  });
+
+  it('IT-1384: POST /:id/approve parses body fields', async () => {
+    mockService.approve.mockResolvedValue({
+      ok: true,
+      value: { task: { id: 'task-1', column: 'verified' } },
+    });
+    const res = await app.request(
+      jsonRequest('http://localhost/task-1/approve', {
+        approvedBy: 'reviewer',
+        createMergeCommit: true,
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(mockService.approve).toHaveBeenCalledWith('task-1', {
+      approvedBy: 'reviewer',
+      createMergeCommit: true,
+    });
+  });
+
+  it('IT-1385: POST /:id/approve rejects malformed body', async () => {
+    const res = await app.request(
+      jsonRequest('http://localhost/task-1/approve', { approvedBy: 'x'.repeat(300) })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('IT-1386: POST /:id/approve surfaces service error', async () => {
+    mockService.approve.mockResolvedValue({
+      ok: false,
+      error: { code: 'TASK_INVALID_TRANSITION', message: 'wrong column', status: 409 },
+    });
+    const res = await app.request('http://localhost/task-1/approve', { method: 'POST' });
+    expect(res.status).toBe(409);
+  });
+
+  it('IT-1387: POST /:id/approve maps thrown error to DB_ERROR', async () => {
+    mockService.approve.mockRejectedValue(new Error('db crashed'));
+    const res = await app.request('http://localhost/task-1/approve', { method: 'POST' });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error.code).toBe('DB_ERROR');
+  });
+
+  // ─── POST /:id/reject ─────────────────────────────────
+
+  it('IT-1388: POST /:id/reject rejects bad ID', async () => {
+    const res = await app.request('http://localhost/bad..id/reject', { method: 'POST' });
+    expect(res.status).toBe(400);
+  });
+
+  it('IT-1389: POST /:id/reject returns 400 when no Content-Type/body', async () => {
+    const res = await app.request('http://localhost/task-1/reject', { method: 'POST' });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('VALIDATION_ERROR');
+    expect(body.error.message).toContain('reason');
+  });
+
+  it('IT-1390: POST /:id/reject rejects empty/whitespace reason', async () => {
+    const res = await app.request(jsonRequest('http://localhost/task-1/reject', { reason: '   ' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('IT-1391: POST /:id/reject rejects task and returns updated task', async () => {
+    mockService.reject.mockResolvedValue({
+      ok: true,
+      value: { task: { id: 'task-1', column: 'backlog' } },
+    });
+    const res = await app.request(
+      jsonRequest('http://localhost/task-1/reject', { reason: 'needs more work' })
+    );
+    expect(res.status).toBe(200);
+    expect(mockService.reject).toHaveBeenCalledWith('task-1', { reason: 'needs more work' });
+  });
+
+  it('IT-1392: POST /:id/reject surfaces service error', async () => {
+    mockService.reject.mockResolvedValue({
+      ok: false,
+      error: { code: 'TASK_INVALID_TRANSITION', message: 'wrong column', status: 409 },
+    });
+    const res = await app.request(jsonRequest('http://localhost/task-1/reject', { reason: 'no' }));
+    expect(res.status).toBe(409);
+  });
+
+  it('IT-1393: POST /:id/reject maps thrown error to DB_ERROR', async () => {
+    mockService.reject.mockRejectedValue(new Error('db crashed'));
+    const res = await app.request(jsonRequest('http://localhost/task-1/reject', { reason: 'no' }));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error.code).toBe('DB_ERROR');
+  });
+
+  // ─── POST /:id/cancel ─────────────────────────────────
+
+  it('IT-1394: POST /:id/cancel rejects bad ID', async () => {
+    const res = await app.request('http://localhost/bad..id/cancel', { method: 'POST' });
+    expect(res.status).toBe(400);
+  });
+
+  it('IT-1395: POST /:id/cancel succeeds', async () => {
+    mockService.cancelTask.mockResolvedValue({
+      ok: true,
+      value: { task: { id: 'task-1', column: 'backlog' } },
+    });
+    const res = await app.request('http://localhost/task-1/cancel', { method: 'POST' });
+    expect(res.status).toBe(200);
+  });
+
+  it('IT-1396: POST /:id/cancel surfaces service error', async () => {
+    mockService.cancelTask.mockResolvedValue({
+      ok: false,
+      error: { code: 'CANCEL_FAILED', message: 'fail', status: 500 },
+    });
+    const res = await app.request('http://localhost/task-1/cancel', { method: 'POST' });
+    expect(res.status).toBe(500);
+  });
+
+  // ─── POST /:id/reject-plan with malformed JSON body ──
+
+  it('IT-1397: POST /:id/reject-plan rejects malformed JSON body', async () => {
+    const res = await app.request(
+      jsonRequest('http://localhost/task-1/reject-plan', { reason: 'x'.repeat(20000) })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('IT-1398: POST /:id/reject-plan rejects bad ID', async () => {
+    const res = await app.request('http://localhost/bad..id/reject-plan', { method: 'POST' });
+    expect(res.status).toBe(400);
+  });
+
+  it('IT-1399: POST /:id/reject-plan maps thrown error to DB_ERROR', async () => {
+    mockService.rejectPlan.mockRejectedValue(new Error('db crashed'));
+    const res = await app.request('http://localhost/task-1/reject-plan', { method: 'POST' });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error.code).toBe('DB_ERROR');
   });
 });

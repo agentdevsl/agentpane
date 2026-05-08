@@ -56,11 +56,6 @@ export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps)
     const name = appName ?? 'AgentPane';
     const state = crypto.randomBytes(16).toString('hex');
 
-    c.header(
-      'Set-Cookie',
-      `github_app_state=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600; Secure`
-    );
-
     const manifest = {
       name,
       url: externalUrl,
@@ -87,14 +82,25 @@ export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps)
       ],
     };
 
-    return json({
-      ok: true,
-      data: {
-        manifest: JSON.stringify(manifest),
-        state,
-        githubUrl: `https://github.com/settings/apps/new?state=${state}`,
-      },
-    });
+    // Set the state cookie directly on the Response we return — `c.header()`
+    // does not propagate to a Response built outside of Hono's `c.json()`.
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        data: {
+          manifest: JSON.stringify(manifest),
+          state,
+          githubUrl: `https://github.com/settings/apps/new?state=${state}`,
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Set-Cookie': `github_app_state=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600; Secure`,
+        },
+      }
+    );
   });
 
   app.post('/setup-callback', async (c) => {

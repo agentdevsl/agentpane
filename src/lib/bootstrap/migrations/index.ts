@@ -973,4 +973,41 @@ CREATE INDEX IF NOT EXISTS event_subscriptions_source_enabled_idx ON event_subsc
       `ALTER TABLE skill_metrics ADD COLUMN avg_duration_api_ms REAL`,
     ],
   },
+  // 43. tags table schema-drift fix.
+  //
+  // The bootstrap (`phases/schema.ts:611`) creates `tags` with `team_id NOT
+  // NULL` and a unique index `tags_team_name_unique`. v19 added a nullable
+  // `project_folder_id` column without dropping `team_id`, leaving the table
+  // out of sync with the Drizzle schema (`src/db/schema/sqlite/tags.ts`).
+  //
+  // Result: the routes call `db.insert(tags).values({ projectFolderId, name })`
+  // via Drizzle, but SQLite rejects the insert with
+  // `NOT NULL constraint failed: tags.team_id`. POST /api/tags is dead in
+  // production for any deployment that still has the legacy `team_id` column.
+  //
+  // Fix: drop the obsolete unique index, drop the `team_id` column (SQLite
+  // 3.35+ supports `DROP COLUMN`), enforce `project_folder_id NOT NULL`
+  // (any rows still NULL are migrated to `default-folder`), and create the
+  // new unique index `tags_folder_name_unique` that matches the Drizzle
+  // schema.
+  {
+    version: 43,
+    name: 'tags-drop-legacy-team-id',
+    statements: [
+      // Backfill any tags with NULL project_folder_id to the default folder
+      // before we make the column NOT NULL via the rebuild step below.
+      `UPDATE tags SET project_folder_id = 'default-folder' WHERE project_folder_id IS NULL`,
+      // Drop the obsolete unique index keyed on team_id, name.
+      `DROP INDEX IF EXISTS tags_team_name_unique`,
+      // Drop any other indexes that reference team_id (added by older
+      // bootstrap snapshots).
+      `DROP INDEX IF EXISTS idx_tags_team`,
+      // SQLite 3.35+ supports DROP COLUMN. Older deployments without this
+      // version will need to upgrade better-sqlite3 (already pinned at 12.x).
+      `ALTER TABLE tags DROP COLUMN team_id`,
+      // Recreate the index on the new key. Wrap in IF NOT EXISTS for re-run
+      // safety.
+      `CREATE UNIQUE INDEX IF NOT EXISTS tags_folder_name_unique ON tags(project_folder_id, name)`,
+    ],
+  },
 ];
