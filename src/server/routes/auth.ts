@@ -140,12 +140,21 @@ export function createAuthRoutes({ db }: AuthDeps) {
 
       if (!tokenData.access_token) {
         log.error('GitHub OAuth token exchange failed', { data: { error: tokenData.error } });
-        return json(
-          {
+        // Clear the state cookie on failure — the surrounding comment intends
+        // every OAuth failure to invalidate the state cookie. Set it directly
+        // on the Response since `c.header()` is dropped by the `json()` helper.
+        return new Response(
+          JSON.stringify({
             ok: false,
             error: { code: 'OAUTH_FAILED', message: 'Failed to exchange code for token' },
-          },
-          400
+          }),
+          {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+              'Set-Cookie': 'oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0',
+            },
+          }
         );
       }
 
@@ -166,12 +175,19 @@ export function createAuthRoutes({ db }: AuthDeps) {
       };
 
       if (!githubUser.id) {
-        return json(
-          {
+        // Clear the state cookie on failure — see comment above on token-exchange branch.
+        return new Response(
+          JSON.stringify({
             ok: false,
             error: { code: 'OAUTH_FAILED', message: 'Failed to fetch GitHub user info' },
-          },
-          400
+          }),
+          {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+              'Set-Cookie': 'oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0',
+            },
+          }
         );
       }
       // Upsert user
@@ -245,13 +261,20 @@ export function createAuthRoutes({ db }: AuthDeps) {
       return c.redirect(redirectUrl);
     } catch (error) {
       log.error('OAuth callback failed during user/session creation', { error });
-      // Clear OAuth state cookie even on failure
-      c.header('Set-Cookie', 'oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0', {
-        append: true,
-      });
-      return json(
-        { ok: false, error: { code: 'OAUTH_FAILED', message: 'Authentication failed' } },
-        400
+      // Clear OAuth state cookie directly on the Response — `c.header()` does
+      // not propagate to a Response built outside of Hono's `c.json()`.
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: { code: 'OAUTH_FAILED', message: 'Authentication failed' },
+        }),
+        {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json',
+            'Set-Cookie': 'oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0',
+          },
+        }
       );
     }
   });
@@ -267,28 +290,36 @@ export function createAuthRoutes({ db }: AuthDeps) {
         await db.delete(userSessions).where(eq(userSessions.token, hashToken(sessionMatch[1])));
       } catch (error) {
         log.error('Failed to delete session from database', { error });
-        // Still clear the cookie (best-effort client-side logout) but inform the user
-        c.header(
-          'Set-Cookie',
-          `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`
-        );
-        return json(
-          {
+        // Set the cookie directly on the Response — `c.header()` does not
+        // propagate to a Response built outside of Hono's `c.json()`.
+        return new Response(
+          JSON.stringify({
             ok: false,
             error: {
               code: 'DB_ERROR',
               message: 'Session may not be fully invalidated. Please try again.',
             },
-          },
-          500
+          }),
+          {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              'Set-Cookie': `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
+            },
+          }
         );
       }
     }
 
-    // Clear session cookie
-    c.header('Set-Cookie', `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
-
-    return json({ ok: true, data: null });
+    // Clear session cookie directly on the Response — `c.header()` does not
+    // propagate to a Response built outside of Hono's `c.json()`.
+    return new Response(JSON.stringify({ ok: true, data: null }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Set-Cookie': `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
+      },
+    });
   });
 
   // POST /api/auth/revoke-all — SC-H1: Revoke all sessions for the current user ("log out everywhere")
@@ -310,10 +341,20 @@ export function createAuthRoutes({ db }: AuthDeps) {
     });
 
     if (!session) {
-      c.header('Set-Cookie', `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
-      return json(
-        { ok: false, error: { code: 'UNAUTHORIZED', message: 'Session not found' } },
-        401
+      // Set the cookie directly on the Response — `c.header()` does not
+      // propagate to a Response built outside of Hono's `c.json()`.
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: { code: 'UNAUTHORIZED', message: 'Session not found' },
+        }),
+        {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+            'Set-Cookie': `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
+          },
+        }
       );
     }
 
@@ -328,10 +369,15 @@ export function createAuthRoutes({ db }: AuthDeps) {
         data: { userId: session.userId, count: result.length },
       });
 
-      // Clear current session cookie
-      c.header('Set-Cookie', `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
-
-      return json({ ok: true, data: { revokedCount: result.length } });
+      // Clear current session cookie directly on the Response — `c.header()`
+      // does not propagate to a Response built outside of Hono's `c.json()`.
+      return new Response(JSON.stringify({ ok: true, data: { revokedCount: result.length } }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Set-Cookie': `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
+        },
+      });
     } catch (error) {
       log.error('Failed to revoke all sessions', { error });
       return json(
