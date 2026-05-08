@@ -11,6 +11,7 @@ import {
 } from '@phosphor-icons/react';
 import React, { Suspense, useMemo, useState } from 'react';
 import { PanelLoadingFallback } from '@/app/components/ui/suspense-fallbacks';
+import { useCodespaceAgents } from '@/app/hooks/use-codespace-agents';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { AgentStatus, TaskColumn } from '@/db/schema/shared/enums.js';
 import { apiClient } from '@/lib/api/client';
@@ -88,7 +89,7 @@ interface LiveTaskViewProps {
  */
 export function LiveTaskView({
   tasks,
-  codespaceId: _codespaceId,
+  codespaceId,
   onTaskMove,
   onTaskClick: _onTaskClick,
   onApproveTask,
@@ -101,6 +102,7 @@ export function LiveTaskView({
   const [topologyData, setTopologyData] = useState<TopologyGraph | undefined>(undefined);
   const [topologyError, setTopologyError] = useState<string | null>(null);
   const [retryCounter, setRetryCounter] = useState(0);
+  const knownAgents = useCodespaceAgents(codespaceId);
 
   const normalizedSelectedTaskId = useMemo(() => {
     if (!selectedTaskId) return null;
@@ -147,6 +149,7 @@ export function LiveTaskView({
           lastAgentStatus: selectedTask?.lastAgentStatus as AgentStatus | null | undefined,
           skillId: selectedTask?.skillId ?? null,
           skillName: selectedTask?.skillName ?? null,
+          knownAgents,
         });
 
         // Preserve task metadata from the selected task
@@ -172,6 +175,7 @@ export function LiveTaskView({
     selectedTask?.title,
     selectedTask?.priority,
     retryCounter,
+    knownAgents,
   ]);
 
   return (

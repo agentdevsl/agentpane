@@ -172,13 +172,17 @@ export function TopologyGroupOverlay({
               top: 6,
               left: 12,
               right: 12,
-              // Clip overlong type names with an ellipsis so the label
-              // can never spill past the cluster outline. The full name
-              // remains discoverable via the title tooltip below.
-              whiteSpace: 'nowrap',
+              // Wrap to 2 lines so common names like `tf-module-development`
+              // read in full instead of truncating to `TF-MODULE-DEVELO…`.
+              // The title attribute below still surfaces the complete name
+              // on hover for the rare 3+ line case.
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              fontSize: 16,
+              wordBreak: 'break-word',
+              fontSize: 14,
+              lineHeight: 1.2,
               fontWeight: 700,
               letterSpacing: 0.7,
               textTransform: 'uppercase',

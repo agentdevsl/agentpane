@@ -11,6 +11,7 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sessions, settings, tasks } from '../../src/db/schema';
+import { updateTaskOnAgentComplete } from '../../src/services/container-agent/shared-helpers';
 import { TaskService } from '../../src/services/task.service';
 import { createTestAgent } from '../factories/agent.factory';
 import { createTestProject } from '../factories/project.factory';
@@ -179,8 +180,13 @@ describe('Bug-Proving Tests: TaskService', () => {
     // concurrent reads. The race condition may still manifest in tests, but
     // is resolved in production where transactions properly serialize.
     //
-    // We verify both tasks were created successfully:
-    expect(allTasks.length).toBeGreaterThanOrEqual(2);
+    // We verify the concurrently created tasks persisted with unique positions.
+    const concurrentTasks = allTasks.filter((task) =>
+      ['Concurrent Task A', 'Concurrent Task B'].includes(task.title)
+    );
+    expect(concurrentTasks.length).toBe(2);
+    const concurrentPositions = concurrentTasks.map((task) => task.position);
+    expect(new Set(concurrentPositions).size).toBe(concurrentPositions.length);
 
     // Verify sequential creates always produce unique positions (the fix works
     // for the non-concurrent case, which is the common path):
@@ -194,9 +200,10 @@ describe('Bug-Proving Tests: TaskService', () => {
     });
     expect(seqResult1.ok).toBe(true);
     expect(seqResult2.ok).toBe(true);
-    if (seqResult1.ok && seqResult2.ok) {
-      expect(seqResult1.value.position).not.toBe(seqResult2.value.position);
+    if (!seqResult1.ok || !seqResult2.ok) {
+      throw new Error('Expected sequential task creation to succeed');
     }
+    expect(seqResult1.value.position).not.toBe(seqResult2.value.position);
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -379,18 +386,13 @@ describe('Bug-Proving Tests: TaskService', () => {
 
     const worktree = await createTestWorktree(codespace.id, { status: 'active' });
 
-    // Create task in waiting_approval with lastAgentStatus=completed
+    // Create task as running, then complete it through the real lifecycle helper.
     const task = await createTestTask(codespace.id, {
-      column: 'waiting_approval',
+      column: 'in_progress',
       worktreeId: worktree.id,
       branch: worktree.branch,
     });
-    // TEST-SETUP: this test targets `approve()` merge-failure handling. The
-    // precondition is a task in waiting_approval with lastAgentStatus='completed';
-    // driving it through the real updateTaskOnAgentComplete() path requires
-    // starting the agent first (full lifecycle harness) — the direct write
-    // keeps the test focused on the merge-failure assertion.
-    await db.update(tasks).set({ lastAgentStatus: 'completed' }).where(eq(tasks.id, task.id));
+    await updateTaskOnAgentComplete(db, task.id, 'completed');
 
     // Mock: merge THROWS (simulating git conflict explosion)
     mockWorktreeService.merge.mockRejectedValue(new Error('Merge conflict: cannot auto-merge'));

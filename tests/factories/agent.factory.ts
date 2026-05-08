@@ -3,13 +3,10 @@ import type { Agent, AgentConfig, NewAgent } from '../../src/db/schema';
 import { agents } from '../../src/db/schema';
 import { getTestDb } from '../helpers/database';
 
-type AgentStatus = 'idle' | 'starting' | 'planning' | 'running' | 'paused' | 'error' | 'completed';
-type AgentType = 'task' | 'conversational' | 'background';
-
 export type AgentFactoryOptions = Partial<Omit<NewAgent, 'codespaceId'>> & {
   codespaceId?: string;
-  status?: AgentStatus;
-  type?: AgentType;
+  status?: NonNullable<NewAgent['status']>;
+  type?: NonNullable<NewAgent['type']>;
   config?: Partial<AgentConfig>;
   currentTaskId?: string | null;
   currentSessionId?: string | null;

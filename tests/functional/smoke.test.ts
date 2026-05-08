@@ -19,16 +19,7 @@ import type { DurableStreamsService } from '../../src/services/durable-streams.s
 import { TaskService } from '../../src/services/task.service';
 import { createTestProject } from '../factories/project.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
-
-function createMockStreams(): DurableStreamsService {
-  return {
-    publish: vi.fn().mockResolvedValue(undefined),
-    createStream: vi.fn().mockResolvedValue(undefined),
-    getStream: vi.fn(),
-    subscribe: vi.fn(),
-    close: vi.fn(),
-  } as unknown as DurableStreamsService;
-}
+import { createInMemoryStreams } from '../helpers/mocks';
 
 function createMockWorktreeService() {
   return {
@@ -45,7 +36,7 @@ describe('E2E smoke — task creation + agent auto-start golden path', () => {
   beforeEach(async () => {
     await setupTestDatabase();
     db = getTestDb();
-    const _streams: DurableStreamsService = createMockStreams();
+    const _streams = createInMemoryStreams() as unknown as DurableStreamsService;
     const mockWorktreeService = createMockWorktreeService();
     taskService = new TaskService(db, mockWorktreeService as never);
   });

@@ -1,7 +1,16 @@
-import { Handle, type NodeProps, Position } from '@xyflow/react';
+import { Handle, type NodeProps, Position, type ReactFlowState, useStore } from '@xyflow/react';
 import { memo } from 'react';
 import type { TopologyAgentMeta, TopologyNode } from '@/lib/topology/types';
 import { DECISION_TYPE_CONFIG, getRoleConfig, STATUS_COLORS } from './agent-node-types';
+
+/**
+ * Threshold below which the per-node metrics line (Nt · $X.XX) becomes
+ * unreadable at default font sizes. The zoom selector returns a boolean
+ * so each agent node only re-renders when the threshold is crossed, not
+ * on every zoom delta.
+ */
+const METRICS_VISIBLE_ZOOM = 0.6;
+const showMetricsSelector = (s: ReactFlowState) => s.transform[2] >= METRICS_VISIBLE_ZOOM;
 
 export type AgentNodeData = Pick<
   TopologyNode,
@@ -99,6 +108,9 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
     agentMeta,
     phase,
   } = data as AgentNodeData;
+  // Re-renders only when the boolean flips across METRICS_VISIBLE_ZOOM,
+  // not on every zoom tick.
+  const showMetrics = useStore(showMetricsSelector);
   const roleConfig = getRoleConfig(role);
   const roleColor = agentMeta?.color
     ? (COLOR_NAME_MAP[agentMeta.color] ?? roleConfig.color)
@@ -283,8 +295,8 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
           </text>
         )}
 
-        {/* Metrics row */}
-        {metricsText && (
+        {/* Metrics row — hidden at low zoom where the text is illegible */}
+        {metricsText && showMetrics && (
           <text
             x={0}
             y={RADIUS + (isCompleted ? 42 : 60) + extraNameLines * NAME_LINE_HEIGHT}

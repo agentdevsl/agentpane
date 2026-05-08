@@ -952,7 +952,7 @@ describe('buildTopologyFromEvents', () => {
   // ── Synthetic skill nodes ──
 
   describe('synthetic skill nodes', () => {
-    it('creates skill nodes from agentMeta.skills', () => {
+    it('keeps agentMeta skills on agents for the layout layer', () => {
       const events = [
         makeEvent('topology:agent_spawned', {
           agentId: 'sub-1',
@@ -964,17 +964,12 @@ describe('buildTopologyFromEvents', () => {
         ...makeContext(),
         knownAgents: [{ name: 'code-reviewer', skills: ['lint-rules', 'security-scan'] }],
       });
-      // 1 agent + 2 skill nodes
-      expect(graph.nodes).toHaveLength(3);
-      const skillNodes = graph.nodes.filter((n) => n.type === 'skill');
-      expect(skillNodes).toHaveLength(2);
-      expect(skillNodes.map((n) => n.name).sort()).toEqual(['lint-rules', 'security-scan']);
-      // 2 edges from agent -> skills
-      const skillEdges = graph.edges.filter((e) => e.targetId.startsWith('skill-'));
-      expect(skillEdges).toHaveLength(2);
+      expect(graph.nodes).toHaveLength(1);
+      expect(defined(graph.nodes[0]).agentMeta?.skills).toEqual(['lint-rules', 'security-scan']);
+      expect(graph.nodes.filter((n) => n.type === 'skill')).toHaveLength(0);
     });
 
-    it('deduplicates skill nodes across multiple agents', () => {
+    it('does not synthesize shared skill nodes from agent metadata', () => {
       const events = [
         makeEvent('topology:agent_spawned', {
           agentId: 'agent-1',
@@ -994,16 +989,12 @@ describe('buildTopologyFromEvents', () => {
           { name: 'reviewer-b', skills: ['shared-skill', 'unique-b'] },
         ],
       });
-      // 2 agents + 3 unique skill nodes
-      expect(graph.nodes).toHaveLength(5);
-      const skillNodes = graph.nodes.filter((n) => n.type === 'skill');
-      expect(skillNodes).toHaveLength(3);
-      // shared-skill should have 2 edges (from both agents)
-      const sharedEdges = graph.edges.filter((e) => e.targetId === 'skill-shared-skill');
-      expect(sharedEdges).toHaveLength(2);
+      expect(graph.nodes).toHaveLength(2);
+      expect(graph.nodes.filter((n) => n.type === 'skill')).toHaveLength(0);
+      expect(graph.edges.some((e) => e.targetId === 'skill-shared-skill')).toBe(false);
     });
 
-    it('skill nodes have correct default properties', () => {
+    it('creates task-level skill injection nodes with correct defaults', () => {
       const events = [
         makeEvent('topology:agent_spawned', {
           agentId: 'sub-1',
@@ -1013,16 +1004,18 @@ describe('buildTopologyFromEvents', () => {
       ];
       const graph = buildTopologyFromEvents(events, {
         ...makeContext(),
-        knownAgents: [{ name: 'my-agent', skills: ['test-skill'] }],
+        skillId: 'test-skill',
+        skillName: 'Test Skill',
       });
       const skillNode = graph.nodes.find((n) => n.type === 'skill');
       expect(skillNode).toBeDefined();
-      expect(skillNode!.id).toBe('skill-test-skill');
+      expect(skillNode!.id).toBe('skill-inject-test-skill');
+      expect(skillNode!.name).toBe('Test Skill');
       expect(skillNode!.role).toBe('skill');
       expect(skillNode!.status).toBe('completed');
       expect(skillNode!.progress).toBe(100);
       expect(skillNode!.skillId).toBe('test-skill');
-      expect(skillNode!.skillName).toBe('test-skill');
+      expect(skillNode!.skillName).toBe('Test Skill');
     });
   });
 

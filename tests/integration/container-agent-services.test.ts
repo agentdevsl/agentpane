@@ -1,7 +1,7 @@
 import { createId } from '@paralleldrive/cuid2';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agents, sessions, tasks } from '../../src/db/schema';
+import { agents, sessions, skillExecutions, skillMetrics, tasks } from '../../src/db/schema';
 import { CONTAINER_WORKSPACE_PATH } from '../../src/lib/constants/sandbox';
 // Explicit imports for coverage gap detection (agentcore-bridge.service, container-exec.service)
 import type {} from '../../src/services/container-agent/agentcore-bridge.service';
@@ -21,12 +21,26 @@ import type {
 } from '../../src/services/container-agent/types';
 import { PENDING_PLAN_TTL_MS } from '../../src/services/container-agent/types';
 import { WorktreeInitService } from '../../src/services/container-agent/worktree-init.service';
+import { SkillTrackingService } from '../../src/services/memory/skill-tracking.service';
 import { createTestAgent } from '../factories/agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestSession } from '../factories/session.factory';
 import { createTestTask } from '../factories/task.factory';
 import { createTestWorktree } from '../factories/worktree.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
+
+async function waitForResult<T>(
+  read: () => Promise<T | undefined>,
+  timeoutMs = 500
+): Promise<T | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  let value = await read();
+  while (value === undefined && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    value = await read();
+  }
+  return value;
+}
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -109,6 +123,70 @@ describe('Shared Helpers — updateTaskOnAgentComplete (IT-301)', () => {
     // Use a non-existent task ID so the update returns 0 rows but does not throw
     const result = await updateTaskOnAgentComplete(db, 'nonexistent-task', 'completed');
     expect(result).toBe(false);
+  });
+
+  it('IT-301f: records and rolls up skill metrics through the real SkillTrackingService', async () => {
+    const db = getTestDb();
+    const codespace = await createTestProject();
+    const agent = await createTestAgent(codespace.id, { status: 'running' });
+    const session = await createTestSession(codespace.id, { agentId: agent.id });
+    const task = await createTestTask(codespace.id, {
+      column: 'in_progress',
+      agentId: agent.id,
+      sessionId: session.id,
+      skillId: 'terraform-stacks',
+      skillName: 'Terraform Stacks',
+      startedAt: new Date(Date.now() - 5000).toISOString(),
+    });
+    const tracking = new SkillTrackingService(db as never);
+
+    const result = await updateTaskOnAgentComplete(
+      db,
+      task.id,
+      'completed',
+      undefined,
+      session.id,
+      tracking,
+      {
+        usage: { inputTokens: 120, outputTokens: 30 },
+        fileChanges: { filesModified: 2, linesAdded: 14, linesRemoved: 3 },
+      }
+    );
+
+    expect(result).toBe(true);
+
+    const execution = await waitForResult(() =>
+      db.query.skillExecutions.findFirst({
+        where: eq(skillExecutions.taskId, task.id),
+      })
+    );
+    expect(execution).toMatchObject({
+      codespaceId: codespace.id,
+      skillId: 'terraform-stacks',
+      skillName: 'Terraform Stacks',
+      taskId: task.id,
+      sessionId: session.id,
+      status: 'success',
+      tokensUsed: 150,
+      filesModified: 2,
+      linesAdded: 14,
+      linesRemoved: 3,
+    });
+
+    const metric = await waitForResult(() =>
+      db.query.skillMetrics.findFirst({
+        where: eq(skillMetrics.skillId, 'terraform-stacks'),
+      })
+    );
+    expect(metric).toMatchObject({
+      codespaceId: codespace.id,
+      skillId: 'terraform-stacks',
+      totalRuns: 1,
+      successCount: 1,
+      errorCount: 0,
+      avgTokensUsed: 150,
+      successRate: 1,
+    });
   });
 });
 
@@ -1221,7 +1299,7 @@ describe('AgentCoreBridgeService — DB-level state (IT-307)', () => {
         type: 'task',
         status: 'starting',
         currentTaskId: task.id,
-        currentSessionId: sessionId,
+        currentSessionId: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       })
@@ -1230,7 +1308,7 @@ describe('AgentCoreBridgeService — DB-level state (IT-307)', () => {
         set: {
           status: 'starting',
           currentTaskId: task.id,
-          currentSessionId: sessionId,
+          currentSessionId: null,
         },
       });
 
@@ -1247,6 +1325,7 @@ describe('AgentCoreBridgeService — DB-level state (IT-307)', () => {
       createdAt: new Date().toISOString(),
     });
 
+    await db.update(agents).set({ currentSessionId: sessionId }).where(eq(agents.id, agentId));
     await db.update(tasks).set({ agentId, sessionId }).where(eq(tasks.id, task.id));
 
     // Verify all records
@@ -1283,7 +1362,27 @@ describe('AgentCoreBridgeService — DB-level state (IT-307)', () => {
       type: 'task',
       status: 'starting',
       currentTaskId: task1.id,
-      currentSessionId: 'session-1',
+      currentSessionId: null,
+    });
+    await db.insert(sessions).values({
+      id: 'session-1',
+      codespaceId: codespace.id,
+      taskId: task1.id,
+      agentId,
+      status: 'active',
+      title: 'Session 1',
+      url: `/codespaces/${codespace.id}/sessions/session-1`,
+    });
+    await db.update(agents).set({ currentSessionId: 'session-1' }).where(eq(agents.id, agentId));
+
+    await db.insert(sessions).values({
+      id: 'session-2',
+      codespaceId: codespace.id,
+      taskId: task2.id,
+      agentId,
+      status: 'active',
+      title: 'Session 2',
+      url: `/codespaces/${codespace.id}/sessions/session-2`,
     });
 
     // Upsert with different task
@@ -1410,7 +1509,7 @@ describe('ContainerExecService — DB-level state (IT-308)', () => {
       type: 'task',
       status: 'starting',
       currentTaskId: task.id,
-      currentSessionId: sessionId,
+      currentSessionId: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -1428,6 +1527,7 @@ describe('ContainerExecService — DB-level state (IT-308)', () => {
       createdAt: new Date().toISOString(),
     });
 
+    await db.update(agents).set({ currentSessionId: sessionId }).where(eq(agents.id, agentId));
     await db.update(tasks).set({ agentId, sessionId }).where(eq(tasks.id, task.id));
 
     // Update agent to planning status

@@ -55,43 +55,19 @@ function createMockStreams() {
   };
 }
 
+const claudeMocks = vi.hoisted(() => ({
+  createClaudeClient: vi.fn(),
+  sendMessage: vi.fn(),
+  parseAskUserQuestion: vi.fn(),
+  parseCreateGitHubIssue: vi.fn(),
+}));
+
 /**
  * Mock the Claude client initialization (external API boundary).
  * The PlanModeService lazily initializes via createClaudeClient().
  */
 vi.mock('../../src/lib/plan-mode/claude-client.js', () => ({
-  createClaudeClient: vi.fn().mockResolvedValue({
-    ok: true,
-    value: {
-      sendMessage: vi.fn().mockResolvedValue({
-        ok: true,
-        value: {
-          type: 'text',
-          text: 'Here is the implementation plan:\n1. Create module\n2. Add tests',
-        },
-      }),
-      parseAskUserQuestion: vi.fn().mockReturnValue({
-        id: createId(),
-        type: 'question',
-        questions: [
-          {
-            question: 'Which framework?',
-            header: 'Framework',
-            options: [
-              { label: 'React', description: 'React.js' },
-              { label: 'Vue', description: 'Vue.js' },
-            ],
-            multiSelect: false,
-          },
-        ],
-      }),
-      parseCreateGitHubIssue: vi.fn().mockReturnValue({
-        title: 'Test Issue',
-        body: 'Issue body',
-        labels: ['plan'],
-      }),
-    },
-  }),
+  createClaudeClient: claudeMocks.createClaudeClient,
 }));
 
 describe('PlanModeService (IT-450)', () => {
@@ -104,6 +80,45 @@ describe('PlanModeService (IT-450)', () => {
     db = getTestDb();
     setupPlanSessionsTable();
     streams = createMockStreams();
+    claudeMocks.sendMessage.mockReset();
+    claudeMocks.parseAskUserQuestion.mockReset();
+    claudeMocks.parseCreateGitHubIssue.mockReset();
+    claudeMocks.createClaudeClient.mockReset();
+    claudeMocks.sendMessage.mockResolvedValue({
+      ok: true,
+      value: {
+        type: 'text',
+        text: 'Here is the implementation plan:\n1. Create module\n2. Add tests',
+      },
+    });
+    claudeMocks.parseAskUserQuestion.mockReturnValue({
+      id: createId(),
+      type: 'question',
+      questions: [
+        {
+          question: 'Which framework?',
+          header: 'Framework',
+          options: [
+            { label: 'React', description: 'React.js' },
+            { label: 'Vue', description: 'Vue.js' },
+          ],
+          multiSelect: false,
+        },
+      ],
+    });
+    claudeMocks.parseCreateGitHubIssue.mockReturnValue({
+      title: 'Test Issue',
+      body: 'Issue body',
+      labels: ['plan'],
+    });
+    claudeMocks.createClaudeClient.mockResolvedValue({
+      ok: true,
+      value: {
+        sendMessage: claudeMocks.sendMessage,
+        parseAskUserQuestion: claudeMocks.parseAskUserQuestion,
+        parseCreateGitHubIssue: claudeMocks.parseCreateGitHubIssue,
+      },
+    });
     service = new PlanModeService(
       db as any,
       streams as any,
@@ -422,6 +437,134 @@ describe('PlanModeService (IT-450)', () => {
     // droppedEventCount should be > 0 due to stream failures
     const metrics = service.getMetrics();
     expect(metrics.droppedEventCount).toBeGreaterThan(0);
+  });
+
+  it('IT-466b: start handles AskUserQuestion tool use and persists waiting_user state', async () => {
+    claudeMocks.sendMessage.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        type: 'tool_use',
+        toolName: 'AskUserQuestion',
+        toolId: 'tool-question-1',
+        input: { questions: [] },
+      },
+    });
+
+    const project = await createTestProject();
+    const task = await createTestTask(project.id, { column: 'in_progress' });
+
+    const result = await service.start({
+      taskId: task.id,
+      codespaceId: project.id,
+      initialPrompt: 'Plan with a clarification',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.status).toBe('waiting_user');
+    expect(result.value.turns.at(-1)?.interaction?.type).toBe('question');
+
+    const dbSession = await db.query.planSessions.findFirst({
+      where: eq(planSessions.id, result.value.id),
+    });
+    expect(dbSession?.status).toBe('waiting_user');
+    expect(streams.publishPlanInteraction).toHaveBeenCalledWith(
+      `plan:${result.value.id}`,
+      expect.objectContaining({
+        sessionId: result.value.id,
+        questions: expect.any(Array),
+      })
+    );
+  });
+
+  it('IT-466c: CreateGitHubIssue tool completes without issue when GitHub config is missing', async () => {
+    claudeMocks.sendMessage.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        type: 'tool_use',
+        toolName: 'CreateGitHubIssue',
+        toolId: 'tool-issue-1',
+        input: { title: 'Plan', body: 'Plan body', labels: ['plan'] },
+      },
+    });
+
+    const project = await createTestProject();
+    const task = await createTestTask(project.id, { column: 'in_progress' });
+
+    const result = await service.start({
+      taskId: task.id,
+      codespaceId: project.id,
+      initialPrompt: 'Plan and create an issue',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.status).toBe('completed');
+    expect(result.value.githubIssueUrl).toBeUndefined();
+    expect(streams.publishPlanError).toHaveBeenCalledWith(
+      `plan:${result.value.id}`,
+      expect.objectContaining({ code: 'GITHUB_CONFIG_MISSING' })
+    );
+    expect(streams.publishPlanCompleted).toHaveBeenCalledWith(
+      `plan:${result.value.id}`,
+      expect.objectContaining({ sessionId: result.value.id })
+    );
+  });
+
+  it('IT-466d: CreateGitHubIssue tool stores created issue details when configured', async () => {
+    claudeMocks.sendMessage.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        type: 'tool_use',
+        toolName: 'CreateGitHubIssue',
+        toolId: 'tool-issue-2',
+        input: { title: 'Plan', body: 'Plan body', labels: ['plan'] },
+      },
+    });
+    const issueCreator = {
+      createFromToolInput: vi.fn().mockResolvedValue({
+        ok: true,
+        value: { url: 'https://github.com/acme/app/issues/42', number: 42 },
+      }),
+    };
+    const configuredService = new PlanModeService(
+      db as never,
+      streams as never,
+      issueCreator as never,
+      { owner: 'acme', repo: 'app' },
+      { maxTurns: 10 }
+    );
+
+    const project = await createTestProject();
+    const task = await createTestTask(project.id, { column: 'in_progress' });
+
+    const result = await configuredService.start({
+      taskId: task.id,
+      codespaceId: project.id,
+      initialPrompt: 'Plan and create an issue',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(issueCreator.createFromToolInput).toHaveBeenCalledWith(
+      { title: 'Test Issue', body: 'Issue body', labels: ['plan'] },
+      'acme',
+      'app'
+    );
+    expect(result.value).toMatchObject({
+      status: 'completed',
+      githubIssueUrl: 'https://github.com/acme/app/issues/42',
+      githubIssueNumber: 42,
+    });
+
+    const dbSession = await db.query.planSessions.findFirst({
+      where: eq(planSessions.id, result.value.id),
+    });
+    expect(dbSession).toMatchObject({
+      status: 'completed',
+      githubIssueUrl: 'https://github.com/acme/app/issues/42',
+      githubIssueNumber: 42,
+    });
   });
 
   // ---------- DB persistence edge cases --------------------------------------

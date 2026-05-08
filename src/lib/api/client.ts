@@ -387,6 +387,18 @@ export const apiClient = {
           executionSkill?: string;
         }>
       >(`/api/codespaces/${encodeURIComponent(id)}/skills`),
+
+    getAgents: (id: string) =>
+      apiServerFetch<
+        Array<{
+          name: string;
+          description?: string;
+          model?: string;
+          color?: string;
+          skills?: string[];
+          tools?: string[];
+        }>
+      >(`/api/codespaces/${encodeURIComponent(id)}/agents`),
   },
 
   // Alias: codespaces points to the same methods as projects

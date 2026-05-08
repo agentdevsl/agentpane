@@ -1015,16 +1015,14 @@ describe('state machines', () => {
       expect(result.ok).toBe(true);
     });
 
-    it('rejects invalid transition from waiting_approval', () => {
+    it('transitions to backlog on CANCEL from waiting_approval', () => {
       const machine = createTaskWorkflowMachine({ taskId: 'task-1' });
       machine.send({ type: 'ASSIGN', agentId: 'agent-1' });
       machine.send({ type: 'COMPLETE' });
       const result = machine.send({ type: 'CANCEL' });
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('TASK_INVALID_TRANSITION');
-      }
+      expect(result.ok).toBe(true);
+      expect(machine.state).toBe('backlog');
     });
 
     it('rejects any transition from verified', () => {

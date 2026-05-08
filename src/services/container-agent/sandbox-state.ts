@@ -15,6 +15,8 @@ import { PENDING_PLAN_TTL_MS, PLAN_CLEANUP_INTERVAL_MS } from './types.js';
 const log = createLogger('SandboxStateManager');
 
 export class SandboxStateManager {
+  private static readonly instances = new Set<SandboxStateManager>();
+
   /** Map of taskId -> running agent (Docker/K8s/Nomad) */
   private runningAgents = new Map<string, RunningAgent>();
 
@@ -31,9 +33,17 @@ export class SandboxStateManager {
   private planCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
+    SandboxStateManager.instances.add(this);
     this.planCleanupInterval = setInterval(() => {
       this.cleanupExpiredPlans();
     }, PLAN_CLEANUP_INTERVAL_MS);
+  }
+
+  static disposeAll(): void {
+    for (const instance of SandboxStateManager.instances) {
+      instance.dispose();
+    }
+    SandboxStateManager.instances.clear();
   }
 
   // ---------------------------------------------------------------------------
@@ -198,5 +208,6 @@ export class SandboxStateManager {
       clearInterval(this.planCleanupInterval);
       this.planCleanupInterval = null;
     }
+    SandboxStateManager.instances.delete(this);
   }
 }

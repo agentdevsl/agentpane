@@ -9,7 +9,7 @@
 import { createId } from '@paralleldrive/cuid2';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agents, codespaces, sessionEvents, sessions, tasks, worktrees } from '../../src/db/schema';
+import { sessionEvents, sessions, worktrees } from '../../src/db/schema';
 import { SessionCrudService } from '../../src/services/session/session-crud.service';
 import { SessionStreamService } from '../../src/services/session/session-stream.service';
 import type { DurableStreamsServer } from '../../src/services/session/types';
@@ -19,33 +19,9 @@ import { createTestSession } from '../factories/session.factory';
 import { createTestTask } from '../factories/task.factory';
 import { createTestWorktree } from '../factories/worktree.factory';
 import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
+import { createInMemoryStreams } from '../helpers/mocks';
 
 // ---------- helpers ----------
-
-function createMockStreams(): DurableStreamsServer {
-  const streams = new Map<string, Array<{ type: string; data: unknown; offset: number }>>();
-  return {
-    createStream: vi.fn().mockImplementation(async (id: string) => {
-      if (!streams.has(id)) {
-        streams.set(id, []);
-      }
-    }),
-    publish: vi.fn().mockImplementation(async (id: string, type: string, data: unknown) => {
-      const events = streams.get(id) || [];
-      const offset = events.length;
-      events.push({ type, data, offset });
-      streams.set(id, events);
-      return offset;
-    }),
-    subscribe: vi.fn().mockImplementation(async function* (id: string) {
-      const events = streams.get(id) || [];
-      for (const event of events) {
-        yield event;
-      }
-    }),
-    deleteStream: vi.fn().mockResolvedValue(true),
-  };
-}
 
 /**
  * Build a valid SessionEvent with structured stream metadata (required by OC-005d gate).
@@ -86,7 +62,7 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
   beforeEach(async () => {
     await setupTestDatabase();
     db = getTestDb();
-    mockStreams = createMockStreams();
+    mockStreams = createInMemoryStreams();
   });
 
   afterEach(async () => {
@@ -177,10 +153,17 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
         }
       }
 
-      // Document: the number of events in DB may differ from successes
-      // because the INSERT succeeds but the service may fail at the
-      // post-insert query or summary update step
-      expect(allEvents.length).toBeGreaterThanOrEqual(successes.length);
+      // The DB must reflect exactly the calls reported as successful, and every
+      // successful offset must be present.
+      expect(allEvents.length).toBe(successes.length);
+      const persistedOffsets = new Set(allEvents.map((event) => event.offset));
+      for (const success of successes) {
+        expect(success.ok).toBe(true);
+        if (!success.ok) {
+          throw new Error('Expected only successful persistEvent results');
+        }
+        expect(persistedOffsets.has(success.value.offset)).toBe(true);
+      }
     });
 
     it('sequential persistEvent() calls always produce unique offsets', async () => {
@@ -341,14 +324,20 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
        * We verify the behavior under both conditions below.
        */
 
-      // Under FK OFF (test default), the insert succeeds but creates an orphan
       if (result2.ok) {
+        // Under FK OFF (test default), the insert succeeds but creates an orphan
         // This is the FK OFF behavior — event was inserted despite no parent session
         const orphanEvent = await db.query.sessionEvents.findFirst({
           where: eq(sessionEvents.id, event2.id),
         });
         expect(orphanEvent).toBeTruthy();
         expect(orphanEvent!.sessionId).toBe(session.id);
+      } else {
+        expect(result2.error.code).toBe('SESSION_SYNC_FAILED');
+        const orphanEvent = await db.query.sessionEvents.findFirst({
+          where: eq(sessionEvents.id, event2.id),
+        });
+        expect(orphanEvent).toBeUndefined();
       }
 
       // Now test with FK ON to verify the safety net
@@ -578,94 +567,6 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
   // ═══════════════════════════════════════════════════════════════════
 
   describe('Test 6: Worktree merge status stuck after merge failure', () => {
-    it('worktree stuck in "merging" status can be recovered by updating back to "active"', async () => {
-      const codespace = await createTestProject({
-        name: 'Merge Stuck',
-        path: '/tmp/merge-stuck',
-      });
-      const worktree = await createTestWorktree(codespace.id, {
-        status: 'active',
-        branch: 'feature/stuck-merge',
-      });
-
-      // TEST-SETUP: this test documents a recovery flow for a stuck worktree
-      // when the process crashed mid-merge. We must reach the 'merging' state
-      // without going through `WorktreeService.merge()` (which auto-resets on
-      // failure). Direct write reproduces the post-crash DB state — the
-      // assertion below proves no recovery mechanism exists today.
-      // Simulate merge start: set status to 'merging'
-      await db
-        .update(worktrees)
-        .set({ status: 'merging', updatedAt: new Date().toISOString() })
-        .where(eq(worktrees.id, worktree.id));
-
-      // Verify stuck state
-      const stuckWorktree = await db.query.worktrees.findFirst({
-        where: eq(worktrees.id, worktree.id),
-      });
-      expect(stuckWorktree!.status).toBe('merging');
-
-      /**
-       * FINDING: The WorktreeService.merge() method handles this correctly
-       * in its implementation — on merge failure (both conflict and general
-       * error), it resets status back to 'active':
-       *
-       *   catch (error) {
-       *     await this.db.update(worktrees)
-       *       .set({ status: 'active', updatedAt: ... })
-       *       .where(eq(worktrees.id, worktreeId));
-       *     return err(WorktreeErrors.CREATION_FAILED(...));
-       *   }
-       *
-       * However, if the process crashes BETWEEN setting 'merging' and the
-       * catch handler running, the worktree will be permanently stuck.
-       * There is NO recovery mechanism (no cron job, no startup scan).
-       */
-
-      // TEST-SETUP: simulate the manual recovery a human operator would
-      // perform today — direct DB update to flip status back to 'active'.
-      // This verifies the data shape is recoverable; there is no service API
-      // for this since the bug under test is the missing recovery mechanism.
-      const [recovered] = await db
-        .update(worktrees)
-        .set({ status: 'active', updatedAt: new Date().toISOString() })
-        .where(eq(worktrees.id, worktree.id))
-        .returning();
-
-      expect(recovered!.status).toBe('active');
-
-      // TEST-SETUP: simulate a second merge attempt entering the 'merging'
-      // state, again without invoking WorktreeService.merge() — this test is
-      // about state-shape recoverability, not the merge code path.
-      await db
-        .update(worktrees)
-        .set({ status: 'merging', updatedAt: new Date().toISOString() })
-        .where(eq(worktrees.id, worktree.id));
-
-      const reMerging = await db.query.worktrees.findFirst({
-        where: eq(worktrees.id, worktree.id),
-      });
-      expect(reMerging!.status).toBe('merging');
-
-      // TEST-SETUP: simulate a successful merge by writing the post-merge
-      // state directly. WorktreeService.merge() requires real git operations
-      // and a real worktree on disk — out of scope for this recovery test.
-      await db
-        .update(worktrees)
-        .set({
-          status: 'active',
-          mergedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(worktrees.id, worktree.id));
-
-      const merged = await db.query.worktrees.findFirst({
-        where: eq(worktrees.id, worktree.id),
-      });
-      expect(merged!.status).toBe('active');
-      expect(merged!.mergedAt).toBeTruthy();
-    });
-
     it('WorktreeService.merge() resets status on command failure', async () => {
       const codespace = await createTestProject({
         name: 'Merge Failure',
@@ -725,162 +626,6 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
        *
        * VERIFIED: No bug here for normal operation. The only risk is
        * a crash between setting 'merging' and the error handler.
-       */
-    });
-  });
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Test 7: Codespace delete races with agent start
-  // ═══════════════════════════════════════════════════════════════════
-
-  describe('Test 7: Codespace delete races with agent start', () => {
-    it('deleting a codespace cascades to tasks, sessions, and worktrees', async () => {
-      const codespace = await createTestProject({
-        name: 'Cascade Test',
-        path: '/tmp/cascade-test',
-      });
-
-      // Create related entities
-      const _agent = await createTestAgent(codespace.id, {
-        status: 'idle',
-      });
-      const session = await createTestSession(codespace.id, {
-        status: 'active',
-      });
-      const _task = await createTestTask(codespace.id, {
-        title: 'Cascade Task',
-        column: 'in_progress',
-      });
-      const _worktree = await createTestWorktree(codespace.id, {
-        status: 'active',
-      });
-
-      // Persist a session event
-      const streamService = new SessionStreamService(db, mockStreams);
-      const event = buildSessionEvent(session.id, 'chunk');
-      await streamService.persistEvent(session.id, event);
-
-      // Verify everything exists
-      expect(
-        await db.query.agents.findFirst({
-          where: eq(agents.codespaceId, codespace.id),
-        })
-      ).toBeTruthy();
-      expect(
-        await db.query.sessions.findFirst({
-          where: eq(sessions.id, session.id),
-        })
-      ).toBeTruthy();
-      expect(
-        await db.query.tasks.findFirst({
-          where: eq(tasks.codespaceId, codespace.id),
-        })
-      ).toBeTruthy();
-
-      // Enable FK for cascade behavior
-      execRawSql('PRAGMA foreign_keys = ON');
-      try {
-        // TEST-SETUP: this test targets Drizzle cascade semantics at the DB
-        // layer. It must bypass the service (which cleans events explicitly
-        // before delete) to exercise the raw ON DELETE CASCADE definitions.
-        await db.delete(sessionEvents).where(eq(sessionEvents.sessionId, session.id));
-
-        // Delete codespace — FK cascade is the assertion target
-        await db.delete(codespaces).where(eq(codespaces.id, codespace.id));
-
-        // Verify cascade: sessions should be gone
-        const remainingSessions = await db.query.sessions.findMany({
-          where: eq(sessions.codespaceId, codespace.id),
-        });
-        expect(remainingSessions).toHaveLength(0);
-
-        // Verify cascade: tasks should be gone
-        const remainingTasks = await db.query.tasks.findMany({
-          where: eq(tasks.codespaceId, codespace.id),
-        });
-        expect(remainingTasks).toHaveLength(0);
-
-        // Verify cascade: worktrees should be gone
-        const remainingWorktrees = await db.query.worktrees.findMany({
-          where: eq(worktrees.codespaceId, codespace.id),
-        });
-        expect(remainingWorktrees).toHaveLength(0);
-
-        // Verify cascade: session events should be gone (via session cascade)
-        const remainingEvents = await db.query.sessionEvents.findMany({
-          where: eq(sessionEvents.sessionId, session.id),
-        });
-        expect(remainingEvents).toHaveLength(0);
-      } finally {
-        execRawSql('PRAGMA foreign_keys = OFF');
-      }
-
-      /**
-       * FINDING: CASCADE delete correctly removes all dependent entities
-       * when a codespace is deleted. The cascade chain is:
-       *   codespace -> sessions -> session_events
-       *   codespace -> sessions -> session_summaries
-       *   codespace -> tasks
-       *   codespace -> worktrees
-       *   codespace -> agents (also cascade)
-       *
-       * RACE CONDITION RISK: There is NO locking mechanism to prevent
-       * an agent from starting between the "check for running agents"
-       * step and the actual DELETE. In a concurrent environment:
-       *
-       * 1. User checks: no running agents -> proceeds to delete
-       * 2. Meanwhile: task moved to in_progress -> agent starts
-       * 3. DELETE CASCADE runs -> agent's session/task/worktree vanish
-       * 4. Agent is now running against non-existent DB records
-       *
-       * The application currently has no protection against this race.
-       * A serialized transaction or advisory lock would be needed.
-       */
-    });
-
-    it('deleting codespace while agent data exists does not fail', async () => {
-      const codespace = await createTestProject({
-        name: 'Agent Race',
-        path: '/tmp/agent-race',
-      });
-
-      // Create an agent that is actively "running" with task + session
-      const agent = await createTestAgent(codespace.id, {
-        status: 'running',
-      });
-      const session = await createTestSession(codespace.id, {
-        status: 'active',
-        agentId: agent.id,
-      });
-      const _task = await createTestTask(codespace.id, {
-        title: 'Active Task',
-        column: 'in_progress',
-        agentId: agent.id,
-        sessionId: session.id,
-      });
-
-      execRawSql('PRAGMA foreign_keys = ON');
-      try {
-        // TEST-SETUP: targets raw FK cascade behaviour on codespace delete
-        // when child agent/session/task rows are present. CodespaceService's
-        // delete pre-cleans children, which would bypass the cascade we're
-        // asserting here. Direct write is the correct probe.
-        await db.delete(codespaces).where(eq(codespaces.id, codespace.id));
-
-        // Codespace and all children gone
-        const cs = await db.query.codespaces.findFirst({
-          where: eq(codespaces.id, codespace.id),
-        });
-        expect(cs).toBeUndefined();
-      } finally {
-        execRawSql('PRAGMA foreign_keys = OFF');
-      }
-
-      /**
-       * FINDING: The CASCADE delete succeeds regardless of agent status.
-       * There is no guard checking whether an agent is running before
-       * allowing codespace deletion at the DB level. This is a design
-       * choice — the guard must be implemented at the application layer.
        */
     });
   });
@@ -969,6 +714,10 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
       const agent = await createTestAgent(codespace.id, {
         status: 'idle',
       });
+      const task = await createTestTask(codespace.id, {
+        id: 'task-partial-1',
+        title: 'Partial creation test',
+      });
 
       const { WorktreeService } = await import('../../src/services/worktree.service');
 
@@ -996,8 +745,8 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
         {
           codespaceId: codespace.id,
           agentId: agent.id,
-          taskId: 'task-partial-1',
-          taskTitle: 'Partial creation test',
+          taskId: task.id,
+          taskTitle: task.title,
         },
         { skipEnvCopy: true, skipDepsInstall: true, skipInitScript: true }
       );

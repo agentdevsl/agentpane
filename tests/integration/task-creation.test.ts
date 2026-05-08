@@ -1,3 +1,4 @@
+import * as fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ok } from '../../src/lib/utils/result';
 import { TaskService } from '../../src/services/task.service';
@@ -56,6 +57,43 @@ describe('IT-018: Task creation with validation and auto-positioning', () => {
       expect(result2.value.position).toBe(1);
       expect(result3.value.position).toBe(2);
     }
+  });
+
+  it('assigns distinct contiguous positions for concurrent task creation batches', async () => {
+    const db = getTestDb();
+    const taskService = new TaskService(db, mockWorktreeService);
+
+    await fc.assert(
+      fc.asyncProperty(fc.constantFrom(5, 50, 200), async (count) => {
+        const project = await createTestProject({
+          name: `Concurrent Position Batch ${count} ${crypto.randomUUID()}`,
+        });
+
+        const results = await Promise.all(
+          Array.from({ length: count }, (_, index) =>
+            taskService.create({
+              codespaceId: project.id,
+              title: `Concurrent task ${index}`,
+            })
+          )
+        );
+
+        const created = results.map((result) => {
+          expect(result.ok).toBe(true);
+          if (!result.ok) {
+            throw new Error(result.error.message);
+          }
+          return result.value;
+        });
+
+        const positions = created.map((task) => task.position);
+        const sortedPositions = [...positions].sort((a, b) => a - b);
+
+        expect(new Set(positions).size).toBe(count);
+        expect(sortedPositions).toEqual(Array.from({ length: count }, (_, index) => index));
+      }),
+      { numRuns: 6 }
+    );
   });
 
   it('returns error for invalid codespaceId', async () => {

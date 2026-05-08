@@ -1,5 +1,5 @@
 import { createId } from '@paralleldrive/cuid2';
-import { count, eq, inArray } from 'drizzle-orm';
+import { and, count, desc, eq, inArray } from 'drizzle-orm';
 import type { NewSandboxInstance, NewSandboxTmuxSession, SandboxInstance } from '../db/schema';
 import { codespaces, sandboxInstances, sandboxTmuxSessions, settings } from '../db/schema';
 import type { SandboxError } from '../lib/errors/sandbox-errors.js';
@@ -33,6 +33,8 @@ const IDLE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
  * Maximum consecutive failures before disabling idle checker
  */
 const MAX_IDLE_CHECK_FAILURES = 5;
+
+const ACTIVE_SANDBOX_STATUSES = ['creating', 'running', 'idle', 'stopping'] as const;
 
 /**
  * SandboxService manages Docker sandbox containers for codespaces
@@ -310,8 +312,21 @@ export class SandboxService {
    * Get sandbox by codespace ID
    */
   async getByCodespaceId(codespaceId: string): Promise<Result<SandboxInfo | null, SandboxError>> {
+    const activeSandbox = await this.db.query.sandboxInstances.findFirst({
+      where: and(
+        eq(sandboxInstances.codespaceId, codespaceId),
+        inArray(sandboxInstances.status, ACTIVE_SANDBOX_STATUSES)
+      ),
+      orderBy: [desc(sandboxInstances.updatedAt)],
+    });
+
+    if (activeSandbox) {
+      return ok(this.dbSandboxToInfo(activeSandbox));
+    }
+
     const dbSandbox = await this.db.query.sandboxInstances.findFirst({
       where: eq(sandboxInstances.codespaceId, codespaceId),
+      orderBy: [desc(sandboxInstances.updatedAt)],
     });
 
     if (!dbSandbox) {
@@ -614,7 +629,7 @@ export class SandboxService {
     const rows = await this.db
       .select({ n: count() })
       .from(sandboxInstances)
-      .where(inArray(sandboxInstances.status, ['creating', 'running', 'idle', 'stopping']));
+      .where(inArray(sandboxInstances.status, ACTIVE_SANDBOX_STATUSES));
     return rows[0]?.n ?? 0;
   }
 

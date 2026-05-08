@@ -18,24 +18,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tasks } from '../../src/db/schema';
 import { PlanApprovalService } from '../../src/services/container-agent/plan-approval.service';
 import { SandboxStateManager } from '../../src/services/container-agent/sandbox-state';
+import { updateTaskOnAgentComplete } from '../../src/services/container-agent/shared-helpers';
 import type { DurableStreamsService } from '../../src/services/durable-streams.service';
 import { TaskService } from '../../src/services/task.service';
 import { createTestProject } from '../factories/project.factory';
 import { createTestTask } from '../factories/task.factory';
 import { createTestWorktree } from '../factories/worktree.factory';
 import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
+import { createInMemoryStreams } from '../helpers/mocks';
 
 // ---------- test helpers ----------
-
-function createMockStreams(): DurableStreamsService {
-  return {
-    publish: vi.fn().mockResolvedValue(undefined),
-    createStream: vi.fn().mockResolvedValue(undefined),
-    getStream: vi.fn(),
-    subscribe: vi.fn(),
-    close: vi.fn(),
-  } as unknown as DurableStreamsService;
-}
 
 function createMockWorktreeService() {
   return {
@@ -66,7 +58,7 @@ describe('Advanced Task Lifecycle Scenarios', () => {
   beforeEach(async () => {
     await setupTestDatabase();
     db = getTestDb();
-    streams = createMockStreams();
+    streams = createInMemoryStreams() as unknown as DurableStreamsService;
     mockWorktreeService = createMockWorktreeService();
     taskService = new TaskService(db, mockWorktreeService);
     stateManager = new SandboxStateManager();
@@ -397,17 +389,12 @@ describe('Advanced Task Lifecycle Scenarios', () => {
   it('merge conflict during approve preserves task state for retry', async () => {
     const codespace = await createTestProject({ name: 'Merge Conflict Test' });
 
-    // Create task in waiting_approval with lastAgentStatus='completed'
+    // Create task as running, then complete it through the real lifecycle helper.
     const task = await createTestTask(codespace.id, {
-      column: 'waiting_approval',
+      column: 'in_progress',
       title: 'Task with merge conflict',
     });
-    // TEST-SETUP: this test targets `approve()` merge-failure handling and
-    // needs lastAgentStatus='completed' as a precondition. Driving it via
-    // updateTaskOnAgentComplete() would require also starting the agent
-    // through moveColumn() + mocks, which pulls in the full lifecycle harness
-    // and obscures the approve-only assertion. Direct write is intentional.
-    await db.update(tasks).set({ lastAgentStatus: 'completed' }).where(eq(tasks.id, task.id));
+    await updateTaskOnAgentComplete(db, task.id, 'completed');
 
     // Create worktree linked to the task
     const worktree = await createTestWorktree(codespace.id, {
@@ -417,10 +404,8 @@ describe('Advanced Task Lifecycle Scenarios', () => {
 
     // TEST-SETUP: link the freshly-created worktree to the task so approve()
     // can locate it for the diff/merge step. The bug under test is approve()'s
-    // merge-failure handling — we already set lastAgentStatus='completed' via
-    // direct write above (justified there); attaching the worktree is the same
-    // setup pattern. No service API attaches a worktree to a task, and routing
-    // through the full lifecycle harness would obscure the assertion.
+    // merge-failure handling. No service API attaches a worktree to a task,
+    // and routing through the full lifecycle harness would obscure the assertion.
     await db
       .update(tasks)
       .set({ worktreeId: worktree.id, branch: worktree.branch })

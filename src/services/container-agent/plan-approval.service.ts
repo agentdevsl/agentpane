@@ -19,10 +19,46 @@ import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { AgentReviewService } from './agent-review.service.js';
 import type { SandboxStateManager } from './sandbox-state.js';
+import { updateTaskOnAgentError } from './shared-helpers.js';
 import type { ContainerAgentDeps, PlanData, StartAgentInput, TaskPlanRow } from './types.js';
 import type { WorktreeInitService } from './worktree-init.service.js';
 
 const log = createLogger('PlanApprovalService');
+
+function getInvalidPlanReason(planData: {
+  plan: string;
+  turnCount: number;
+  sdkSessionId: string;
+  allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
+}): string | null {
+  const rawPlanData = planData as Record<string, unknown>;
+  if (typeof rawPlanData.plan !== 'string') {
+    return 'Plan payload is missing a text plan.';
+  }
+  if (rawPlanData.plan.trim().length === 0) {
+    return 'Plan payload is empty.';
+  }
+  if (typeof rawPlanData.turnCount !== 'number') {
+    return 'Plan payload is missing a numeric turn count.';
+  }
+  if (typeof rawPlanData.sdkSessionId !== 'string') {
+    return 'Plan payload is missing an SDK session id.';
+  }
+  if (
+    rawPlanData.allowedPrompts !== undefined &&
+    (!Array.isArray(rawPlanData.allowedPrompts) ||
+      rawPlanData.allowedPrompts.some(
+        (prompt) =>
+          !prompt ||
+          typeof prompt !== 'object' ||
+          (prompt as Record<string, unknown>).tool !== 'Bash' ||
+          typeof (prompt as Record<string, unknown>).prompt !== 'string'
+      ))
+  ) {
+    return 'Plan payload contains malformed allowed prompts.';
+  }
+  return null;
+}
 
 export class PlanApprovalService {
   constructor(
@@ -59,6 +95,36 @@ export class PlanApprovalService {
       // Still clean up running agent maps (planning phase is done)
       this.state.deleteRunningAgent(taskId);
       this.state.deleteRunningAgentCoreAgent(taskId);
+      return;
+    }
+
+    const invalidPlanReason = getInvalidPlanReason(planData);
+    if (invalidPlanReason) {
+      log.warn('Invalid plan_ready event — rejecting plan payload', {
+        data: { taskId, reason: invalidPlanReason },
+      });
+
+      const { db, streams } = this.deps;
+      this.state.deletePendingPlan(taskId);
+      this.state.deleteRunningAgent(taskId);
+      this.state.deleteRunningAgentCoreAgent(taskId);
+
+      await updateTaskOnAgentError(db, taskId, streams, sessionId);
+      await streams
+        .publish(sessionId, 'container-agent:error', {
+          taskId,
+          sessionId,
+          error: invalidPlanReason,
+          turnCount: typeof planData.turnCount === 'number' ? planData.turnCount : 0,
+        })
+        .catch((publishErr) => {
+          log.warn('Failed to publish invalid plan_ready error event', {
+            data: {
+              taskId,
+              error: publishErr instanceof Error ? publishErr.message : String(publishErr),
+            },
+          });
+        });
       return;
     }
 

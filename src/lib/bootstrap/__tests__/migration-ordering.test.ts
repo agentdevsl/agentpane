@@ -112,10 +112,18 @@ describe('Migration ordering', () => {
     expect(colNames).toContain('skill_id');
     expect(colNames).toContain('skill_name');
 
-    // Verify we can insert a task with skill columns
-    db.prepare(`INSERT INTO projects (id, name, path) VALUES ('p1', 'Test', '/test')`).run();
+    // Verify we can insert a task with skill columns through the current
+    // codespace-era write shape.
     db.prepare(
-      `INSERT INTO tasks (id, project_id, title, skill_id, skill_name)
+      `INSERT OR IGNORE INTO project_folders (id, name, slug)
+       VALUES ('default-folder', 'Default', 'default')`
+    ).run();
+    db.prepare(
+      `INSERT INTO codespaces (id, project_folder_id, name, path)
+       VALUES ('p1', 'default-folder', 'Test', '/test')`
+    ).run();
+    db.prepare(
+      `INSERT INTO tasks (id, codespace_id, title, skill_id, skill_name)
        VALUES ('t1', 'p1', 'Skill Task', 'terraform-stacks', 'Terraform Stacks')`
     ).run();
 
@@ -125,6 +133,60 @@ describe('Migration ordering', () => {
     };
     expect(task.skill_id).toBe('terraform-stacks');
     expect(task.skill_name).toBe('Terraform Stacks');
+
+    db.close();
+  });
+
+  it('supports current codespace-era writes without legacy project_id columns', () => {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+
+    runMigrations(db, MIGRATIONS);
+    seedDefaultTeamForExistingTokens(db);
+
+    db.prepare(
+      `INSERT OR IGNORE INTO project_folders (id, name, slug)
+       VALUES ('default-folder', 'Default', 'default')`
+    ).run();
+    db.prepare(
+      `INSERT INTO codespaces (id, project_folder_id, name, path)
+       VALUES ('cs1', 'default-folder', 'Codespace', '/codespace')`
+    ).run();
+    db.prepare(
+      `INSERT INTO agents (id, codespace_id, name, type, status)
+       VALUES ('agent1', 'cs1', 'Agent', 'task', 'idle')`
+    ).run();
+    db.prepare(
+      `INSERT INTO sessions (id, codespace_id, task_id, status, url)
+       VALUES ('session1', 'cs1', NULL, 'idle', '/codespaces/cs1/sessions/session1')`
+    ).run();
+    db.prepare(
+      `INSERT INTO tasks (id, codespace_id, title, "column", position, approval_mode)
+       VALUES ('task1', 'cs1', 'Task', 'backlog', 0, 'agent')`
+    ).run();
+    db.prepare(
+      `INSERT INTO worktrees (id, codespace_id, task_id, branch, path, status)
+       VALUES ('wt1', 'cs1', 'task1', 'agent/task1', '/tmp/wt1', 'active')`
+    ).run();
+    db.prepare(
+      `INSERT INTO agent_runs (id, agent_id, task_id, codespace_id, session_id, status)
+       VALUES ('run1', 'agent1', 'task1', 'cs1', 'session1', 'running')`
+    ).run();
+    db.prepare(`INSERT INTO teams (id, name, slug) VALUES ('team1', 'Team', 'team')`).run();
+    db.prepare(
+      `INSERT INTO event_sources (id, team_id, name, type, slug)
+       VALUES ('source1', 'team1', 'Source', 'cron', 'source')`
+    ).run();
+    db.prepare(
+      `INSERT INTO event_subscriptions (
+        id, name, event_source_id, target_codespace_id, prompt_template
+      ) VALUES ('sub1', 'Sub', 'source1', 'cs1', 'Handle this')`
+    ).run();
+
+    const task = db
+      .prepare(`SELECT codespace_id, approval_mode FROM tasks WHERE id = 'task1'`)
+      .get() as { codespace_id: string; approval_mode: string } | undefined;
+    expect(task).toEqual({ codespace_id: 'cs1', approval_mode: 'agent' });
 
     db.close();
   });
@@ -176,7 +238,10 @@ describe('Migration ordering', () => {
       );
     `);
 
-    runMigrations(db, MIGRATIONS);
+    runMigrations(
+      db,
+      MIGRATIONS.filter((migration) => migration.version <= 40)
+    );
 
     const columns = db.prepare("PRAGMA table_info('plan_sessions')").all() as {
       name: string;

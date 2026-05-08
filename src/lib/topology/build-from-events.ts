@@ -611,55 +611,15 @@ export function buildTopologyFromEvents(
   }
 
   // --- Synthetic skill nodes ---
-  // For each agent node with agentMeta?.skills, create shared skill dependency nodes
+  // Per-cluster agent skill rendering is handled in topology-layout.ts,
+  // not here. The layout layer knows about *visual* cluster splits (one
+  // data-level (parentId, agentType) cluster can render as two boxes
+  // when mrtree puts members far apart) and emits one skill pill per
+  // visual sub-cluster — that data isn't available at this layer.
+  // The map below still holds the task-level injection node from
+  // context.skillId, which IS data-driven.
   const skillNodeMap = new Map<string, TopologyNode>();
   const allNodes = Array.from(nodes.values());
-
-  for (const agentNode of allNodes) {
-    const skills = agentNode.agentMeta?.skills;
-    if (!skills || skills.length === 0) continue;
-
-    for (const skillName of skills) {
-      const skillNodeId = `skill-${skillName}`;
-      if (!skillNodeMap.has(skillNodeId)) {
-        const skillNode: TopologyNode = {
-          id: skillNodeId,
-          name: skillName,
-          role: 'skill',
-          type: 'skill',
-          agentType: null,
-          skillId: skillName,
-          skillName,
-          skillCalls: [],
-          agentMeta: null,
-          status: 'completed',
-          parentId: null,
-          childIds: [],
-          progress: 100,
-          tokens: 0,
-          cost: 0,
-          turns: 0,
-          messages: 0,
-          startedAt: null,
-          completedAt: null,
-          verified: false,
-          verificationScore: 0,
-          decisions: [],
-        };
-        skillNodeMap.set(skillNodeId, skillNode);
-      }
-      // Add edge from agent -> skill
-      const edgeId = `${agentNode.id}->skill-${skillName}`;
-      // Avoid duplicate edges
-      if (!edges.some((e) => e.id === edgeId)) {
-        edges.push({
-          id: edgeId,
-          sourceId: agentNode.id,
-          targetId: skillNodeId,
-        });
-      }
-    }
-  }
 
   // --- Task-level skill injection node ---
   // When the task has a skill assigned (context.skillId), show it as

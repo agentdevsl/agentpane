@@ -7,7 +7,7 @@ import type { SandboxConfig, SandboxMetrics, TmuxSession } from '../../src/lib/s
 import { SANDBOX_DEFAULTS } from '../../src/lib/sandbox/types';
 import { SandboxService } from '../../src/services/sandbox.service';
 import { createTestProject } from '../factories/project.factory';
-import { execRawSql } from '../helpers/database';
+import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
 
 // Mock credentials injector to avoid filesystem dependency on ~/.claude/.credentials.json
 // Without this mock, CI (no credentials) gets 3 publish calls (creating + warning + ready)
@@ -18,54 +18,6 @@ vi.mock('../../src/lib/sandbox/credentials-injector.js', () => ({
     refresh: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
   }),
 }));
-
-// Additional migration SQL for sandbox tables (not in main MIGRATION_SQL)
-const SANDBOX_TABLES_SQL = `
-CREATE TABLE IF NOT EXISTS "sandbox_instances" (
-  "id" TEXT PRIMARY KEY NOT NULL,
-  "codespace_id" TEXT NOT NULL UNIQUE,
-  "container_id" TEXT NOT NULL,
-  "status" TEXT DEFAULT 'stopped' NOT NULL,
-  "image" TEXT NOT NULL,
-  "memory_mb" INTEGER NOT NULL,
-  "cpu_cores" INTEGER NOT NULL,
-  "idle_timeout_minutes" INTEGER NOT NULL,
-  "volume_mounts" TEXT DEFAULT '[]',
-  "env" TEXT,
-  "error_message" TEXT,
-  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
-  "last_activity_at" TEXT DEFAULT (datetime('now')) NOT NULL,
-  "stopped_at" TEXT,
-  "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS "sandbox_tmux_sessions" (
-  "id" TEXT PRIMARY KEY NOT NULL,
-  "sandbox_id" TEXT NOT NULL,
-  "session_name" TEXT NOT NULL,
-  "task_id" TEXT,
-  "window_count" INTEGER DEFAULT 1 NOT NULL,
-  "attached" INTEGER DEFAULT 0 NOT NULL,
-  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
-  "last_activity_at" TEXT DEFAULT (datetime('now')) NOT NULL,
-  UNIQUE("sandbox_id", "session_name")
-);
-`;
-
-function setupSandboxTables(): void {
-  execRawSql(SANDBOX_TABLES_SQL);
-}
-
-function clearSandboxTables(): void {
-  try {
-    execRawSql('DELETE FROM sandbox_tmux_sessions');
-    execRawSql('DELETE FROM sandbox_instances');
-  } catch {
-    // Tables may not exist yet
-  }
-}
-
-import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
 
 // ---------------------------------------------------------------------------
 // Mock factories for external I/O boundaries
@@ -149,7 +101,6 @@ describe('SandboxService (IT-420)', () => {
   beforeEach(async () => {
     await setupTestDatabase();
     db = getTestDb();
-    setupSandboxTables();
     provider = createMockProvider();
     streams = createMockStreams();
     service = new SandboxService(db as any, provider, streams as any);
@@ -157,7 +108,6 @@ describe('SandboxService (IT-420)', () => {
 
   afterEach(async () => {
     service.stopIdleChecker();
-    clearSandboxTables();
     await clearTestDatabase();
   });
 

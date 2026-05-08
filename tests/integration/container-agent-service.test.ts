@@ -1,12 +1,121 @@
+import { Readable } from 'node:stream';
 import { and, eq, inArray } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { agents, sessions, tasks, worktrees } from '../../src/db/schema';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { agents, sessionEvents, sessions, tasks, worktrees } from '../../src/db/schema';
+import type { Sandbox, SandboxProvider } from '../../src/lib/sandbox/providers/sandbox-provider';
+import type { ApiKeyService } from '../../src/services/api-key.service';
+import { createContainerAgentService } from '../../src/services/container-agent.service';
+import type { DurableStreamsService } from '../../src/services/durable-streams.service';
+import type { Database } from '../../src/types/database';
 import { createTestAgent } from '../factories/agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestSession } from '../factories/session.factory';
 import { createTestTask } from '../factories/task.factory';
 import { createTestWorktree } from '../factories/worktree.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
+import { createInMemoryStreams } from '../helpers/mocks';
+
+function createRunningSandbox(codespaceId: string, overrides: Partial<Sandbox> = {}): Sandbox {
+  return {
+    id: `sandbox-${codespaceId}`,
+    codespaceId,
+    containerId: `container-${codespaceId}`,
+    status: 'running',
+    exec: vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' })),
+    execAsRoot: vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' })),
+    createTmuxSession: vi.fn(async (sessionName: string) => ({
+      name: sessionName,
+      sandboxId: `sandbox-${codespaceId}`,
+      createdAt: new Date().toISOString(),
+      windowCount: 1,
+      attached: false,
+    })),
+    listTmuxSessions: vi.fn(async () => []),
+    killTmuxSession: vi.fn(async () => undefined),
+    sendKeysToTmux: vi.fn(async () => undefined),
+    captureTmuxPane: vi.fn(async () => ''),
+    stop: vi.fn(async () => undefined),
+    getMetrics: vi.fn(async () => ({
+      cpuUsagePercent: 0,
+      memoryUsageMb: 0,
+      memoryLimitMb: 8192,
+      diskUsageMb: 0,
+      networkRxBytes: 0,
+      networkTxBytes: 0,
+      uptime: 0,
+    })),
+    touch: vi.fn(),
+    getLastActivity: vi.fn(() => new Date()),
+    execStream: vi.fn(async () => ({
+      stdout: Readable.from([]),
+      stderr: Readable.from([]),
+      wait: async () => ({ exitCode: 0 }),
+      kill: vi.fn(),
+    })),
+    writeFile: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
+
+function createNoopProvider(overrides: Partial<SandboxProvider> = {}): SandboxProvider {
+  return {
+    name: 'test-provider',
+    create: vi.fn(async (config) => createRunningSandbox(config.codespaceId)),
+    get: vi.fn(async () => null),
+    getById: vi.fn(async () => null),
+    list: vi.fn(async () => []),
+    recover: vi.fn(async () => ({ recovered: 0, removed: 0 })),
+    pullImage: vi.fn(async () => undefined),
+    isImageAvailable: vi.fn(async () => true),
+    healthCheck: vi.fn(async () => ({ healthy: true })),
+    cleanup: vi.fn(async () => 0),
+    ...overrides,
+  };
+}
+
+function createNoopApiKeyService(): Pick<
+  ApiKeyService,
+  'getDecryptedKey' | 'getDecryptedRefreshToken'
+> {
+  return {
+    getDecryptedKey: vi.fn(async () => null),
+    getDecryptedRefreshToken: vi.fn(async () => null),
+  };
+}
+
+function createService(params: {
+  db: ReturnType<typeof getTestDb>;
+  provider?: SandboxProvider;
+  streams?: DurableStreamsService;
+  apiKeyService?: Pick<ApiKeyService, 'getDecryptedKey' | 'getDecryptedRefreshToken'>;
+}) {
+  return createContainerAgentService(
+    params.db as unknown as Database,
+    params.provider ?? createNoopProvider(),
+    params.streams ?? createInMemoryStreams(),
+    (params.apiKeyService ?? createNoopApiKeyService()) as unknown as ApiKeyService
+  );
+}
+
+function clearAnthropicEnv(): () => void {
+  const previousAuthToken = process.env.ANTHROPIC_AUTH_TOKEN;
+  const previousApiKey = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_AUTH_TOKEN;
+  delete process.env.ANTHROPIC_API_KEY;
+
+  return () => {
+    if (previousAuthToken === undefined) {
+      delete process.env.ANTHROPIC_AUTH_TOKEN;
+    } else {
+      process.env.ANTHROPIC_AUTH_TOKEN = previousAuthToken;
+    }
+    if (previousApiKey === undefined) {
+      delete process.env.ANTHROPIC_API_KEY;
+    } else {
+      process.env.ANTHROPIC_API_KEY = previousApiKey;
+    }
+  };
+}
 
 describe('ContainerAgentService — DB-level integration tests', () => {
   beforeEach(async () => {
@@ -253,6 +362,75 @@ describe('ContainerAgentService — DB-level integration tests', () => {
     expect(remaining[0]?.id).toBe(task1.id);
   });
 
+  it('IT-108b: reconcile flushes orphaned tool starts through the real container-agent service', async () => {
+    const db = getTestDb();
+    const streams = createInMemoryStreams();
+    const project = await createTestProject();
+    const task = await createTestTask(project.id, {
+      column: 'in_progress',
+      lastAgentStatus: 'running',
+    });
+    const session = await createTestSession(project.id, { taskId: task.id });
+
+    await db.insert(sessionEvents).values([
+      {
+        sessionId: session.id,
+        streamKind: 'session',
+        offset: 0,
+        type: 'container-agent:tool:start',
+        channel: 'toolCalls',
+        data: { toolId: 'tool-orphaned', toolName: 'Bash' },
+        timestamp: 1_000,
+      },
+      {
+        sessionId: session.id,
+        streamKind: 'session',
+        offset: 1,
+        type: 'container-agent:tool:start',
+        channel: 'toolCalls',
+        data: { toolId: 'tool-finished', toolName: 'Read' },
+        timestamp: 2_000,
+      },
+      {
+        sessionId: session.id,
+        streamKind: 'session',
+        offset: 2,
+        type: 'container-agent:tool:result',
+        channel: 'toolCalls',
+        data: { toolId: 'tool-finished', result: 'ok', isError: false },
+        timestamp: 2_100,
+      },
+    ]);
+
+    const service = createContainerAgentService(
+      db as unknown as Database,
+      createNoopProvider(),
+      streams as unknown as DurableStreamsService,
+      createNoopApiKeyService() as unknown as ApiKeyService
+    );
+
+    await service.reconcile();
+
+    const reconciledTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+    expect(reconciledTask?.column).toBe('backlog');
+    expect(reconciledTask?.lastAgentStatus).toBeNull();
+
+    const syntheticResults = streams
+      .getEvents(session.id)
+      .filter((event) => event.type === 'container-agent:tool:result');
+    expect(syntheticResults).toHaveLength(1);
+    expect(syntheticResults[0]?.data).toMatchObject({
+      taskId: task.id,
+      sessionId: session.id,
+      toolId: 'tool-orphaned',
+      toolName: 'Bash',
+      isError: true,
+      durationMs: 0,
+    });
+
+    service.dispose();
+  });
+
   it('IT-109: deleting agents sets null on dangling task references', async () => {
     const db = getTestDb();
     const project = await createTestProject();
@@ -333,5 +511,141 @@ describe('ContainerAgentService — DB-level integration tests', () => {
     expect(dbSession?.sandboxContainerId).toBe('container-abc123');
     expect(dbSession?.taskId).toBe(task.id);
     expect(dbSession?.agentId).toBe(agent.id);
+  });
+
+  it('IT-113: startAgent persists session and status events before failing at missing OAuth boundary', async () => {
+    const restoreEnv = clearAnthropicEnv();
+    const db = getTestDb();
+    const streams = createInMemoryStreams();
+    const project = await createTestProject({ path: '/workspace/project' });
+    const task = await createTestTask(project.id, {
+      title: 'Run real facade path',
+      column: 'in_progress',
+    });
+    const sandbox = createRunningSandbox(project.id);
+    const provider = createNoopProvider({
+      get: vi.fn(async () => sandbox),
+    });
+    const service = createService({
+      db,
+      provider,
+      streams: streams as unknown as DurableStreamsService,
+    });
+
+    try {
+      const result = await service.startAgent({
+        codespaceId: project.id,
+        taskId: task.id,
+        sessionId: 'session-real-start',
+        prompt: 'Implement the thing',
+        phase: 'plan',
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('SANDBOX_API_KEY_NOT_CONFIGURED');
+      }
+
+      const dbSession = await db.query.sessions.findFirst({
+        where: eq(sessions.id, 'session-real-start'),
+      });
+      expect(dbSession).toMatchObject({
+        codespaceId: project.id,
+        taskId: task.id,
+        agentId: `agent-${task.id}`,
+        sandboxProvider: 'test-provider',
+        sandboxContainerId: sandbox.containerId,
+      });
+
+      const dbAgent = await db.query.agents.findFirst({
+        where: eq(agents.id, `agent-${task.id}`),
+      });
+      expect(dbAgent).toMatchObject({
+        codespaceId: project.id,
+        currentTaskId: task.id,
+        currentSessionId: 'session-real-start',
+        status: 'starting',
+      });
+
+      expect(streams.getEvents('session-real-start').map((event) => event.type)).toEqual([
+        'container-agent:status',
+        'container-agent:status',
+        'container-agent:message',
+        'container-agent:message',
+        'container-agent:status',
+        'container-agent:message',
+        'container-agent:message',
+      ]);
+      expect(service.isAgentRunning(task.id)).toBe(false);
+    } finally {
+      service.dispose();
+      restoreEnv();
+    }
+  });
+
+  it('IT-114: approvePlan recovers DB-backed plan and rolls task back when execution cannot start', async () => {
+    const restoreEnv = clearAnthropicEnv();
+    const db = getTestDb();
+    const streams = createInMemoryStreams();
+    const project = await createTestProject({ path: '/workspace/project' });
+    await createTestSession(project.id, { id: 'session-plan-recovered' });
+    const task = await createTestTask(project.id, {
+      column: 'waiting_approval',
+      plan: 'Approved plan from a previous process',
+      planOptions: {
+        sdkSessionId: 'sdk-recovered',
+        allowedPrompts: [{ tool: 'Bash', prompt: 'bun test' }],
+      },
+      lastAgentStatus: 'planning',
+      sessionId: 'session-plan-recovered',
+    });
+    const provider = createNoopProvider({
+      get: vi.fn(async () => createRunningSandbox(project.id)),
+    });
+    const service = createService({
+      db,
+      provider,
+      streams: streams as unknown as DurableStreamsService,
+    });
+
+    try {
+      const recovered = await service.getPendingPlan(task.id);
+      expect(recovered).toMatchObject({
+        taskId: task.id,
+        sessionId: 'session-plan-recovered',
+        codespaceId: project.id,
+        plan: 'Approved plan from a previous process',
+        sdkSessionId: 'sdk-recovered',
+        allowedPrompts: [{ tool: 'Bash', prompt: 'bun test' }],
+      });
+
+      const result = await service.approvePlan(task.id);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('SANDBOX_API_KEY_NOT_CONFIGURED');
+      }
+
+      const taskAfter = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+      expect(taskAfter).toMatchObject({
+        column: 'waiting_approval',
+        lastAgentStatus: 'planning',
+        plan: 'Approved plan from a previous process',
+      });
+      expect(streams.getEvents('session-plan-recovered')).toContainEqual(
+        expect.objectContaining({
+          type: 'container-agent:message',
+          data: expect.objectContaining({
+            role: 'approval',
+            content: 'Plan approved by user. Starting execution phase.',
+          }),
+        })
+      );
+      expect(await service.getPendingPlan(task.id)).toMatchObject({
+        sdkSessionId: 'sdk-recovered',
+      });
+    } finally {
+      service.dispose();
+      restoreEnv();
+    }
   });
 });

@@ -26,6 +26,23 @@ const TEAM_1 = 'team-rbac-1';
 const TEAM_2 = 'team-rbac-2';
 const FOLDER_ID = 'folder-rbac-test';
 
+async function seedRbacUsers(db: ReturnType<typeof getTestDb>): Promise<void> {
+  for (const [userId, githubId, login] of [
+    [USER_A, 10001, 'user-a'],
+    [USER_B, 10002, 'user-b'],
+    [USER_C, 10003, 'user-c'],
+    [USER_D, 10004, 'user-d'],
+    [USER_NONE, 10005, 'user-none'],
+  ] as const) {
+    await db.insert(users).values({
+      id: userId,
+      githubId,
+      githubLogin: login,
+      name: login,
+    });
+  }
+}
+
 describe('IT-004: RBAC Role Resolution Cascade', () => {
   let db: ReturnType<typeof getTestDb>;
   let rbacService: RbacService;
@@ -33,28 +50,13 @@ describe('IT-004: RBAC Role Resolution Cascade', () => {
   beforeAll(async () => {
     await setupTestDatabase();
     db = getTestDb();
-
-    // Insert test users (not cleared by clearTestDatabase)
-    for (const [userId, githubId, login] of [
-      [USER_A, 10001, 'user-a'],
-      [USER_B, 10002, 'user-b'],
-      [USER_C, 10003, 'user-c'],
-      [USER_D, 10004, 'user-d'],
-      [USER_NONE, 10005, 'user-none'],
-    ] as const) {
-      await db.insert(users).values({
-        id: userId,
-        githubId,
-        githubLogin: login,
-        name: login,
-      });
-    }
   });
 
   beforeEach(async () => {
     await clearTestDatabase();
     db = getTestDb();
     rbacService = new RbacService(db as any);
+    await seedRbacUsers(db);
 
     // Create project folder
     execRawSql(
@@ -80,14 +82,6 @@ describe('IT-004: RBAC Role Resolution Cascade', () => {
   });
 
   afterAll(async () => {
-    // Clean up users
-    try {
-      execRawSql(
-        `DELETE FROM users WHERE id IN ('${USER_A}','${USER_B}','${USER_C}','${USER_D}','${USER_NONE}')`
-      );
-    } catch {
-      // safe to ignore
-    }
     await closeTestDatabase();
   });
 

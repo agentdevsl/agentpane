@@ -30,24 +30,25 @@ function SkillNodeComponent({ data, selected }: NodeProps) {
       />
 
       <div
-        className="flex h-full w-full items-center justify-center gap-1.5 rounded-full border-2 px-2"
+        className="flex h-full w-full items-center justify-center gap-1.5 rounded-full border-2 px-2 shadow-sm"
         style={{
+          // Solid accent fill with high-contrast foreground so the skill
+          // pill stays legible against both the dark canvas and the
+          // tinted cluster boxes underneath.
           backgroundColor: selected
-            ? 'var(--accent-subtle, rgba(56, 139, 253, 0.15))'
-            : 'var(--surface-subtle, rgba(56, 139, 253, 0.08))',
-          borderColor: selected
-            ? 'var(--accent-default, #388bfd)'
-            : 'var(--accent-muted, rgba(56, 139, 253, 0.4))',
+            ? 'var(--accent-emphasis, var(--accent-default, #1f6feb))'
+            : 'color-mix(in srgb, var(--accent-default, #388bfd) 35%, var(--bg-canvas, #0d1117))',
+          borderColor: 'var(--accent-default, #388bfd)',
           transition: 'background-color 200ms, border-color 200ms',
         }}
       >
         <Lightning
           className="h-4 w-4 shrink-0"
           weight="fill"
-          style={{ color: 'var(--accent-default, #388bfd)' }}
+          style={{ color: 'var(--accent-fg, var(--accent-default, #388bfd))' }}
         />
         <span
-          className="truncate text-xs font-medium leading-tight"
+          className="truncate text-xs font-semibold leading-tight"
           style={{ color: 'var(--fg-default)' }}
         >
           {name}

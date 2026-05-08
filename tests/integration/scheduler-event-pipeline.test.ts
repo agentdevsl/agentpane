@@ -9,6 +9,8 @@ import { CronEventSourcePlugin } from '../../src/lib/events/plugins/cron-plugin'
 import { EventSourceService } from '../../src/services/event-source.service';
 import { SchedulerService } from '../../src/services/scheduler.service';
 import { createTestEventSource } from '../factories/event-source.factory';
+import { createTestProject } from '../factories/project.factory';
+import { createTestTask } from '../factories/task.factory';
 import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
 
 // ---------------------------------------------------------------------------
@@ -129,7 +131,8 @@ describe('Scheduler Event Pipeline (IT-301 to IT-306)', () => {
       config: config as unknown as Record<string, unknown>,
     });
 
-    const taskId = createId();
+    const codespace = await createTestProject();
+    const task = await createTestTask(codespace.id);
     const mockProcessing = createMockEventProcessingService({
       processScheduledEvent: vi.fn().mockResolvedValue({
         ok: true,
@@ -138,7 +141,7 @@ describe('Scheduler Event Pipeline (IT-301 to IT-306)', () => {
           eventLogId: createId(),
           status: 'processed',
           matchCount: 1,
-          tasksCreated: [taskId],
+          tasksCreated: [task.id],
         },
       }),
     });
@@ -156,7 +159,7 @@ describe('Scheduler Event Pipeline (IT-301 to IT-306)', () => {
     if (!result.ok) return;
 
     expect(result.value.triggered).toBe(true);
-    expect(result.value.taskIds).toContain(taskId);
+    expect(result.value.taskIds).toContain(task.id);
 
     // Verify execution record was persisted
     const execRows = await db
@@ -168,7 +171,7 @@ describe('Scheduler Event Pipeline (IT-301 to IT-306)', () => {
     const exec = execRows.find((r) => r.status === 'executed');
     expect(exec).toBeDefined();
     expect(exec!.eventSourceId).toBe(source.id);
-    expect(exec!.taskId).toBe(taskId);
+    expect(exec!.taskId).toBe(task.id);
   });
 
   // -------------------------------------------------------------------------

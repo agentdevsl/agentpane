@@ -2,9 +2,11 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tasks } from '../../src/db/schema';
 import { TaskService } from '../../src/services/task.service';
+import { createTestAgent } from '../factories/agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestTask } from '../factories/task.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
+import { createMockContainerAgent } from '../helpers/mocks';
 
 function createMockWorktreeService() {
   return {
@@ -118,6 +120,56 @@ describe('IT-031–035: Task Update and Delete', () => {
       const rows = await db.select().from(tasks).where(eq(tasks.id, task.id));
       expect(rows).toHaveLength(0);
     });
+
+    it('stops an in-memory container agent before deleting an in-progress task', async () => {
+      const codespace = await createTestProject();
+      const task = await createTestTask(codespace.id, {
+        title: 'Delete Running Task',
+        column: 'in_progress',
+      });
+
+      const worktreeService = createMockWorktreeService();
+      const taskService = new TaskService(db as any, worktreeService);
+      const containerAgent = createMockContainerAgent({
+        isAgentRunning: vi.fn().mockReturnValue(true),
+      });
+      taskService.setContainerAgentService(containerAgent);
+
+      const deleteResult = await taskService.delete(task.id);
+
+      expect(deleteResult.ok).toBe(true);
+      expect(containerAgent.isAgentRunning).toHaveBeenCalledWith(task.id);
+      expect(containerAgent.stopAgent).toHaveBeenCalledWith(task.id);
+
+      const rows = await db.select().from(tasks).where(eq(tasks.id, task.id));
+      expect(rows).toHaveLength(0);
+    });
+
+    it('stops a host-mode agent before deleting an in-progress task', async () => {
+      const codespace = await createTestProject();
+      const agent = await createTestAgent(codespace.id, { status: 'running' });
+      const task = await createTestTask(codespace.id, {
+        title: 'Delete Host Task',
+        column: 'in_progress',
+        agentId: agent.id,
+      });
+
+      const worktreeService = createMockWorktreeService();
+      const taskService = new TaskService(db as any, worktreeService);
+      const agentExecution = {
+        resume: vi.fn(),
+        stop: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+      };
+      taskService.setAgentExecutionService(agentExecution);
+
+      const deleteResult = await taskService.delete(task.id);
+
+      expect(deleteResult.ok).toBe(true);
+      expect(agentExecution.stop).toHaveBeenCalledWith(agent.id);
+
+      const rows = await db.select().from(tasks).where(eq(tasks.id, task.id));
+      expect(rows).toHaveLength(0);
+    });
   });
 
   // IT-034: task-delete-nonexistent (P1)
@@ -159,6 +211,89 @@ describe('IT-031–035: Task Update and Delete', () => {
       expect(clearResult.ok).toBe(true);
       if (!clearResult.ok) return;
       expect(clearResult.value.modelOverride).toBeNull();
+    });
+  });
+
+  describe('IT-036: task-cancel-running-agent-cleanup', () => {
+    it('stops an in-memory container agent before cancelling an in-progress task', async () => {
+      const codespace = await createTestProject();
+      const task = await createTestTask(codespace.id, {
+        title: 'Cancel Running Task',
+        column: 'in_progress',
+      });
+
+      const worktreeService = createMockWorktreeService();
+      const taskService = new TaskService(db as any, worktreeService);
+      const containerAgent = createMockContainerAgent({
+        isAgentRunning: vi.fn().mockReturnValue(true),
+      });
+      taskService.setContainerAgentService(containerAgent);
+
+      const cancelResult = await taskService.cancelTask(task.id);
+
+      expect(cancelResult.ok).toBe(true);
+      expect(containerAgent.isAgentRunning).toHaveBeenCalledWith(task.id);
+      expect(containerAgent.stopAgent).toHaveBeenCalledWith(task.id);
+      if (!cancelResult.ok) return;
+      expect(cancelResult.value.column).toBe('backlog');
+      expect(cancelResult.value.lastAgentStatus).toBe('cancelled');
+    });
+
+    it('stops a host-mode agent before cancelling an in-progress task', async () => {
+      const codespace = await createTestProject();
+      const agent = await createTestAgent(codespace.id, { status: 'running' });
+      const task = await createTestTask(codespace.id, {
+        title: 'Cancel Host Task',
+        column: 'in_progress',
+        agentId: agent.id,
+      });
+
+      const worktreeService = createMockWorktreeService();
+      const taskService = new TaskService(db as any, worktreeService);
+      const agentExecution = {
+        resume: vi.fn(),
+        stop: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+      };
+      taskService.setAgentExecutionService(agentExecution);
+
+      const cancelResult = await taskService.cancelTask(task.id);
+
+      expect(cancelResult.ok).toBe(true);
+      expect(agentExecution.stop).toHaveBeenCalledWith(agent.id);
+      if (!cancelResult.ok) return;
+      expect(cancelResult.value.column).toBe('backlog');
+      expect(cancelResult.value.agentId).toBeNull();
+      expect(cancelResult.value.lastAgentStatus).toBe('cancelled');
+    });
+
+    it('cancels a task while automated agent review is in flight and clears review state', async () => {
+      const codespace = await createTestProject();
+      const task = await createTestTask(codespace.id, {
+        title: 'Cancel Agent Reviewing Task',
+        column: 'waiting_approval',
+        lastAgentStatus: 'agent_reviewing',
+        plan: 'Review this plan',
+        planOptions: { sdkSessionId: 'sdk-agent-reviewing' },
+        agentReviewResult: {
+          approved: false,
+          concerns: ['still reviewing'],
+        },
+        agentReviewedAt: new Date().toISOString(),
+      });
+
+      const worktreeService = createMockWorktreeService();
+      const taskService = new TaskService(db as any, worktreeService);
+
+      const cancelResult = await taskService.cancelTask(task.id);
+
+      expect(cancelResult.ok).toBe(true);
+      if (!cancelResult.ok) return;
+      expect(cancelResult.value.column).toBe('backlog');
+      expect(cancelResult.value.lastAgentStatus).toBe('cancelled');
+      expect(cancelResult.value.plan).toBeNull();
+      expect(cancelResult.value.planOptions).toBeNull();
+      expect(cancelResult.value.agentReviewResult).toBeNull();
+      expect(cancelResult.value.agentReviewedAt).toBeNull();
     });
   });
 });

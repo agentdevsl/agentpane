@@ -1,20 +1,19 @@
 import { createId } from '@paralleldrive/cuid2';
 import type { Codespace, CodespaceConfig, NewCodespace } from '../../src/db/schema';
 import { codespaces, projectFolders } from '../../src/db/schema';
-import { execRawSql, getTestDb } from '../helpers/database';
+import { getTestDb, runRawSql } from '../helpers/database';
 
 /** Ensure the default project folder exists (idempotent) */
 async function ensureDefaultFolder(db: ReturnType<typeof getTestDb>) {
-  try {
-    await db.insert(projectFolders).values({
+  await db
+    .insert(projectFolders)
+    .values({
       id: 'default-folder',
       name: 'Default',
       slug: 'default',
       description: 'Default project folder for tests',
-    });
-  } catch {
-    // Already exists — safe to ignore
-  }
+    })
+    .onConflictDoNothing();
 }
 
 export type ProjectFactoryOptions = Partial<NewCodespace> & {
@@ -58,12 +57,11 @@ export async function createTestProject(options: ProjectFactoryOptions = {}): Pr
 
   // Also insert into legacy projects table so old FK constraints on
   // project_id columns (agents, tasks, sessions, etc.) are satisfied
-  try {
-    execRawSql(
-      `INSERT OR IGNORE INTO projects (id, name, path, created_at, updated_at) VALUES ('${data.id}', '${(data.name ?? '').replace(/'/g, "''")}', '${(data.path ?? '').replace(/'/g, "''")}', datetime('now'), datetime('now'))`
+  if ((process.env.DB_MODE ?? 'sqlite') !== 'postgres') {
+    runRawSql(
+      "INSERT OR IGNORE INTO projects (id, name, path, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))",
+      [data.id, data.name ?? '', data.path ?? '']
     );
-  } catch {
-    // safe to ignore if table doesn't exist or already has the row
   }
 
   if (!project) {

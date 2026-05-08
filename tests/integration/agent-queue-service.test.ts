@@ -93,6 +93,24 @@ describe('AgentQueueService (IT-210)', () => {
       expect(result.error.code).toBe('QUEUE_ERROR');
     });
 
+    it('IT-211g: rejects task IDs from a different codespace without mutating them', async () => {
+      const otherCodespace = await createTestProject({ name: 'Other Queue Codespace' });
+      const otherTask = await createTestTask(otherCodespace.id, {
+        column: 'backlog',
+        title: 'Foreign queue task',
+      });
+
+      const result = await queueService.queueTask(codespaceId, otherTask.id);
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe('QUEUE_ERROR');
+      expect(result.error.message).toContain('Task not found');
+
+      const dbTask = await db.query.tasks.findFirst({ where: eq(tasks.id, otherTask.id) });
+      expect(dbTask?.column).toBe('backlog');
+    });
+
     it('IT-211f: estimated wait time scales with position and average completion', async () => {
       // Create completed agent runs to build an average
       const agent = await createTestAgent(codespaceId, { status: 'idle' });
@@ -200,6 +218,27 @@ describe('AgentQueueService (IT-210)', () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.value).toBeNull();
+    });
+
+    it('IT-212e: two simultaneous dequeues cannot claim the same task twice', async () => {
+      const task = await createTestTask(codespaceId, { column: 'backlog' });
+      await queueService.queueTask(codespaceId, task.id);
+
+      const [first, second] = await Promise.all([
+        queueService.dequeueNext(codespaceId),
+        queueService.dequeueNext(codespaceId),
+      ]);
+
+      expect(first.ok).toBe(true);
+      expect(second.ok).toBe(true);
+      if (!first.ok || !second.ok) return;
+
+      const claimed = [first.value, second.value].filter(Boolean);
+      expect(claimed).toHaveLength(1);
+      expect(claimed[0]?.id).toBe(task.id);
+
+      const dbTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+      expect(dbTask?.column).toBe('backlog');
     });
   });
 
