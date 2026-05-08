@@ -5,7 +5,7 @@ import type { EventSource } from '../db/schema/index.js';
 import { getRuntimeSchemaTables } from '../db/schema/runtime-tables.js';
 import type { CronEventSourceConfig } from '../db/schema/shared/cron-config.js';
 import type { BackgroundJob, BackgroundJobSnapshot } from '../lib/background/job.js';
-import { jsonExtractText, jsonSetMany, runRaw } from '../lib/db/dialect.js';
+import { getDbDialect, jsonExtractText, jsonSetMany, runRaw } from '../lib/db/dialect.js';
 import type { AppError } from '../lib/errors/base.js';
 import { ScheduleErrors } from '../lib/errors/event-errors.js';
 import { ServiceErrors } from '../lib/errors/service-errors.js';
@@ -883,21 +883,22 @@ export class SchedulerService implements BackgroundJob {
     const resumedAt = new Date().toISOString();
 
     // F02-15: portable update — reuses jsonSetMany (which dispatches
-    // json_set / jsonb_set per dialect) and a portable boolean literal.
-    // Passing a JS boolean through Drizzle's parameterised template lets
-    // the driver encode it correctly for each dialect (1/0 in SQLite,
-    // TRUE/FALSE in Postgres).
+    // json_set / jsonb_set per dialect). Boolean is encoded per-dialect
+    // because better-sqlite3 rejects JS booleans as bound parameters
+    // (must be number/string/bigint/buffer/null) — use 1/0 on SQLite,
+    // TRUE/FALSE on Postgres.
     const configPatch = jsonSetMany(eventSources.config, [
       [['nextRunAt'], newNextRunAt],
       [['consecutiveErrors'], 0],
       [['pausedAt'], null],
     ]);
+    const isEnabledLiteral = getDbDialect() === 'postgres' ? sql`TRUE` : sql`1`;
     await runRaw(
       this.db,
       sql`
         UPDATE event_sources
         SET status = 'active',
-            is_enabled = ${true},
+            is_enabled = ${isEnabledLiteral},
             config = ${configPatch},
             updated_at = ${resumedAt}
         WHERE id = ${sourceId}
