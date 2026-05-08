@@ -169,6 +169,15 @@ export default defineConfig({
         'src/lib/types/**/*.ts',
         'src/lib/sandbox/providers/_archived/**',
         'src/lib/vite-stubs/**',
+        // Browser-only modules: TanStack DB collections, React hooks, and
+        // UI-side data shaping. These are exercised by the `unit`/`jsdom`
+        // projects and have dedicated colocated/`tests/lib/**` suites; they
+        // cannot be reached from server-side integration/functional tests
+        // and inflate the "uncovered" denominator without being dead code.
+        'src/lib/sessions/**',
+        'src/lib/task-creation/**',
+        'src/lib/topology/**',
+        'src/lib/hooks/**',
       ],
       reporter: ['text', 'lcov', 'html', 'json-summary'],
       // Baseline measured 2026-04-21 on unit+jsdom+db projects:
