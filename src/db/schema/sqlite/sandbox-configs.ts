@@ -43,6 +43,21 @@ export const sandboxConfigs = sqliteTable('sandbox_configs', {
   /** Nomad region */
   nomadRegion: text('nomad_region'),
 
+  // AWS Bedrock AgentCore-specific configuration fields. Bootstrap migration
+  // v14 adds these columns; the Drizzle schema must mirror them so service
+  // inserts can persist credentials and ARNs (otherwise Drizzle silently
+  // drops the values).
+  /** AWS access key ID for the Bedrock AgentCore runtime account. */
+  awsAccessKeyId: text('aws_access_key_id'),
+  /** AWS secret access key (encrypted at rest, decrypted in-memory only). */
+  awsSecretAccessKey: text('aws_secret_access_key'),
+  /** AWS region where the AgentCore runtime is hosted. */
+  awsRegion: text('aws_region'),
+  /** ARN of the AgentCore runtime to invoke. */
+  agentcoreRuntimeArn: text('agentcore_runtime_arn'),
+  /** ECR repository URI for the AgentCore container image. */
+  ecrRepositoryUri: text('ecr_repository_uri'),
+
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
   updatedAt: text('updated_at')
     .default(sql`(datetime('now'))`)
