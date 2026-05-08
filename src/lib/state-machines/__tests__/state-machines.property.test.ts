@@ -2,6 +2,7 @@
 
 import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { VALID_TRANSITIONS } from '../../../services/task-transitions.js';
 import type { AppError } from '../../errors/base.js';
 import { createError } from '../../errors/base.js';
 import {
@@ -98,10 +99,18 @@ const agentEventArb: fc.Arbitrary<AgentLifecycleEvent> = fc.oneof(
 
 // --- Task workflow ---
 
-const taskStates: TaskColumn[] = ['backlog', 'in_progress', 'waiting_approval', 'verified'];
+const taskStates: TaskColumn[] = [
+  'backlog',
+  'queued',
+  'in_progress',
+  'waiting_approval',
+  'verified',
+];
 const taskStateArb: fc.Arbitrary<TaskColumn> = fc.constantFrom(...taskStates);
 
 const taskEventArb: fc.Arbitrary<TaskWorkflowEvent> = fc.oneof(
+  fc.record({ type: fc.constant('QUEUE' as const) }),
+  fc.record({ type: fc.constant('DEQUEUE' as const) }),
   fc.record({ type: fc.constant('ASSIGN' as const), agentId: fc.string({ minLength: 1 }) }),
   fc.record({ type: fc.constant('COMPLETE' as const) }),
   fc.record({ type: fc.constant('APPROVE' as const) }),
@@ -109,7 +118,8 @@ const taskEventArb: fc.Arbitrary<TaskWorkflowEvent> = fc.oneof(
     type: fc.constant('REJECT' as const),
     reason: fc.option(fc.string(), { nil: undefined }),
   }),
-  fc.record({ type: fc.constant('CANCEL' as const) })
+  fc.record({ type: fc.constant('CANCEL' as const) }),
+  fc.record({ type: fc.constant('REOPEN' as const) })
 );
 
 // --- Session lifecycle ---
@@ -271,7 +281,13 @@ describe('property: invariants', () => {
       fc.assert(
         fc.property(fc.array(taskEventArb, { minLength: 1, maxLength: 30 }), (events) => {
           const machine = createTaskWorkflowMachine({ taskId: 'task-1' });
-          const validStates: string[] = ['backlog', 'in_progress', 'waiting_approval', 'verified'];
+          const validStates: string[] = [
+            'backlog',
+            'queued',
+            'in_progress',
+            'waiting_approval',
+            'verified',
+          ];
           for (const event of events) {
             machine.send(event);
             expect(validStates).toContain(machine.state);
@@ -281,7 +297,7 @@ describe('property: invariants', () => {
       );
     });
 
-    it('verified is truly absorbing — no events change it', () => {
+    it('verified only reopens to backlog', () => {
       fc.assert(
         fc.property(fc.array(taskEventArb, { minLength: 1, maxLength: 20 }), (events) => {
           // Drive to verified: ASSIGN -> COMPLETE -> APPROVE (with diff)
@@ -296,8 +312,17 @@ describe('property: invariants', () => {
 
           for (const event of events) {
             const result = machine.send(event);
-            expect(machine.state).toBe('verified');
-            expect(result.ok).toBe(false);
+            if (event.type === 'REOPEN') {
+              expect(result.ok).toBe(true);
+              expect(machine.state).toBe('backlog');
+              machine.send({ type: 'ASSIGN', agentId: 'agent-1' });
+              machine.send({ type: 'COMPLETE' });
+              machine.send({ type: 'APPROVE' });
+              expect(machine.state).toBe('verified');
+            } else {
+              expect(machine.state).toBe('verified');
+              expect(result.ok).toBe(false);
+            }
           }
         }),
         { numRuns: 200 }
@@ -557,6 +582,7 @@ describe('property: reachability', () => {
   // Known paths to reach each task state
   const taskPaths: Record<TaskColumn, TaskWorkflowEvent[]> = {
     backlog: [], // initial state
+    queued: [{ type: 'QUEUE' }],
     in_progress: [{ type: 'ASSIGN', agentId: 'agent-1' }],
     waiting_approval: [{ type: 'ASSIGN', agentId: 'agent-1' }, { type: 'COMPLETE' }],
     verified: [{ type: 'ASSIGN', agentId: 'agent-1' }, { type: 'COMPLETE' }, { type: 'APPROVE' }],
@@ -572,6 +598,44 @@ describe('property: reachability', () => {
         machine.send(event);
       }
       expect(machine.state).toBe(state);
+    }
+  });
+
+  const serviceTransitionEvents: Array<{
+    from: TaskColumn;
+    to: TaskColumn;
+    event: TaskWorkflowEvent;
+  }> = [
+    { from: 'backlog', to: 'queued', event: { type: 'QUEUE' } },
+    { from: 'backlog', to: 'in_progress', event: { type: 'ASSIGN', agentId: 'agent-1' } },
+    { from: 'queued', to: 'in_progress', event: { type: 'ASSIGN', agentId: 'agent-1' } },
+    { from: 'queued', to: 'backlog', event: { type: 'DEQUEUE' } },
+    { from: 'in_progress', to: 'waiting_approval', event: { type: 'COMPLETE' } },
+    { from: 'in_progress', to: 'backlog', event: { type: 'CANCEL' } },
+    { from: 'waiting_approval', to: 'verified', event: { type: 'APPROVE' } },
+    { from: 'waiting_approval', to: 'in_progress', event: { type: 'REJECT' } },
+    { from: 'waiting_approval', to: 'backlog', event: { type: 'CANCEL' } },
+    { from: 'verified', to: 'backlog', event: { type: 'REOPEN' } },
+  ];
+
+  it('task workflow machine covers the TaskService transition matrix', () => {
+    const expectedPairs = new Set(
+      Object.entries(VALID_TRANSITIONS).flatMap(([from, targets]) =>
+        targets.map((to) => `${from}->${to}`)
+      )
+    );
+    const actualPairs = new Set(serviceTransitionEvents.map(({ from, to }) => `${from}->${to}`));
+    expect(actualPairs).toEqual(expectedPairs);
+
+    for (const { from, to, event } of serviceTransitionEvents) {
+      const machine = createTaskWorkflowMachine({
+        taskId: 'task-1',
+        column: from,
+        diffSummary: { filesChanged: 1 },
+      });
+      const result = machine.send(event);
+      expect(result.ok).toBe(true);
+      expect(machine.state).toBe(to);
     }
   });
 
@@ -1004,7 +1068,7 @@ describe('property: guard boundaries', () => {
       );
     });
 
-    it('canAssign: true only when column is backlog and no agentId', () => {
+    it('canAssign: true only when column is backlog or queued and no agentId', () => {
       fc.assert(
         fc.property(taskStateArb, (column) => {
           const ctx: TaskWorkflowContext = {
@@ -1015,7 +1079,7 @@ describe('property: guard boundaries', () => {
             maxConcurrentAgents: 3,
             diffSummary: null,
           };
-          expect(canAssign(ctx)).toBe(column === 'backlog');
+          expect(canAssign(ctx)).toBe(column === 'backlog' || column === 'queued');
         }),
         { numRuns: 100 }
       );

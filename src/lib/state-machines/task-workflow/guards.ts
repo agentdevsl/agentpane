@@ -1,6 +1,7 @@
 import type { TaskWorkflowContext } from './types.js';
 
-export const canAssign = (ctx: TaskWorkflowContext) => ctx.column === 'backlog' && !ctx.agentId;
+export const canAssign = (ctx: TaskWorkflowContext) =>
+  (ctx.column === 'backlog' || ctx.column === 'queued') && !ctx.agentId;
 
 export const withinConcurrencyLimit = (ctx: TaskWorkflowContext) =>
   ctx.runningAgents < ctx.maxConcurrentAgents;

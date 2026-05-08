@@ -155,10 +155,10 @@ describe('Agent OAuth refresh token plumbing (F03-09 / arch29-W2-C)', () => {
     );
 
     // Make sure no env-var fallback leaks into the test.
-    delete process.env.ANTHROPIC_AUTH_TOKEN;
-    delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.CLAUDE_OAUTH_TOKEN;
-    delete process.env.CLAUDE_OAUTH_REFRESH_TOKEN;
+    vi.stubEnv('ANTHROPIC_AUTH_TOKEN', undefined);
+    vi.stubEnv('ANTHROPIC_API_KEY', undefined);
+    vi.stubEnv('CLAUDE_OAUTH_TOKEN', undefined);
+    vi.stubEnv('CLAUDE_OAUTH_REFRESH_TOKEN', undefined);
   });
 
   afterEach(async () => {

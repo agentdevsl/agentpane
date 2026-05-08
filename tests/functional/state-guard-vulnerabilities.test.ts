@@ -29,18 +29,9 @@ import { createTestProject } from '../factories/project.factory';
 import { createTestTask } from '../factories/task.factory';
 import { createTestWorktree } from '../factories/worktree.factory';
 import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
+import { createInMemoryStreams } from '../helpers/mocks';
 
 // ---------- test helpers ----------
-
-function createMockStreams(): DurableStreamsService {
-  return {
-    publish: vi.fn().mockResolvedValue(undefined),
-    createStream: vi.fn().mockResolvedValue(undefined),
-    getStream: vi.fn(),
-    subscribe: vi.fn(),
-    close: vi.fn(),
-  } as unknown as DurableStreamsService;
-}
 
 function createMockWorktreeService() {
   return {
@@ -144,7 +135,7 @@ describe('State Machine Guard Vulnerabilities', () => {
   beforeEach(async () => {
     await setupTestDatabase();
     db = getTestDb();
-    streams = createMockStreams();
+    streams = createInMemoryStreams() as unknown as DurableStreamsService;
     mockWorktreeService = createMockWorktreeService();
     taskService = new TaskService(db, mockWorktreeService);
     taskService.setContainerAgentService(createMockContainerAgent());
@@ -223,6 +214,59 @@ describe('State Machine Guard Vulnerabilities', () => {
     // Verify worktree was NOT merged or removed
     expect(mockWorktreeService.merge).not.toHaveBeenCalled();
     expect(mockWorktreeService.remove).not.toHaveBeenCalled();
+  });
+
+  it('updateTaskOnAgentError does not clobber a stored plan already waiting for approval', async () => {
+    const codespace = await createTestProject({ name: 'Planning Error Guard' });
+    const createResult = await taskService.create({
+      codespaceId: codespace.id,
+      title: 'Task with completed planning',
+    });
+    expect(createResult.ok).toBe(true);
+    if (!createResult.ok) {
+      return;
+    }
+
+    await enableSandboxDefaults(db);
+    const move = await taskService.moveColumn(createResult.value.id, 'in_progress');
+    expect(move.ok).toBe(true);
+
+    const { planService } = createPlanApprovalService(db, streams, stateManager);
+    await planService.handlePlanReady(
+      createResult.value.id,
+      'session-planning-error',
+      codespace.id,
+      {
+        plan: 'Plan that must be preserved',
+        turnCount: 3,
+        sdkSessionId: 'sdk-preserve-plan',
+      }
+    );
+
+    const beforeError = await db.query.tasks.findFirst({
+      where: eq(tasks.id, createResult.value.id),
+    });
+    expect(beforeError?.column).toBe('waiting_approval');
+    expect(beforeError?.lastAgentStatus).toBe('planning');
+    expect(beforeError?.plan).toBe('Plan that must be preserved');
+
+    const updated = await updateTaskOnAgentError(
+      db,
+      createResult.value.id,
+      streams,
+      'session-planning-error'
+    );
+    expect(updated).toBe(false);
+
+    const afterError = await db.query.tasks.findFirst({
+      where: eq(tasks.id, createResult.value.id),
+    });
+    expect(afterError?.column).toBe('waiting_approval');
+    expect(afterError?.lastAgentStatus).toBe('planning');
+    expect(afterError?.plan).toBe('Plan that must be preserved');
+    expect((afterError?.planOptions as { sdkSessionId?: string } | null)?.sdkSessionId).toBe(
+      'sdk-preserve-plan'
+    );
   });
 
   // =========================================================================

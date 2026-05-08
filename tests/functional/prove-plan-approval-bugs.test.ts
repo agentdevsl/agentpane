@@ -7,7 +7,6 @@
  *
  * Run: npx vitest run --project functional tests/functional/prove-plan-approval-bugs.test.ts
  */
-import { Readable } from 'node:stream';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tasks } from '../../src/db/schema';
@@ -21,26 +20,10 @@ import { createTestProject } from '../factories/project.factory';
 import { createTestTask } from '../factories/task.factory';
 import { createTestWorktree } from '../factories/worktree.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
+import { createInMemoryStreams, createMockWorktreeInit } from '../helpers/mocks';
+import { agentRunnerLinesToStream, agentRunnerStream } from '../helpers/streams';
 
 // ---------- test helpers ----------
-
-function createMockStreams(): DurableStreamsService {
-  return {
-    publish: vi.fn().mockResolvedValue(undefined),
-    createStream: vi.fn().mockResolvedValue(undefined),
-    getStream: vi.fn(),
-    subscribe: vi.fn(),
-    close: vi.fn(),
-  } as unknown as DurableStreamsService;
-}
-
-function createMockWorktreeInit() {
-  return {
-    cleanupWorktree: vi.fn().mockResolvedValue(undefined),
-    resolveWorktree: vi.fn(),
-    initializeWorkspace: vi.fn(),
-  };
-}
 
 function createPlanApprovalService(
   db: ReturnType<typeof getTestDb>,
@@ -78,32 +61,6 @@ function makePlanData(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** Create a Readable stream from an array of JSON-line strings */
-function createJsonLineStream(lines: string[]): Readable {
-  const stream = new Readable({ read() {} });
-  for (const line of lines) {
-    stream.push(`${line}\n`);
-  }
-  stream.push(null);
-  return stream;
-}
-
-/** Build a valid agent-runner JSON event line */
-function makeEventLine(
-  type: string,
-  taskId: string,
-  sessionId: string,
-  data: Record<string, unknown> = {}
-): string {
-  return JSON.stringify({
-    type,
-    timestamp: Date.now(),
-    taskId,
-    sessionId,
-    data,
-  });
-}
-
 // ---------- test suite ----------
 
 describe('Prove/Disprove Plan Approval Bugs', () => {
@@ -114,7 +71,7 @@ describe('Prove/Disprove Plan Approval Bugs', () => {
   beforeEach(async () => {
     await setupTestDatabase();
     db = getTestDb();
-    streams = createMockStreams();
+    streams = createInMemoryStreams() as unknown as DurableStreamsService;
     stateManager = new SandboxStateManager();
   });
 
@@ -444,19 +401,12 @@ describe('Prove/Disprove Plan Approval Bugs', () => {
         },
       });
 
-      // Send agent:complete BEFORE agent:plan_ready
-      const completeEvent = makeEventLine('agent:complete', taskId, sessionId, {
-        status: 'completed',
-        turnCount: 5,
-      });
-      const planReadyEvent = makeEventLine('agent:plan_ready', taskId, sessionId, {
-        plan: 'Late plan text',
-        turnCount: 3,
-        sdkSessionId: 'sdk-ooo',
-      });
-
-      const stream = createJsonLineStream([completeEvent, planReadyEvent]);
-      await bridge.processStream(stream);
+      await bridge.processStream(
+        agentRunnerStream(taskId, sessionId)
+          .complete('completed', 5)
+          .planReady('Late plan text', 'sdk-ooo', 3)
+          .build()
+      );
 
       // Both callbacks fire in the order the events were received
       expect(callOrder).toEqual(['complete:completed:5', 'plan_ready:Late plan ']);
@@ -472,7 +422,7 @@ describe('Prove/Disprove Plan Approval Bugs', () => {
       // before the plan is stored, potentially causing inconsistent state.
     });
 
-    it('agent:error before agent:plan_ready — error callback fires, plan_ready still fires', async () => {
+    it('documents current behavior: bridge keeps processing plan_ready after agent:error', async () => {
       const taskId = 'task-ooo-2';
       const sessionId = 'session-ooo-2';
       const callOrder: string[] = [];
@@ -493,18 +443,12 @@ describe('Prove/Disprove Plan Approval Bugs', () => {
         },
       });
 
-      const errorEvent = makeEventLine('agent:error', taskId, sessionId, {
-        error: 'SDK crashed',
-        turnCount: 1,
-      });
-      const planReadyEvent = makeEventLine('agent:plan_ready', taskId, sessionId, {
-        plan: 'Ghost plan',
-        turnCount: 2,
-        sdkSessionId: 'sdk-ghost',
-      });
-
-      const stream = createJsonLineStream([errorEvent, planReadyEvent]);
-      await bridge.processStream(stream);
+      await bridge.processStream(
+        agentRunnerStream(taskId, sessionId)
+          .error('SDK crashed', 1)
+          .planReady('Ghost plan', 'sdk-ghost', 2)
+          .build()
+      );
 
       expect(callOrder).toEqual(['error:SDK crashed:1', 'plan_ready:Ghost plan']);
 
@@ -532,21 +476,16 @@ describe('Prove/Disprove Plan Approval Bugs', () => {
         },
       });
 
-      // Event for a different task
-      const wrongTaskEvent = makeEventLine('agent:plan_ready', 'wrong-task', sessionId, {
-        plan: 'Wrong plan',
-        turnCount: 1,
-        sdkSessionId: 'sdk-wrong',
-      });
-      // Event for the correct task
-      const correctEvent = makeEventLine('agent:plan_ready', taskId, sessionId, {
-        plan: 'Correct plan',
-        turnCount: 2,
-        sdkSessionId: 'sdk-correct',
-      });
-
-      const stream = createJsonLineStream([wrongTaskEvent, correctEvent]);
-      await bridge.processStream(stream);
+      await bridge.processStream(
+        agentRunnerLinesToStream([
+          ...agentRunnerStream('wrong-task', sessionId)
+            .planReady('Wrong plan', 'sdk-wrong', 1)
+            .buildLines(),
+          ...agentRunnerStream(taskId, sessionId)
+            .planReady('Correct plan', 'sdk-correct', 2)
+            .buildLines(),
+        ])
+      );
 
       // Only the correct event should trigger the callback
       expect(callOrder).toEqual(['plan_ready:Correct plan']);
@@ -686,6 +625,88 @@ describe('Prove/Disprove Plan Approval Bugs', () => {
       // startAgentFn should have been called twice
       expect(mockStartAgentFn).toHaveBeenCalledTimes(2);
     });
+
+    it('approvePlan swaps planning skill to execution skill atomically', async () => {
+      const codespace = await createTestProject({ name: 'Skill Chaining Success' });
+      const task = await createTestTask(codespace.id, {
+        column: 'in_progress',
+        title: 'Task with execution skill',
+        skillId: 'planning-skill',
+        skillName: 'Planning Skill',
+        executionSkillId: 'execution-skill',
+        executionSkillName: 'Execution Skill',
+      });
+
+      const startAgentFn = vi.fn().mockResolvedValue({ ok: true, value: undefined });
+      const { planService, mockStartAgentFn } = createPlanApprovalService(
+        db,
+        streams,
+        stateManager,
+        {
+          startAgentFn,
+        }
+      );
+
+      await planService.handlePlanReady(
+        task.id,
+        'session-skill-chain',
+        codespace.id,
+        makePlanData({ plan: 'Approved skill-chain plan' })
+      );
+
+      const result = await planService.approvePlan(task.id);
+      expect(result.ok).toBe(true);
+      expect(mockStartAgentFn).toHaveBeenCalledTimes(1);
+      const startInput = mockStartAgentFn.mock.calls[0]?.[0] as { prompt: string } | undefined;
+      expect(startInput?.prompt).toContain('.claude/skills/execution-skill/SKILL.md');
+      expect(startInput?.prompt).toContain('Approved skill-chain plan');
+
+      const taskAfter = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+      expect(taskAfter?.column).toBe('in_progress');
+      expect(taskAfter?.skillId).toBe('execution-skill');
+      expect(taskAfter?.skillName).toBe('Execution Skill');
+      expect(stateManager.hasPendingPlan(task.id)).toBe(false);
+    });
+
+    it('approvePlan restores planning skill when execution start fails', async () => {
+      const codespace = await createTestProject({ name: 'Skill Chaining Rollback' });
+      const task = await createTestTask(codespace.id, {
+        column: 'in_progress',
+        title: 'Task with rollback skill',
+        skillId: 'planning-skill',
+        skillName: 'Planning Skill',
+        executionSkillId: 'execution-skill',
+        executionSkillName: 'Execution Skill',
+      });
+
+      const startAgentFn = vi.fn().mockResolvedValue({
+        ok: false,
+        error: { code: 'AGENT_START_FAILED', message: 'start failed', status: 500 },
+      });
+      const { planService } = createPlanApprovalService(db, streams, stateManager, {
+        startAgentFn,
+      });
+
+      await planService.handlePlanReady(
+        task.id,
+        'session-skill-rollback',
+        codespace.id,
+        makePlanData({ plan: 'Rollback skill-chain plan' })
+      );
+
+      const result = await planService.approvePlan(task.id);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('AGENT_START_FAILED');
+      }
+
+      const taskAfter = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+      expect(taskAfter?.column).toBe('waiting_approval');
+      expect(taskAfter?.lastAgentStatus).toBe('planning');
+      expect(taskAfter?.skillId).toBe('planning-skill');
+      expect(taskAfter?.skillName).toBe('Planning Skill');
+      expect(stateManager.hasPendingPlan(task.id)).toBe(true);
+    });
   });
 
   // =========================================================================
@@ -761,26 +782,71 @@ describe('Prove/Disprove Plan Approval Bugs', () => {
       const approveOk = approveResult.ok;
       const rejectOk = rejectResult.ok;
 
-      // At least one must succeed
-      expect(approveOk || rejectOk).toBe(true);
-
       // They can't both succeed (different column guards)
       // approve: WHERE column = 'waiting_approval' -> sets column = 'in_progress'
       // reject: WHERE lastAgentStatus = 'planning' -> sets column = 'backlog'
-      // Both can technically succeed in SQLite because they use different guards,
-      // but the final state should be consistent
+      expect(approveOk !== rejectOk).toBe(true);
+
       const taskAfter = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
 
-      if (approveOk && rejectOk) {
-        // Both succeeded — this is a potential race condition
-        // The final state depends on which DB write executed last
-        // Document what actually happened
-        expect(['in_progress', 'backlog']).toContain(taskAfter!.column);
-      } else if (approveOk) {
+      if (approveOk) {
         expect(taskAfter!.column).toBe('in_progress');
       } else {
         expect(taskAfter!.column).toBe('backlog');
       }
+    });
+
+    it('two parallel approvePlan calls start execution exactly once', async () => {
+      const codespace = await createTestProject({ name: 'Concurrent Approve Double Click' });
+      const task = await createTestTask(codespace.id, {
+        column: 'in_progress',
+        title: 'Task for double approvePlan race',
+      });
+
+      let resolveStart: (() => void) | null = null;
+      const startPromise = new Promise<{ ok: true; value: undefined }>((resolve) => {
+        resolveStart = () => resolve({ ok: true, value: undefined });
+      });
+      const startAgentFn = vi.fn().mockReturnValue(startPromise);
+      const { planService, mockStartAgentFn } = createPlanApprovalService(
+        db,
+        streams,
+        stateManager,
+        {
+          startAgentFn,
+        }
+      );
+
+      await planService.handlePlanReady(
+        task.id,
+        'session-double-approve',
+        codespace.id,
+        makePlanData({ plan: 'Double-click plan' })
+      );
+
+      const approvals = Promise.all([
+        planService.approvePlan(task.id),
+        planService.approvePlan(task.id),
+      ]);
+
+      await vi.waitFor(() => {
+        expect(mockStartAgentFn).toHaveBeenCalledTimes(1);
+      });
+      resolveStart?.();
+
+      const results = await approvals;
+      const successes = results.filter((result) => result.ok);
+      const failures = results.filter((result) => !result.ok);
+      expect(successes.length).toBe(1);
+      expect(failures.length).toBe(1);
+      const [failure] = failures;
+      expect(failure?.ok).toBe(false);
+      if (failure?.ok === false) {
+        expect(failure.error.code).toBe('SANDBOX_PLAN_NOT_FOUND');
+      }
+
+      const taskAfter = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+      expect(taskAfter?.column).toBe('in_progress');
     });
   });
 });

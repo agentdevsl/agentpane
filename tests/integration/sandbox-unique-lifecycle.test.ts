@@ -19,10 +19,12 @@
  * constraint from any service-layer logic that might mask it.
  */
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sandboxInstances } from '../../src/db/schema';
+import { SandboxService } from '../../src/services/sandbox.service';
 import { createTestProject } from '../factories/project.factory';
 import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
+import { createMockDurableStreamsService, createMockSandboxProvider } from '../mocks/mock-services';
 
 /**
  * Recreate the schema shape this PR ships, mirroring the bootstrap migration
@@ -312,5 +314,57 @@ describe('F04-08: sandbox_instances UNIQUE lifecycle fix (arch29-W2-E)', () => {
     const activeRows = rows.filter((r) => r.status === 'running');
     expect(activeRows).toHaveLength(1);
     expect(activeRows[0]?.id).toBe('sb-active-fresh');
+  });
+
+  it('service lookup prefers the active sandbox when terminal rows also exist', async () => {
+    ensureSandboxInstancesTableWithPartialIndex();
+    const project = await createTestProject();
+    const db = getTestDb();
+
+    await db.insert(sandboxInstances).values({
+      id: 'sb-terminal-old',
+      codespaceId: project.id,
+      containerId: 'cont-old',
+      status: 'error',
+      image: 'test-image:1.0',
+      memoryMb: 2048,
+      cpuCores: 2,
+      idleTimeoutMinutes: 30,
+      errorMessage: 'previous provisioning failure',
+    });
+    await db.insert(sandboxInstances).values({
+      id: 'sb-active-current',
+      codespaceId: project.id,
+      containerId: 'cont-current',
+      status: 'running',
+      image: 'test-image:1.0',
+      memoryMb: 2048,
+      cpuCores: 2,
+      idleTimeoutMinutes: 30,
+    });
+
+    const provider = createMockSandboxProvider({
+      create: vi.fn().mockImplementation(() => {
+        throw new Error('should reuse active sandbox');
+      }),
+    });
+    const service = new SandboxService(
+      db as never,
+      provider,
+      createMockDurableStreamsService() as never
+    );
+
+    const lookup = await service.getByCodespaceId(project.id);
+    expect(lookup.ok).toBe(true);
+    if (lookup.ok) {
+      expect(lookup.value?.id).toBe('sb-active-current');
+    }
+
+    const result = await service.getOrCreateForCodespace(project.id);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value?.id).toBe('sb-active-current');
+    }
+    expect(provider.create).not.toHaveBeenCalled();
   });
 });

@@ -13,11 +13,9 @@
  */
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setupTestEnv } from '../helpers/env';
 
 // ── Auth Middleware ──────────────────────────────────────────────────────────
-
-// We need to control process.env for these tests
-const originalEnv = { ...process.env };
 
 describe('getAuthContext', () => {
   // Import after env setup
@@ -30,12 +28,13 @@ describe('getAuthContext', () => {
   });
 
   afterEach(() => {
-    process.env = { ...originalEnv };
+    vi.unstubAllEnvs();
+    setupTestEnv();
     vi.restoreAllMocks();
   });
 
   it('IT-1918: returns UNAUTHORIZED when no auth is provided', async () => {
-    process.env.SKIP_AUTH = 'false';
+    vi.stubEnv('SKIP_AUTH', 'false');
     const req = new Request('http://localhost/api/test');
     const result = await getAuthContext(req);
     expect(result.ok).toBe(false);
@@ -46,8 +45,8 @@ describe('getAuthContext', () => {
   });
 
   it('IT-1919: returns dev-user when SKIP_AUTH=true in development', async () => {
-    process.env.SKIP_AUTH = 'true';
-    process.env.NODE_ENV = 'development';
+    vi.stubEnv('SKIP_AUTH', 'true');
+    vi.stubEnv('NODE_ENV', 'development');
     const req = new Request('http://localhost/api/test');
     const result = await getAuthContext(req);
     expect(result.ok).toBe(true);
@@ -58,8 +57,8 @@ describe('getAuthContext', () => {
   });
 
   it('IT-1920: respects X-Dev-User header in dev mode', async () => {
-    process.env.SKIP_AUTH = 'true';
-    process.env.NODE_ENV = 'development';
+    vi.stubEnv('SKIP_AUTH', 'true');
+    vi.stubEnv('NODE_ENV', 'development');
     const req = new Request('http://localhost/api/test', {
       headers: { 'X-Dev-User': 'custom-user' },
     });
@@ -71,16 +70,16 @@ describe('getAuthContext', () => {
   });
 
   it('IT-1921: does NOT bypass auth when SKIP_AUTH=true but NODE_ENV is not development', async () => {
-    process.env.SKIP_AUTH = 'true';
-    process.env.NODE_ENV = 'production';
+    vi.stubEnv('SKIP_AUTH', 'true');
+    vi.stubEnv('NODE_ENV', 'production');
     const req = new Request('http://localhost/api/test');
     const result = await getAuthContext(req);
     expect(result.ok).toBe(false);
   });
 
   it('IT-1922: validates session cookie with provided validator', async () => {
-    process.env.SKIP_AUTH = 'false';
-    process.env.NODE_ENV = 'production';
+    vi.stubEnv('SKIP_AUTH', 'false');
+    vi.stubEnv('NODE_ENV', 'production');
     const req = new Request('http://localhost/api/test', {
       headers: { Cookie: 'agentpane_session=valid-token-123' },
     });
@@ -98,8 +97,8 @@ describe('getAuthContext', () => {
   });
 
   it('IT-1923: rejects invalid session token', async () => {
-    process.env.SKIP_AUTH = 'false';
-    process.env.NODE_ENV = 'production';
+    vi.stubEnv('SKIP_AUTH', 'false');
+    vi.stubEnv('NODE_ENV', 'production');
     const req = new Request('http://localhost/api/test', {
       headers: { Cookie: 'agentpane_session=bad-token' },
     });
@@ -113,8 +112,8 @@ describe('getAuthContext', () => {
   });
 
   it('IT-1924: rejects session cookie when no validator provided', async () => {
-    process.env.SKIP_AUTH = 'false';
-    process.env.NODE_ENV = 'production';
+    vi.stubEnv('SKIP_AUTH', 'false');
+    vi.stubEnv('NODE_ENV', 'production');
     const req = new Request('http://localhost/api/test', {
       headers: { Cookie: 'agentpane_session=token-123' },
     });
@@ -126,8 +125,8 @@ describe('getAuthContext', () => {
   });
 
   it('IT-1925: validates Bearer token with provided validator', async () => {
-    process.env.SKIP_AUTH = 'false';
-    process.env.NODE_ENV = 'production';
+    vi.stubEnv('SKIP_AUTH', 'false');
+    vi.stubEnv('NODE_ENV', 'production');
     const req = new Request('http://localhost/api/test', {
       headers: { Authorization: 'Bearer api-key-abc' },
     });
@@ -145,8 +144,8 @@ describe('getAuthContext', () => {
   });
 
   it('IT-1926: rejects invalid Bearer token', async () => {
-    process.env.SKIP_AUTH = 'false';
-    process.env.NODE_ENV = 'production';
+    vi.stubEnv('SKIP_AUTH', 'false');
+    vi.stubEnv('NODE_ENV', 'production');
     const req = new Request('http://localhost/api/test', {
       headers: { Authorization: 'Bearer bad-key' },
     });
@@ -160,8 +159,8 @@ describe('getAuthContext', () => {
   });
 
   it('IT-1927: rejects Bearer token when no validator provided', async () => {
-    process.env.SKIP_AUTH = 'false';
-    process.env.NODE_ENV = 'production';
+    vi.stubEnv('SKIP_AUTH', 'false');
+    vi.stubEnv('NODE_ENV', 'production');
     const req = new Request('http://localhost/api/test', {
       headers: { Authorization: 'Bearer some-key' },
     });
@@ -241,12 +240,13 @@ describe('withAuth', () => {
   });
 
   afterEach(() => {
-    process.env = { ...originalEnv };
+    vi.unstubAllEnvs();
+    setupTestEnv();
   });
 
   it('IT-1934: passes auth context to handler in dev mode', async () => {
-    process.env.SKIP_AUTH = 'true';
-    process.env.NODE_ENV = 'development';
+    vi.stubEnv('SKIP_AUTH', 'true');
+    vi.stubEnv('NODE_ENV', 'development');
 
     const handler = withAuth(async ({ auth }) => {
       return new Response(JSON.stringify({ userId: auth.userId }), { status: 200 });
@@ -260,8 +260,8 @@ describe('withAuth', () => {
   });
 
   it('IT-1935: returns 401 when not authenticated', async () => {
-    process.env.SKIP_AUTH = 'false';
-    process.env.NODE_ENV = 'production';
+    vi.stubEnv('SKIP_AUTH', 'false');
+    vi.stubEnv('NODE_ENV', 'production');
 
     const handler = withAuth(async () => {
       return new Response('OK', { status: 200 });

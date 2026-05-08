@@ -69,13 +69,13 @@ export class AgentQueueService {
   ): Promise<Result<QueuePosition, ConcurrencyError>> {
     // Validate task exists and transition is allowed
     const existingTask = await this.db.query.tasks.findFirst({
-      where: eq(tasks.id, taskId),
+      where: and(eq(tasks.id, taskId), eq(tasks.codespaceId, codespaceId)),
     });
 
     if (!existingTask) {
       return err({
         code: 'QUEUE_ERROR',
-        message: 'Task not found',
+        message: 'Task not found in codespace',
         status: 404,
       } as ConcurrencyError);
     }
@@ -97,7 +97,7 @@ export class AgentQueueService {
         column: 'queued',
         updatedAt: now,
       })
-      .where(eq(tasks.id, taskId));
+      .where(and(eq(tasks.id, taskId), eq(tasks.codespaceId, codespaceId)));
 
     // Count how many tasks are ahead of this one (queued earlier)
     const task = await this.db.query.tasks.findFirst({

@@ -80,6 +80,8 @@ describe('IT-041–045: Task Plan Approval and Rejection', () => {
       const task = await createTestTask(codespace.id, {
         column: 'in_progress',
         agentId: agent.id,
+        plan: 'Host-mode plan',
+        lastAgentStatus: 'planning',
       });
 
       const worktreeService = createMockWorktreeService();
@@ -92,6 +94,27 @@ describe('IT-041–045: Task Plan Approval and Rejection', () => {
 
       expect(result.ok).toBe(true);
       expect(agentExecution.resume).toHaveBeenCalledWith(agent.id);
+    });
+
+    it('rejects host-mode approve when no pending plan is stored', async () => {
+      const codespace = await createTestProject();
+      const agent = await createTestAgent(codespace.id, { status: 'planning' });
+      const task = await createTestTask(codespace.id, {
+        column: 'in_progress',
+        agentId: agent.id,
+      });
+
+      const worktreeService = createMockWorktreeService();
+      const agentExecution = createMockAgentExecution();
+      const taskService = new TaskService(db as any, worktreeService);
+      taskService.setAgentExecutionService(agentExecution);
+
+      const result = await taskService.approvePlan(task.id);
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe('PLAN_NOT_FOUND');
+      expect(agentExecution.resume).not.toHaveBeenCalled();
     });
   });
 

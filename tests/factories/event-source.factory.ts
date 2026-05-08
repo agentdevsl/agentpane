@@ -8,13 +8,15 @@ import type {
 import { eventSources, eventSubscriptions } from '../../src/db/schema';
 import { getTestDb } from '../helpers/database';
 
-export type EventSourceFactoryOptions = Partial<NewEventSource>;
+export type EventSourceFactoryOptions = Partial<Omit<NewEventSource, 'teamId'>> & {
+  teamId: string;
+};
 
-export function buildEventSource(options: EventSourceFactoryOptions = {}): NewEventSource {
+export function buildEventSource(options: EventSourceFactoryOptions): NewEventSource {
   const id = options.id ?? createId();
   return {
     id,
-    teamId: options.teamId ?? createId(),
+    teamId: options.teamId,
     name: options.name ?? `Test Source ${id.slice(0, 6)}`,
     type: options.type ?? 'github',
     slug: options.slug ?? `test-source-${id.slice(0, 6)}`,
@@ -29,7 +31,7 @@ export function buildEventSource(options: EventSourceFactoryOptions = {}): NewEv
 }
 
 export async function createTestEventSource(
-  options: EventSourceFactoryOptions = {}
+  options: EventSourceFactoryOptions
 ): Promise<EventSource> {
   const db = getTestDb();
   const data = buildEventSource(options);
@@ -38,15 +40,20 @@ export async function createTestEventSource(
   return source;
 }
 
-export type SubscriptionFactoryOptions = Partial<NewEventSubscription>;
+export type SubscriptionFactoryOptions = Partial<
+  Omit<NewEventSubscription, 'eventSourceId' | 'targetCodespaceId'>
+> & {
+  eventSourceId: string;
+  targetCodespaceId: string;
+};
 
-export function buildSubscription(options: SubscriptionFactoryOptions = {}): NewEventSubscription {
+export function buildSubscription(options: SubscriptionFactoryOptions): NewEventSubscription {
   const id = options.id ?? createId();
   return {
     id,
     name: options.name ?? `Test Sub ${id.slice(0, 6)}`,
-    eventSourceId: options.eventSourceId ?? createId(),
-    targetCodespaceId: options.targetCodespaceId ?? createId(),
+    eventSourceId: options.eventSourceId,
+    targetCodespaceId: options.targetCodespaceId,
     isEnabled: options.isEnabled ?? true,
     eventTypes: options.eventTypes ?? [],
     filters: options.filters ?? [],
@@ -62,7 +69,7 @@ export function buildSubscription(options: SubscriptionFactoryOptions = {}): New
 }
 
 export async function createTestSubscription(
-  options: SubscriptionFactoryOptions = {}
+  options: SubscriptionFactoryOptions
 ): Promise<EventSubscription> {
   const db = getTestDb();
   const data = buildSubscription(options);

@@ -1,9 +1,11 @@
 import { eq } from 'drizzle-orm';
+import * as fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tasks } from '../../src/db/schema';
 import { PlanApprovalService } from '../../src/services/container-agent/plan-approval.service';
 import { SandboxStateManager } from '../../src/services/container-agent/sandbox-state';
 import type { ContainerAgentDeps, PlanData } from '../../src/services/container-agent/types';
+import { TaskService } from '../../src/services/task.service';
 import { createTestProject } from '../factories/project.factory';
 import { createTestSession } from '../factories/session.factory';
 import { createTestTask } from '../factories/task.factory';
@@ -64,8 +66,8 @@ describe('PlanApprovalService — full service integration (IT-220)', () => {
         sessionId: session.id,
         codespaceId: project.id,
         sandboxId: 'sandbox-123',
-        bridge: {} as any,
-        execResult: {} as any,
+        bridge: {} as never,
+        execResult: {} as never,
         stopFilePath: '/tmp/stop',
         startedAt: new Date(),
         stopRequested: false,
@@ -112,8 +114,8 @@ describe('PlanApprovalService — full service integration (IT-220)', () => {
         sessionId: session.id,
         codespaceId: project.id,
         sandboxId: 'sandbox-123',
-        bridge: {} as any,
-        execResult: {} as any,
+        bridge: {} as never,
+        execResult: {} as never,
         stopFilePath: '/tmp/stop',
         startedAt: new Date(),
         stopRequested: false,
@@ -201,6 +203,93 @@ describe('PlanApprovalService — full service integration (IT-220)', () => {
 
       const plan = state.getPendingPlan(task.id);
       expect(plan?.allowedPrompts).toEqual(allowedPrompts);
+    });
+
+    it('IT-221e: rejects an empty ExitPlanMode plan before persistence', async () => {
+      const project = await createTestProject();
+      const task = await createTestTask(project.id, { column: 'in_progress' });
+      const session = await createTestSession(project.id, { taskId: task.id });
+
+      state.setRunningAgent(task.id, {
+        taskId: task.id,
+        sessionId: session.id,
+        codespaceId: project.id,
+        sandboxId: 'sandbox-empty-plan',
+        bridge: {} as any,
+        execResult: {} as any,
+        stopFilePath: '/tmp/stop',
+        startedAt: new Date(),
+        stopRequested: false,
+        phase: 'plan',
+      });
+
+      await service.handlePlanReady(task.id, session.id, project.id, {
+        plan: '   ',
+        turnCount: 4,
+        sdkSessionId: 'sdk-empty-plan',
+      });
+
+      const dbTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+      expect(dbTask?.plan).toBeNull();
+      expect(dbTask?.column).toBe('waiting_approval');
+      expect(dbTask?.lastAgentStatus).toBe('error');
+      expect(state.hasPendingPlan(task.id)).toBe(false);
+      expect(state.hasRunningAgent(task.id)).toBe(false);
+      expect(mockStreams.publish).toHaveBeenCalledWith(
+        session.id,
+        'container-agent:error',
+        expect.objectContaining({
+          taskId: task.id,
+          sessionId: session.id,
+          error: 'Plan payload is empty.',
+          turnCount: 4,
+        })
+      );
+    });
+
+    it('IT-221f: rejects malformed ExitPlanMode plan data before persistence', async () => {
+      const project = await createTestProject();
+      const task = await createTestTask(project.id, { column: 'in_progress' });
+      const session = await createTestSession(project.id, { taskId: task.id });
+
+      state.setRunningAgent(task.id, {
+        taskId: task.id,
+        sessionId: session.id,
+        codespaceId: project.id,
+        sandboxId: 'sandbox-malformed-plan',
+        bridge: {} as any,
+        execResult: {} as any,
+        stopFilePath: '/tmp/stop',
+        startedAt: new Date(),
+        stopRequested: false,
+        phase: 'plan',
+      });
+
+      type PlanReadyPayload = Parameters<PlanApprovalService['handlePlanReady']>[3];
+      const malformedPlanData = {
+        plan: { text: 'not a string' },
+        turnCount: 2,
+        sdkSessionId: 'sdk-malformed-plan',
+      } as unknown as PlanReadyPayload;
+
+      await service.handlePlanReady(task.id, session.id, project.id, malformedPlanData);
+
+      const dbTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+      expect(dbTask?.plan).toBeNull();
+      expect(dbTask?.column).toBe('waiting_approval');
+      expect(dbTask?.lastAgentStatus).toBe('error');
+      expect(state.hasPendingPlan(task.id)).toBe(false);
+      expect(state.hasRunningAgent(task.id)).toBe(false);
+      expect(mockStreams.publish).toHaveBeenCalledWith(
+        session.id,
+        'container-agent:error',
+        expect.objectContaining({
+          taskId: task.id,
+          sessionId: session.id,
+          error: 'Plan payload is missing a text plan.',
+          turnCount: 2,
+        })
+      );
     });
   });
 
@@ -745,6 +834,67 @@ describe('PlanApprovalService — full service integration (IT-220)', () => {
       expect(state.hasPendingPlan(task.id)).toBe(false);
       // Running agent should be cleaned up
       expect(state.hasRunningAgent(task.id)).toBe(false);
+    });
+  });
+
+  describe('approve/reject/cancel ordering properties (IT-227)', () => {
+    type RaceOperation = 'approve' | 'reject' | 'cancel';
+
+    const mockWorktreeService = {
+      getDiff: vi.fn(),
+      merge: vi.fn(),
+      remove: vi.fn(),
+    };
+
+    it('IT-227a: no approve/reject/cancel ordering leaves a pending plan stranded', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.shuffledSubarray(['approve', 'reject', 'cancel'] as const, {
+            minLength: 3,
+            maxLength: 3,
+          }),
+          async (operationOrder) => {
+            const project = await createTestProject({
+              name: `Plan race ${operationOrder.join('-')}`,
+            });
+            const session = await createTestSession(project.id);
+            const task = await createTestTask(project.id, { column: 'in_progress' });
+            const taskService = new TaskService(db as never, mockWorktreeService);
+            const startCallsBefore = mockStartAgentFn.mock.calls.length;
+
+            await service.handlePlanReady(task.id, session.id, project.id, {
+              plan: `Race plan ${operationOrder.join(' -> ')}`,
+              turnCount: 2,
+              sdkSessionId: `sdk-${task.id}`,
+            });
+
+            for (const operation of operationOrder satisfies RaceOperation[]) {
+              if (operation === 'approve') {
+                await service.approvePlan(task.id);
+              } else if (operation === 'reject') {
+                await service.rejectPlan(task.id, 'race rejected');
+              } else {
+                await taskService.cancelTask(task.id);
+              }
+            }
+
+            const startCallsForTask = mockStartAgentFn.mock.calls
+              .slice(startCallsBefore)
+              .filter(([input]) => (input as { taskId?: string }).taskId === task.id);
+            expect(startCallsForTask.length).toBeLessThanOrEqual(1);
+            expect(state.hasPendingPlan(task.id)).toBe(false);
+
+            const dbTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+            expect(dbTask?.column).not.toBe('waiting_approval');
+            expect(dbTask?.lastAgentStatus).not.toBe('planning');
+            if (dbTask?.column === 'backlog') {
+              expect(dbTask.plan).toBeNull();
+              expect(dbTask.planOptions).toBeNull();
+            }
+          }
+        ),
+        { numRuns: 12 }
+      );
     });
   });
 });

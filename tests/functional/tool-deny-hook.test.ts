@@ -83,8 +83,15 @@ describe('F03-01 / F03-02: tool-deny hook wiring (functional)', () => {
   beforeEach(async () => {
     await setupTestDatabase();
     db = getTestDb();
-    vi.clearAllMocks();
     capturedCanUseTool.fn = null;
+    mockSessionCreate.mockReset();
+    mockSessionResume.mockReset();
+    mockWorktreeService.create.mockReset();
+    mockWorktreeService.remove.mockReset().mockResolvedValue({ ok: true, value: undefined });
+    mockSessionService.create.mockReset();
+    mockSessionService.delete.mockReset().mockResolvedValue({ ok: true, value: { deleted: true } });
+    mockSessionService.publish.mockReset().mockResolvedValue({ ok: true, value: { offset: 0 } });
+    mockTaskService.moveColumn.mockReset().mockResolvedValue({ ok: true });
 
     // The mock SDK session captures the canUseTool callback installed by
     // runAgentPlanning so the test can drive it. The stream is held open
@@ -224,6 +231,11 @@ describe('F03-01 / F03-02: tool-deny hook wiring (functional)', () => {
     // Allow verdict (no deny) flows through.
     expect(verdict.behavior).toBe('allow');
     expect(verdict.toolUseID).toBe('tu-read-allow');
+    const deniedToolResult = mockSessionService.publish.mock.calls.find((call) => {
+      const evt = call[1] as { data?: { isError?: boolean }; type: string };
+      return evt.type === 'tool:result' && evt.data?.isError === true;
+    });
+    expect(deniedToolResult).toBeUndefined();
   });
 
   // F03-01: the open-gate sentinel ['*'] still allows everything (no
@@ -260,5 +272,10 @@ describe('F03-01 / F03-02: tool-deny hook wiring (functional)', () => {
     )) as Record<string, unknown>;
 
     expect(verdict.behavior).toBe('allow');
+    const deniedToolResult = mockSessionService.publish.mock.calls.find((call) => {
+      const evt = call[1] as { data?: { isError?: boolean }; type: string };
+      return evt.type === 'tool:result' && evt.data?.isError === true;
+    });
+    expect(deniedToolResult).toBeUndefined();
   });
 });

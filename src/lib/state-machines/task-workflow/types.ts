@@ -1,4 +1,4 @@
-export type TaskColumn = 'backlog' | 'in_progress' | 'waiting_approval' | 'verified';
+export type TaskColumn = 'backlog' | 'queued' | 'in_progress' | 'waiting_approval' | 'verified';
 
 export type TaskWorkflowState = TaskColumn;
 
@@ -12,8 +12,11 @@ export type TaskWorkflowContext = {
 };
 
 export type TaskWorkflowEvent =
+  | { type: 'QUEUE' }
+  | { type: 'DEQUEUE' }
   | { type: 'ASSIGN'; agentId: string }
   | { type: 'COMPLETE' }
   | { type: 'APPROVE' }
   | { type: 'REJECT'; reason?: string }
-  | { type: 'CANCEL' };
+  | { type: 'CANCEL' }
+  | { type: 'REOPEN' };

@@ -115,6 +115,7 @@ export interface ContainerAgentTrigger {
  * Optional host-mode agent execution service for plan approval fallback.
  */
 export interface AgentExecutionTrigger {
+  stop?: (agentId: string) => Promise<Result<unknown, unknown>>;
   resume: (agentId: string, feedback?: string) => Promise<Result<unknown, unknown>>;
   /**
    * theme-03 F6: host-mode plan rejection. Stops any host-mode agent running
@@ -170,12 +171,24 @@ export class TaskService {
       return err(TaskErrors.NOT_FOUND);
     }
 
-    // Stop the agent if one is running — log failures but proceed with cleanup
-    if (task.agentId || task.sessionId) {
+    // Stop the agent if one is running — log failures but proceed with cleanup.
+    // Runtime state can exist before task agent/session fields are persisted.
+    const hasRunningContainerAgent = this.containerAgentService?.isAgentRunning(taskId) ?? false;
+    if (
+      this.containerAgentService &&
+      (task.agentId || task.sessionId || hasRunningContainerAgent)
+    ) {
       const stopResult = await this.stopAgent(taskId);
       if (!stopResult.ok) {
         log.warn('Agent stop failed during cancel, proceeding with cleanup', {
           data: { taskId, error: stopResult.error },
+        });
+      }
+    } else if (task.agentId && this.agentExecutionService?.stop) {
+      const stopResult = await this.agentExecutionService.stop(task.agentId);
+      if (!stopResult.ok) {
+        log.warn('Host-mode agent stop failed during cancel, proceeding with cleanup', {
+          data: { taskId, agentId: task.agentId, error: stopResult.error },
         });
       }
     }
@@ -291,7 +304,23 @@ export class TaskService {
       where: eq(tasks.id, taskId),
     });
 
-    if (task?.agentId && this.agentExecutionService) {
+    if (this.agentExecutionService) {
+      if (!task?.plan || task.lastAgentStatus !== 'planning') {
+        return err({
+          code: 'PLAN_NOT_FOUND',
+          message: `No pending plan for task ${taskId}`,
+          status: 404,
+        });
+      }
+
+      if (!task.agentId) {
+        return err({
+          code: 'NO_EXECUTION_SERVICE',
+          message: 'No execution service available for plan approval',
+          status: 503,
+        });
+      }
+
       const result = await this.agentExecutionService.resume(task.agentId);
       if (!result.ok) {
         const errorObj = result.error as
@@ -536,9 +565,18 @@ export class TaskService {
       return err(TaskErrors.NOT_FOUND);
     }
 
-    // Stop any running agent before deleting to prevent orphaned processes
-    if (task.column === 'in_progress' && (task.agentId || task.sessionId)) {
+    // Stop any running agent before deleting to prevent orphaned processes.
+    // Some container executions are tracked in memory before agent/session
+    // fields are reflected on the task row, so consult the runtime map too.
+    const hasRunningContainerAgent = this.containerAgentService?.isAgentRunning(id) ?? false;
+    if (
+      task.column === 'in_progress' &&
+      this.containerAgentService &&
+      (task.agentId || task.sessionId || hasRunningContainerAgent)
+    ) {
       await this.stopAgent(id);
+    } else if (task.column === 'in_progress' && task.agentId && this.agentExecutionService?.stop) {
+      await this.agentExecutionService.stop(task.agentId);
     }
 
     await this.db.delete(tasks).where(eq(tasks.id, id));
@@ -859,6 +897,16 @@ export class TaskService {
 
     if (task.priority) {
       parts.push('', `Priority: ${task.priority}`);
+    }
+
+    if (task.rejectionReason) {
+      parts.push(
+        '',
+        'Previous plan feedback:',
+        task.rejectionReason,
+        '',
+        'Revise the next plan to address this feedback explicitly.'
+      );
     }
 
     parts.push(

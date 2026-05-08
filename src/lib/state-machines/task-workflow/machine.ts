@@ -92,6 +92,9 @@ const transition = (
 
   switch (machine.state) {
     case 'backlog':
+      if (event.type === 'QUEUE') {
+        return nextState(machine, 'queued', { ...ctx, column: 'queued' });
+      }
       if (event.type === 'ASSIGN') {
         if (!canAssign(ctx)) {
           return nextError(
@@ -110,6 +113,30 @@ const transition = (
           column: 'in_progress',
           agentId: event.agentId,
         });
+      }
+      break;
+    case 'queued':
+      if (event.type === 'ASSIGN') {
+        if (!canAssign(ctx)) {
+          return nextError(
+            machine,
+            createError('TASK_ALREADY_ASSIGNED', 'Task already assigned', 409)
+          );
+        }
+        if (!withinConcurrencyLimit(ctx)) {
+          return nextError(
+            machine,
+            createError('CONCURRENCY_LIMIT_EXCEEDED', 'Concurrency limit exceeded', 429)
+          );
+        }
+        return nextState(machine, 'in_progress', {
+          ...ctx,
+          column: 'in_progress',
+          agentId: event.agentId,
+        });
+      }
+      if (event.type === 'DEQUEUE' || event.type === 'CANCEL') {
+        return nextState(machine, 'backlog', { ...ctx, column: 'backlog' });
       }
       break;
     case 'in_progress':
@@ -142,8 +169,14 @@ const transition = (
         }
         return nextState(machine, 'in_progress', { ...ctx, column: 'in_progress' });
       }
+      if (event.type === 'CANCEL') {
+        return nextState(machine, 'backlog', { ...ctx, column: 'backlog', agentId: undefined });
+      }
       break;
     case 'verified':
+      if (event.type === 'REOPEN') {
+        return nextState(machine, 'backlog', { ...ctx, column: 'backlog', agentId: undefined });
+      }
       break;
     default:
       break;

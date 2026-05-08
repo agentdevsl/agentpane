@@ -21,14 +21,16 @@
  */
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agentRuns, agents, tasks } from '../../src/db/schema';
+import { agentRuns, agents, sessionEvents, tasks } from '../../src/db/schema';
 import { AgentExecutionService } from '../../src/services/agent/agent-execution.service';
+import { SessionService } from '../../src/services/session.service';
+import { TaskService } from '../../src/services/task.service';
+import { WorktreeService } from '../../src/services/worktree.service';
 import { createTestAgent } from '../factories/agent.factory';
 import { createTestProject } from '../factories/project.factory';
-import { createTestSession } from '../factories/session.factory';
 import { createTestTask } from '../factories/task.factory';
-import { createTestWorktree } from '../factories/worktree.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
+import { createInMemoryStreams } from '../helpers/mocks';
 
 // ---------- mocks ----------
 //
@@ -57,54 +59,38 @@ vi.mock('../../src/services/settings.service.js', () => ({
 
 // ---------- service wiring (boundary mocks per CLAUDE.md) ----------
 
-function createMockWorktreeService(worktreeId: string, branch: string, path: string) {
+function createMockCommandRunner() {
   return {
-    create: vi.fn().mockResolvedValue({
-      ok: true,
-      value: { id: worktreeId, branch, path },
-    }),
-    remove: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+    exec: vi.fn().mockResolvedValue({ stdout: '', stderr: '' }),
+    execArgs: vi.fn().mockResolvedValue({ stdout: '', stderr: '' }),
   };
 }
-
-function createMockSessionService(sessionId: string) {
-  return {
-    create: vi.fn().mockResolvedValue({
-      ok: true,
-      value: { id: sessionId },
-    }),
-    delete: vi.fn().mockResolvedValue({ ok: true, value: { deleted: true } }),
-    publish: vi.fn().mockResolvedValue({ ok: true, value: { offset: 0 } }),
-  };
-}
-
-const mockTaskService = {
-  moveColumn: vi.fn().mockResolvedValue({ ok: true }),
-};
 
 // ---------- test suite ----------
 
 describe('Host-Mode Agent Error Recovery (arch29-W2-B / F03-06)', () => {
   let db: ReturnType<typeof getTestDb>;
   let service: AgentExecutionService;
-  let mockWorktreeService: ReturnType<typeof createMockWorktreeService>;
-  let mockSessionService: ReturnType<typeof createMockSessionService>;
+  let sessionService: SessionService;
 
   beforeEach(async () => {
     await setupTestDatabase();
     db = getTestDb();
 
-    vi.clearAllMocks();
+    mockRunAgentPlanning.mockReset();
+    mockRunAgentExecution.mockReset();
+    mockHandleAgentError.mockReset();
     mockHandleAgentError.mockReturnValue({ action: 'fail', reason: 'sdk_error' });
 
-    // Each test creates its own worktree/session ahead of time and wires the
-    // service to return them — no real git or stream IO.
+    // Each test wires real services to the DB; only command execution, stream
+    // transport, and the SDK/recovery boundaries are mocked.
   });
 
   afterEach(async () => {
     if (service) {
       service.stopAll();
     }
+    sessionService?.destroy();
     // Allow pending async operations to settle after abort
     await new Promise((resolve) => setTimeout(resolve, 100));
     await clearTestDatabase();
@@ -112,16 +98,9 @@ describe('Host-Mode Agent Error Recovery (arch29-W2-B / F03-06)', () => {
 
   /**
    * Helper: create the standard fixtures and an AgentExecutionService wired to
-   * boundary mocks. Returns the entity IDs and the service instance.
+   * real DB-backed services. Returns the entity IDs and the service instance.
    */
-  async function setupHostMode(
-    opts: { worktreeId?: string; sessionId?: string; branch?: string; path?: string } = {}
-  ) {
-    const worktreeId = opts.worktreeId ?? 'wt-host-error';
-    const sessionId = opts.sessionId ?? 'sess-host-error';
-    const branch = opts.branch ?? 'agent/host-error/task';
-    const path = opts.path ?? '/tmp/worktrees/host-error';
-
+  async function setupHostMode() {
     const codespace = await createTestProject({ id: 'cs-host-error' });
     const agent = await createTestAgent(codespace.id, {
       id: 'agent-host-error',
@@ -135,33 +114,21 @@ describe('Host-Mode Agent Error Recovery (arch29-W2-B / F03-06)', () => {
       skillName: 'Test Skill',
     });
 
-    // Pre-create the worktree + session rows so the service's `start()` flow
-    // can update FK refs (worktreeId, sessionId) without us needing to run a
-    // real WorktreeService/SessionService.
-    await createTestWorktree(codespace.id, {
-      id: worktreeId,
-      taskId: task.id,
-      branch,
-      path,
-      status: 'active',
+    const streams = createInMemoryStreams();
+    sessionService = new SessionService(db as never, streams, {
+      baseUrl: 'http://localhost:3000',
     });
-    await createTestSession(codespace.id, {
-      id: sessionId,
-      taskId: task.id,
-      agentId: agent.id,
-    });
-
-    mockWorktreeService = createMockWorktreeService(worktreeId, branch, path);
-    mockSessionService = createMockSessionService(sessionId);
+    const worktreeService = new WorktreeService(db as never, createMockCommandRunner());
+    const taskService = new TaskService(db as never, worktreeService);
 
     service = new AgentExecutionService(
       db as never,
-      mockWorktreeService as never,
-      mockTaskService as never,
-      mockSessionService as never
+      worktreeService,
+      taskService,
+      sessionService as never
     );
 
-    return { codespace, agent, task, worktreeId, sessionId };
+    return { codespace, agent, task };
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -216,17 +183,13 @@ describe('Host-Mode Agent Error Recovery (arch29-W2-B / F03-06)', () => {
     expect(lastRun?.errorMessage).toContain('SDK 401');
     expect(lastRun?.completedAt).toBeTruthy();
 
-    // agent:error event was published to the session stream.
-    expect(mockSessionService.publish).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        type: 'agent:error',
-        data: expect.objectContaining({
-          agentId: agent.id,
-          error: expect.stringContaining('SDK 401'),
-        }),
-      })
-    );
+    const errorEvent = await db.query.sessionEvents.findFirst({
+      where: eq(sessionEvents.type, 'agent:error'),
+    });
+    expect(errorEvent?.data).toMatchObject({
+      agentId: agent.id,
+      error: expect.stringContaining('SDK 401'),
+    });
 
     // In-memory state cleared so the agent is re-startable.
     expect(service.isRunning(agent.id)).toBe(false);
@@ -248,7 +211,7 @@ describe('Host-Mode Agent Error Recovery (arch29-W2-B / F03-06)', () => {
     });
     mockRunAgentExecution.mockRejectedValue(new Error('Worktree resolution failed mid-execution'));
 
-    const { agent, task, worktreeId, sessionId } = await setupHostMode();
+    const { agent, task } = await setupHostMode();
 
     // Phase 1 — start kicks off planning, which (mocked) succeeds, leaving
     // task in waiting_approval and agent.status='planning'.
@@ -268,12 +231,16 @@ describe('Host-Mode Agent Error Recovery (arch29-W2-B / F03-06)', () => {
     // test. For this test we use the real resume() path — it sets
     // agent.status='running' and fires executeAgentExecution() in the
     // background; the direct write is the precondition for resume().
+    const plannedTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+    expect(plannedTask?.sessionId).toBeTruthy();
+    expect(plannedTask?.worktreeId).toBeTruthy();
+
     await db
       .update(tasks)
       .set({
         column: 'in_progress',
-        worktreeId,
-        sessionId,
+        worktreeId: plannedTask?.worktreeId,
+        sessionId: plannedTask?.sessionId,
         agentId: agent.id,
         plan: 'Approved plan content',
         planOptions: { sdkSessionId: 'sdk-resume' },
@@ -308,15 +275,72 @@ describe('Host-Mode Agent Error Recovery (arch29-W2-B / F03-06)', () => {
     expect(lastRun?.status).toBe('error');
     expect(lastRun?.errorMessage).toContain('Worktree resolution failed');
 
-    // agent:error event was published.
-    expect(mockSessionService.publish).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        type: 'agent:error',
-        data: expect.objectContaining({ agentId: agent.id }),
-      })
+    const errorEvent = await db.query.sessionEvents.findFirst({
+      where: eq(sessionEvents.type, 'agent:error'),
+    });
+    expect(errorEvent?.data).toMatchObject({ agentId: agent.id });
+
+    expect(service.isRunning(agent.id)).toBe(false);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // P0-6: host-mode happy path must complete through real services
+  // ═══════════════════════════════════════════════════════════════════════
+
+  it('host-mode start → planning succeeds → resume → execution completes', async () => {
+    mockRunAgentPlanning.mockResolvedValue({
+      status: 'planning',
+      turnCount: 4,
+      plan: 'Host-mode implementation plan',
+      planOptions: { allowedPrompts: [{ tool: 'Bash', prompt: 'bun test' }] },
+      sdkSessionId: 'sdk-host-happy',
+    });
+    mockRunAgentExecution.mockResolvedValue({
+      status: 'completed',
+      turnCount: 11,
+    });
+
+    const { agent, task } = await setupHostMode();
+
+    const startResult = await service.start(agent.id, task.id);
+    expect(startResult.ok).toBe(true);
+
+    await vi.waitFor(async () => {
+      const planned = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+      expect(planned?.column).toBe('waiting_approval');
+      expect(planned?.lastAgentStatus).toBe('planning');
+    });
+
+    const planned = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+    expect(planned?.plan).toBe('Host-mode implementation plan');
+    expect(planned?.sessionId).toBeTruthy();
+    expect(planned?.worktreeId).toBeTruthy();
+    expect((planned?.planOptions as { sdkSessionId?: string } | null)?.sdkSessionId).toBe(
+      'sdk-host-happy'
     );
 
+    const resumeResult = await service.resume(agent.id);
+    expect(resumeResult.ok).toBe(true);
+
+    await vi.waitFor(async () => {
+      const finalAgent = await db.query.agents.findFirst({ where: eq(agents.id, agent.id) });
+      expect(finalAgent?.status).toBe('idle');
+    });
+
+    expect(mockRunAgentExecution).toHaveBeenCalledOnce();
+    const executionInput = mockRunAgentExecution.mock.calls[0]?.[0] as
+      | { sdkSessionId?: string; prompt?: string }
+      | undefined;
+    expect(executionInput?.sdkSessionId).toBe('sdk-host-happy');
+    expect(executionInput?.prompt).toContain('Host-mode implementation plan');
+
+    const finalTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+    expect(finalTask?.column).toBe('waiting_approval');
+    expect(finalTask?.completedAt).toBeTruthy();
+
+    const runs = await db.query.agentRuns.findMany({ where: eq(agentRuns.taskId, task.id) });
+    expect(runs.map((run) => run.status).sort()).toEqual(['completed', 'running']);
+    expect(runs.at(-1)?.turnsUsed).toBe(11);
     expect(service.isRunning(agent.id)).toBe(false);
   });
 

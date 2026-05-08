@@ -1,5 +1,6 @@
 import Database, { type Database as SQLiteDatabase } from 'better-sqlite3';
 import { type BetterSQLite3Database, drizzle } from 'drizzle-orm/better-sqlite3';
+import { getTableName, isTable } from 'drizzle-orm/table';
 import * as schema from '../../src/db/schema/sqlite';
 import {
   PROJECT_FOLDERS_ALTER_STATEMENTS,
@@ -27,6 +28,26 @@ type TestDatabase = BetterSQLite3Database<typeof schema>;
 let testSqlite: SQLiteDatabase | null = null;
 let testDb: TestDatabase | null = null;
 let pgClient: ReturnType<typeof import('postgres').default> | null = null;
+let sqliteTransactionQueue: Promise<unknown> = Promise.resolve();
+const SQLITE_LEGACY_TABLE_NAMES = ['projects'] as const;
+
+function quoteSqlIdentifier(identifier: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)) {
+    throw new Error(`Unsafe SQL identifier in test schema cleanup: ${identifier}`);
+  }
+
+  return `"${identifier}"`;
+}
+
+function getSchemaTableNames(): string[] {
+  return Array.from(
+    new Set(
+      Object.values(schema)
+        .filter(isTable)
+        .map((table) => getTableName(table))
+    )
+  ).sort();
+}
 
 export async function setupTestDatabase(): Promise<TestDatabase> {
   if (testDb) {
@@ -69,32 +90,24 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
   // inside a native synchronous transaction that captures the result.
   const originalTransaction = testDb.transaction.bind(testDb);
   (testDb as any).transaction = (callback: (tx: any) => any) => {
-    let result: any;
-    const syncWrapper = (tx: any) => {
-      result = callback(tx);
-      // If it's a promise, better-sqlite3 will throw. Instead, we handle it.
-      return result;
-    };
-    try {
-      return originalTransaction(syncWrapper as any);
-    } catch (e: any) {
-      // If the error is about returning a promise, the callback returned a
-      // thenable. Since better-sqlite3 ops resolve sync, the result is
-      // already available. Re-run inside a manual BEGIN/COMMIT.
-      if (e?.message?.includes('promise') || e?.message?.includes('Promise')) {
-        testSqlite!.exec('BEGIN');
-        try {
-          // Re-invoke callback with a proxy tx that delegates to testDb
-          const txResult = callback(testDb as any);
-          testSqlite!.exec('COMMIT');
-          return txResult;
-        } catch (innerErr) {
-          testSqlite!.exec('ROLLBACK');
-          throw innerErr;
-        }
-      }
-      throw e;
+    if (callback.constructor.name !== 'AsyncFunction') {
+      return originalTransaction(callback as any);
     }
+
+    const runTransaction = sqliteTransactionQueue.then(async () => {
+      testSqlite!.exec('BEGIN IMMEDIATE');
+      try {
+        const value = await callback(testDb as any);
+        testSqlite!.exec('COMMIT');
+        return value;
+      } catch (error) {
+        testSqlite!.exec('ROLLBACK');
+        throw error;
+      }
+    });
+
+    sqliteTransactionQueue = runTransaction.catch(() => undefined);
+    return runTransaction;
   };
 
   // Run base migrations.
@@ -549,26 +562,32 @@ export function execRawSql(sql: string): void {
   testSqlite.exec(sql);
 }
 
+/**
+ * Execute parameterized raw SQL on the test database.
+ * Use this for legacy tables that are not represented in the Drizzle schema.
+ */
+export function runRawSql(sql: string, params: readonly unknown[] = []): void {
+  if (DB_MODE === 'postgres') {
+    throw new Error('runRawSql is not supported in postgres mode — use pgClient directly');
+  }
+  if (!testSqlite) {
+    throw new Error('Test database not initialized');
+  }
+  testSqlite.prepare(sql).run(...params);
+}
+
 export async function clearTestDatabase(): Promise<void> {
   if (!testDb) {
     return;
   }
 
+  const tableNames = getSchemaTableNames();
+
   if (DB_MODE === 'postgres' && pgClient) {
-    // Truncate all tables in FK-safe order
-    await pgClient`TRUNCATE TABLE
-      audit_logs, agent_runs, session_events, session_summaries,
-      sessions, worktrees, tasks, agents,
-      template_codespaces, templates,
-      repository_configs, github_tokens, github_installations,
-      sandbox_configs, sandboxes, volume_mounts,
-      terraform_modules, terraform_registries,
-      workflows, plan_sessions, cli_sessions,
-      event_log, event_subscriptions, event_sources,
-      api_keys, settings, marketplaces,
-      codespace_members, codespace_tags, folder_members,
-      team_project_folders, codespaces, project_folders
-    CASCADE`;
+    // Keep cleanup in lockstep with the Drizzle schema; TRUNCATE ... CASCADE
+    // handles FK ordering for Postgres, so the table order does not matter.
+    const tableList = tableNames.map(quoteSqlIdentifier).join(', ');
+    await pgClient.unsafe(`TRUNCATE TABLE ${tableList} CASCADE`);
     // Re-seed the default project folder so FK constraints are satisfied
     await pgClient`INSERT INTO project_folders (id, name, slug, description, icon, color)
       VALUES ('default-folder', 'Default', 'default', 'Default project folder for tests', 'Folder', '#6B7280')
@@ -576,42 +595,17 @@ export async function clearTestDatabase(): Promise<void> {
     return;
   }
 
-  // Fast batch cleanup for SQLite — single FFI call instead of 27 ORM round-trips
+  // Fast batch cleanup for SQLite — one schema-derived batch instead of a
+  // hand-maintained list that can drift as tables are added.
   if (testSqlite) {
+    const deleteStatements = [...tableNames, ...SQLITE_LEGACY_TABLE_NAMES]
+      .map((tableName) => `DELETE FROM ${quoteSqlIdentifier(tableName)};`)
+      .join('\n      ');
+
     testSqlite.exec(`
-      PRAGMA defer_foreign_keys = ON;
-      DELETE FROM audit_logs;
-      DELETE FROM event_log;
-      DELETE FROM event_outbox;
-      DELETE FROM rate_limit_buckets;
-      DELETE FROM event_subscriptions;
-      DELETE FROM event_sources;
-      DELETE FROM agent_runs;
-      DELETE FROM session_events;
-      DELETE FROM sessions;
-      DELETE FROM worktrees;
-      DELETE FROM tasks;
-      DELETE FROM agents;
-      DELETE FROM repository_configs;
-      DELETE FROM github_installations;
-      DELETE FROM github_tokens;
-      DELETE FROM task_tags;
-      DELETE FROM codespace_tags;
-      DELETE FROM api_tokens;
-      DELETE FROM team_invitations;
-      DELETE FROM codespace_members;
-      DELETE FROM template_codespaces;
-      DELETE FROM folder_members;
-      DELETE FROM team_project_folders;
-      DELETE FROM team_members;
-      DELETE FROM tags;
-      DELETE FROM teams;
-      DELETE FROM codespaces;
-      DELETE FROM project_folders;
-      DELETE FROM projects;
-      DELETE FROM sandbox_configs;
-      DELETE FROM marketplaces;
-      PRAGMA defer_foreign_keys = OFF;
+      PRAGMA foreign_keys = OFF;
+      ${deleteStatements}
+      PRAGMA foreign_keys = ON;
     `);
     // Re-seed the default project folder so FK constraints are satisfied
     testSqlite.exec(`
@@ -623,45 +617,7 @@ export async function clearTestDatabase(): Promise<void> {
     return;
   }
 
-  // Fallback: Drizzle ORM cleanup (for edge cases where testSqlite is null)
-  await testDb.delete(schema.auditLogs);
-  await testDb.delete(schema.eventLog);
-  await testDb.delete(schema.eventSubscriptions);
-  await testDb.delete(schema.eventSources);
-  await testDb.delete(schema.agentRuns);
-  await testDb.delete(schema.sessionEvents);
-  await testDb.delete(schema.sessions);
-  await testDb.delete(schema.worktrees);
-  await testDb.delete(schema.tasks);
-  await testDb.delete(schema.agents);
-  await testDb.delete(schema.repositoryConfigs);
-  await testDb.delete(schema.githubInstallations);
-  await testDb.delete(schema.githubTokens);
-  await testDb.delete(schema.taskTags);
-  await testDb.delete(schema.codespaceTags);
-  await testDb.delete(schema.apiTokens);
-  await testDb.delete(schema.teamInvitations);
-  await testDb.delete(schema.codespaceMembers);
-  await testDb.delete(schema.templateCodespaces);
-  await testDb.delete(schema.folderMembers);
-  await testDb.delete(schema.teamProjectFolders);
-  await testDb.delete(schema.teamMembers);
-  await testDb.delete(schema.tags);
-  await testDb.delete(schema.teams);
-  await testDb.delete(schema.codespaces);
-  await testDb.delete(schema.projectFolders);
-  await testDb.delete(schema.sandboxConfigs);
-  await testDb.delete(schema.marketplaces);
-
-  // Re-seed the default project folder so FK constraints are satisfied
-  await testDb.insert(schema.projectFolders).values({
-    id: 'default-folder',
-    name: 'Default',
-    slug: 'default',
-    description: 'Default project folder for tests',
-    icon: 'Folder',
-    color: '#6B7280',
-  });
+  throw new Error('SQLite test cleanup requires the raw better-sqlite3 connection');
 }
 
 export async function closeTestDatabase(): Promise<void> {
@@ -669,6 +625,7 @@ export async function closeTestDatabase(): Promise<void> {
     await pgClient.end();
     pgClient = null;
     testDb = null;
+    sqliteTransactionQueue = Promise.resolve();
     return;
   }
 
@@ -676,6 +633,7 @@ export async function closeTestDatabase(): Promise<void> {
     testSqlite.close();
     testSqlite = null;
     testDb = null;
+    sqliteTransactionQueue = Promise.resolve();
   }
 }
 

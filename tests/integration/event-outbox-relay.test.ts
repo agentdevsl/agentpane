@@ -10,7 +10,7 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eventOutbox } from '../../src/db/schema/sqlite/event-outbox.js';
 import type { DurableStreamsServer } from '../../src/services/durable-streams.service.js';
 import {
@@ -40,6 +40,11 @@ describe('EventOutboxRelayService (F05-05)', () => {
   let relay: EventOutboxRelayService | null = null;
 
   beforeEach(async () => {
+    relay = null;
+  });
+
+  afterEach(async () => {
+    await relay?.stop();
     relay = null;
   });
 
