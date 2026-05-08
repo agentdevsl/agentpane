@@ -55,11 +55,16 @@ Updated: 2026-05-08
 | P1 — reject cleanup failure | `tests/integration/agent-execution-service.test.ts` now proves host-mode `rejectPlanForTask()` treats worktree removal failure as best-effort while still clearing task plan/worktree state. |
 | P2 — verified reopen guard | `tests/integration/task-state-transitions.test.ts` now explicitly covers `verified -> backlog` reopen and rejects direct `verified -> in_progress` with `allowedTransitions=['backlog']`. |
 | Phase 5.4 — legacy sandbox table workaround audit | `tests/integration/sandbox-service.test.ts` and `tests/integration/sandbox-service-crud.test.ts` no longer create/drop shadow sandbox tables; both seed real codespaces/tasks and run against the production migration output with SQLite FK enforcement on. |
-| Coverage-guided integration expansion | Fresh integration coverage identified low service coverage; targeted tests raised `agent-review.service.ts` from 7.8% to 82.9% lines, `github-token.service.ts` from 26.0% to 67.7% lines, `container-agent.service.ts` from 22.0% to 40.4% lines, and `template.service.ts` from 29.5% to 65.9% lines, moving total integration-only line coverage from 44.74% to 45.87%. |
+| Coverage-guided integration expansion | Fresh integration coverage identified low service coverage; targeted tests raised `agent-review.service.ts` from 7.8% to 82.9% lines, `github-token.service.ts` from 26.0% to 67.7% lines, `container-agent.service.ts` from 22.0% to 40.4% lines, `template.service.ts` from 29.5% to 65.9% lines, `task-creation.service.ts` from 40.0% to 47.39% lines, `skill-tracking.service.ts` from 47.6% to 86.66% lines, `shared-helpers.ts` from 46.1% to 55.76% lines, `plan-mode.service.ts` from 50.8% to 71.72% lines, and `durable-streams.service.ts` from 46.6% to 65.6% lines, moving total integration-only line coverage from 44.74% to 46.8%. |
 | AgentReviewService integration gap | `tests/integration/agent-review-service.test.ts` covers approval-mode resolution, review-model settings, auto-approval through real `PlanApprovalService`, flag-for-human-review, usage persistence, and malformed model-output fallback. |
 | GitHubTokenService Octokit integration gap | `tests/integration/github-token-octokit.test.ts` exercises repository/branch/org/template APIs with real DB/encryption and a mocked Octokit boundary, including duplicate-template validation and token invalidation on 401. |
 | ContainerAgentService reconcile gap | `tests/integration/container-agent-service.test.ts` now drives the real `ContainerAgentService.reconcile()` path and verifies orphaned tool starts emit one synthetic `container-agent:tool:result` while already-finished tools are not duplicated. |
 | TemplateService real-service gap | `tests/integration/template-service.test.ts` now exercises `TemplateService.create/list/update/delete/findByRepo/getMergedConfig()` against the real schema instead of only direct template-table shape checks. |
+| TaskCreationService persistence gap | `tests/integration/task-creation-service.test.ts` now runs `TaskCreationService` through real `SessionService` and in-memory durable streams to verify persisted user/assistant chunks, streamed tool lifecycle events, AskUserQuestion result persistence, and skip-question continuation. |
+| SkillTrackingService insight gap | `tests/integration/memory-service.integration.test.ts` now covers metric upsert/global reads, insight correlation, and effectiveness-score materialization from real execution rows. |
+| Container shared-helper metrics gap | `tests/integration/container-agent-services.test.ts` now proves `updateTaskOnAgentComplete()` records and rolls up skill metrics through the real `SkillTrackingService` when a skilled task completes. |
+| PlanModeService tool-use gap | `tests/integration/plan-mode-service.test.ts` now drives AskUserQuestion and CreateGitHubIssue tool-use branches, including waiting-user persistence, missing-GitHub-config completion, and successful issue URL/number persistence. |
+| DurableStreamsService integration gap | `tests/integration/durable-streams-service-behavior.test.ts` now covers createStream validation/error wrapping, `publishSessionEvent()` metadata validation/persistence, typed event metadata derivation, and direct-publish backpressure metadata. |
 
 ## Still Roadmap Work
 
@@ -91,7 +96,7 @@ Updated: 2026-05-08
 - `bunx vitest run --project integration tests/integration/task-state-transitions.test.ts` passed: 1 file, 30 tests.
 - `bunx biome check tests/integration/sandbox-service.test.ts tests/integration/sandbox-service-crud.test.ts` passed: 2 files.
 - `bunx vitest run --project integration tests/integration/sandbox-service.test.ts tests/integration/sandbox-service-crud.test.ts` passed: 2 files, 45 tests.
-- `bunx vitest run --project integration --coverage --coverage.reporter=json-summary --coverage.reporter=json --coverage.reportsDirectory=coverage/integration` completed: 188 files passed, 3 skipped; 2381 tests passed, 11 skipped; integration-only coverage rose to 45.87% lines / 40.18% functions / 36.96% branches; command exits nonzero because repo global thresholds are higher than integration-only coverage.
+- `bunx vitest run --project integration --coverage --coverage.reporter=json-summary --coverage.reporter=json --coverage.reportsDirectory=coverage/integration` completed: 190 files passed, 3 skipped; 2399 tests passed, 11 skipped; integration-only coverage rose to 46.8% lines / 40.67% functions / 37.99% branches; command exits nonzero because repo global thresholds are higher than integration-only coverage.
 - `bunx biome check tests/integration/agent-review-service.test.ts` passed: 1 file.
 - `bunx vitest run --project integration tests/integration/agent-review-service.test.ts` passed: 1 file, 4 tests.
 - `bunx biome check tests/integration/github-token-octokit.test.ts` passed: 1 file.
@@ -100,6 +105,16 @@ Updated: 2026-05-08
 - `bunx vitest run --project integration tests/integration/container-agent-service.test.ts` passed: 1 file, 13 tests.
 - `bunx biome check tests/integration/template-service.test.ts` passed: 1 file.
 - `bunx vitest run --project integration tests/integration/template-service.test.ts` passed: 1 file, 13 tests.
+- `bunx biome check tests/integration/task-creation-service.test.ts` passed: 1 file.
+- `bunx vitest run --project integration tests/integration/task-creation-service.test.ts` passed: 1 file, 34 tests.
+- `bunx biome check tests/integration/memory-service.integration.test.ts` passed: 1 file.
+- `bunx vitest run --project integration tests/integration/memory-service.integration.test.ts` passed: 1 file, 22 tests.
+- `bunx biome check tests/integration/container-agent-services.test.ts tests/integration/memory-service.integration.test.ts tests/integration/task-creation-service.test.ts` passed: 3 files.
+- `bunx vitest run --project integration tests/integration/container-agent-services.test.ts tests/integration/memory-service.integration.test.ts tests/integration/task-creation-service.test.ts` passed: 3 files, 121 tests.
+- `bunx biome check tests/integration/plan-mode-service.test.ts` passed: 1 file.
+- `bunx vitest run --project integration tests/integration/plan-mode-service.test.ts` passed: 1 file, 25 tests.
+- `bunx biome check tests/integration/durable-streams-service-behavior.test.ts` passed: 1 file.
+- `bunx vitest run --project integration tests/integration/durable-streams-service-behavior.test.ts` passed: 1 file, 4 tests.
 - `bunx vitest run --project functional tests/functional/prove-session-worktree-bugs.test.ts` passed: 1 file, 18 tests.
 - `bunx biome check src/services/container-agent/container-exec.service.ts src/services/container-agent/agentcore-bridge.service.ts tests/integration/container-agent-services.test.ts tests/integration/container-exec-service.test.ts tests/functional/prove-session-worktree-bugs.test.ts specs/test_improvements_may_status.md tests/helpers/database.ts src/lib/bootstrap/migrations/index.ts src/lib/bootstrap/__tests__/migration-ordering.test.ts` passed: 8 files.
 - `bunx vitest run --project integration tests/integration/concurrency-pg/plan-approval-pg.test.ts` passed in default local mode: 1 file skipped, 2 tests skipped.

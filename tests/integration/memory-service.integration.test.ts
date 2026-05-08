@@ -5,7 +5,9 @@
  * MemoryStoreService, MemoryService, and SkillTrackingService.
  */
 
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { memoryInsights } from '../../src/db/schema';
 import { MemoryService } from '../../src/services/memory/memory.service';
 import { MemoryStoreService } from '../../src/services/memory/memory-store.service';
 import { SkillTrackingService } from '../../src/services/memory/skill-tracking.service';
@@ -635,6 +637,169 @@ describe('Memory Service Integration', () => {
       expect(result.value.errorPatterns.length).toBeGreaterThan(0);
       expect(result.value.errorPatterns[0].message).toBe('Connection timeout');
       expect(result.value.errorPatterns[0].count).toBe(2);
+    });
+
+    it('updates existing metrics and supports global metric queries across codespaces', async () => {
+      await tracking.recordExecution({
+        codespaceId: 'cs-test-1',
+        skillId: 'skill-deploy',
+        skillName: 'Deploy Service',
+        status: 'success',
+        turnsUsed: 4,
+        tokensUsed: 1000,
+        completedAt: '2026-05-01T00:00:00.000Z',
+      });
+      await tracking.refreshMetrics('cs-test-1', 'skill-deploy');
+
+      await tracking.recordExecution({
+        codespaceId: 'cs-test-1',
+        skillId: 'skill-deploy',
+        skillName: 'Deploy Service Renamed',
+        status: 'failed',
+        turnsUsed: 8,
+        tokensUsed: 3000,
+        completedAt: '2026-05-02T00:00:00.000Z',
+        errorMessage: 'Regression',
+      });
+      await tracking.recordExecution({
+        codespaceId: 'cs-test-2',
+        skillId: 'skill-review',
+        skillName: 'Review Service',
+        status: 'turn_limit',
+        turnsUsed: 12,
+        tokensUsed: 6000,
+        completedAt: '2026-05-03T00:00:00.000Z',
+      });
+
+      await tracking.refreshMetrics('cs-test-1', 'skill-deploy');
+      await tracking.refreshMetrics('cs-test-2', 'skill-review');
+
+      const deployMetrics = await tracking.getMetrics('cs-test-1', 'skill-deploy');
+      expect(deployMetrics.ok).toBe(true);
+      if (!deployMetrics.ok) return;
+      expect(deployMetrics.value).toHaveLength(1);
+      expect(deployMetrics.value[0]).toMatchObject({
+        skillId: 'skill-deploy',
+        skillName: 'Deploy Service Renamed',
+        totalRuns: 2,
+        successCount: 1,
+        errorCount: 1,
+        avgTokensUsed: 2000,
+        avgTurnsUsed: 6,
+        successRate: 0.5,
+      });
+
+      const allMetrics = await tracking.getMetrics(null);
+      expect(allMetrics.ok).toBe(true);
+      if (!allMetrics.ok) return;
+      expect(allMetrics.value.map((metric) => metric.skillId).sort()).toEqual([
+        'skill-deploy',
+        'skill-review',
+      ]);
+    });
+
+    it('computes insight correlations from executions that reference memory insights', async () => {
+      await tracking.recordExecution({
+        codespaceId: 'cs-test-1',
+        skillId: 'skill-deploy',
+        skillName: 'Deploy',
+        status: 'success',
+        insightIdsUsed: ['insight-a', 'insight-b'],
+      });
+      await tracking.recordExecution({
+        codespaceId: 'cs-test-1',
+        skillId: 'skill-deploy',
+        skillName: 'Deploy',
+        status: 'failed',
+        insightIdsUsed: ['insight-a'],
+      });
+      await tracking.recordExecution({
+        codespaceId: 'cs-test-2',
+        skillId: 'skill-deploy',
+        skillName: 'Deploy',
+        status: 'success',
+        insightIdsUsed: ['insight-a'],
+      });
+
+      const result = await tracking.getInsightCorrelations('cs-test-1');
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.value.sort((a, b) => a.insightId.localeCompare(b.insightId))).toEqual([
+        { insightId: 'insight-a', timesUsed: 2, successRate: 0.5 },
+        { insightId: 'insight-b', timesUsed: 1, successRate: 1 },
+      ]);
+    });
+
+    it('materializes effectiveness scores for insights from weighted execution outcomes', async () => {
+      await db.insert(memoryInsights).values([
+        {
+          id: 'insight-positive',
+          codespaceId: 'cs-test-1',
+          content: 'Positive pattern',
+          source: 'manual',
+          status: 'active',
+        },
+        {
+          id: 'insight-negative',
+          codespaceId: 'cs-test-1',
+          content: 'Risky pattern',
+          source: 'manual',
+          status: 'active',
+        },
+        {
+          id: 'insight-other-codespace',
+          codespaceId: 'cs-test-2',
+          content: 'Other project pattern',
+          source: 'manual',
+          status: 'active',
+        },
+      ]);
+
+      const recent = new Date().toISOString();
+      const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      await tracking.recordExecution({
+        codespaceId: 'cs-test-1',
+        skillId: 'skill-deploy',
+        skillName: 'Deploy',
+        status: 'success',
+        completedAt: recent,
+        insightIdsUsed: ['insight-positive', 'insight-negative'],
+      });
+      await tracking.recordExecution({
+        codespaceId: 'cs-test-1',
+        skillId: 'skill-deploy',
+        skillName: 'Deploy',
+        status: 'failed',
+        completedAt: old,
+        insightIdsUsed: ['insight-negative'],
+      });
+      await tracking.recordExecution({
+        codespaceId: 'cs-test-2',
+        skillId: 'skill-deploy',
+        skillName: 'Deploy',
+        status: 'failed',
+        completedAt: recent,
+        insightIdsUsed: ['insight-other-codespace'],
+      });
+
+      const result = await tracking.computeInsightScores('cs-test-1');
+      expect(result.ok).toBe(true);
+
+      const positive = await db.query.memoryInsights.findFirst({
+        where: eq(memoryInsights.id, 'insight-positive'),
+      });
+      const negative = await db.query.memoryInsights.findFirst({
+        where: eq(memoryInsights.id, 'insight-negative'),
+      });
+      const other = await db.query.memoryInsights.findFirst({
+        where: eq(memoryInsights.id, 'insight-other-codespace'),
+      });
+
+      expect(positive?.effectivenessScore).toBe(1);
+      expect(negative?.effectivenessScore).toBeGreaterThan(0);
+      expect(negative?.effectivenessScore).toBeLessThan(1);
+      expect(other?.effectivenessScore).toBeNull();
     });
   });
 });
