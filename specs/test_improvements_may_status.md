@@ -47,6 +47,7 @@ Updated: 2026-05-08
 | Phase 5.1 — database helper split and production runner adoption | `tests/helpers/database/cleanup.ts`, `connection.ts`, `schema-metadata.ts`, and `seed.ts` now own focused helper responsibilities while `tests/helpers/database.ts` remains the stable public import path and initializes SQLite through the production `runMigrations(testSqlite, MIGRATIONS)` path. |
 | Phase 5.4 — SQLite FK enforcement | `tests/integration/database-helper-fk.test.ts` proves SQLite foreign keys are enabled immediately after `setupTestDatabase()`; FK-on fallout was fixed in `plan-recovery.test.ts` plus `scheduler-event-pipeline.test.ts` fixtures. |
 | Runtime migration drift fixes | Added v41 `codespace-era-table-rebuilds` for current Drizzle writes without legacy `project_id` columns and v42 `sqlite-schema-parity-catchup` for remaining Drizzle/runtime SQLite drift; `migration-ordering.test.ts` now covers codespace-era writes through the production runner. |
+| Agent/session circular FK bug | Full-suite FK enforcement exposed `ContainerExecService` and `AgentCoreBridgeService` inserting agents with `current_session_id` before the session row existed; both now create/upsert the agent with a null session pointer, create/upsert the session, then link the agent back to the existing session. |
 
 ## Still Roadmap Work
 
@@ -66,6 +67,9 @@ Updated: 2026-05-08
 - `bunx vitest run --project integration tests/integration/database-helper-fk.test.ts tests/integration/codespace-cascade.test.ts tests/integration/codespace-cascade-delete.test.ts tests/integration/codespace-delete-api-tokens.test.ts` passed: 4 files, 10 tests.
 - `bunx vitest run --project unit src/lib/bootstrap/__tests__/migration-ordering.test.ts` passed: 1 file, 7 tests.
 - `bunx vitest run --project integration tests/integration/schema-drift-all-tables.test.ts tests/integration/database-helper-fk.test.ts tests/integration/api-keys-schema-drift.test.ts tests/integration/codespace-cascade.test.ts tests/integration/codespace-cascade-delete.test.ts tests/integration/codespace-delete-api-tokens.test.ts` passed: 6 files, 67 tests.
+- `bunx vitest run --project integration tests/integration/container-agent-services.test.ts tests/integration/container-exec-service.test.ts tests/integration/agentcore-bridge-service.test.ts tests/integration/agent-oauth-refresh.test.ts` passed: 4 files, 92 tests.
+- `bunx vitest run --project functional tests/functional/prove-session-worktree-bugs.test.ts` passed: 1 file, 18 tests.
+- `bunx biome check src/services/container-agent/container-exec.service.ts src/services/container-agent/agentcore-bridge.service.ts tests/integration/container-agent-services.test.ts tests/integration/container-exec-service.test.ts tests/functional/prove-session-worktree-bugs.test.ts specs/test_improvements_may_status.md tests/helpers/database.ts src/lib/bootstrap/migrations/index.ts src/lib/bootstrap/__tests__/migration-ordering.test.ts` passed: 8 files.
 - `bunx vitest run --project integration tests/integration/concurrency-pg/plan-approval-pg.test.ts` passed in default local mode: 1 file skipped, 2 tests skipped.
 - `bunx vitest run --project integration tests/integration/codespace-cascade.test.ts` passed: 1 file, 3 tests.
 - `bunx vitest run --project integration tests/integration/plan-approval-flow.test.ts` passed: 1 file, 26 tests.
