@@ -23,13 +23,19 @@ export function useCodespaceAgents(codespaceId: string | null | undefined): Know
     }
     let cancelled = false;
     void (async () => {
-      const result = await apiClient.projects.getAgents(codespaceId);
-      if (cancelled) return;
-      if (!result.ok) {
-        setAgents([]);
-        return;
+      try {
+        const result = await apiClient.projects.getAgents(codespaceId);
+        if (cancelled) return;
+        if (!result.ok) {
+          setAgents([]);
+          return;
+        }
+        setAgents(result.data);
+      } catch {
+        if (!cancelled) {
+          setAgents([]);
+        }
       }
-      setAgents(result.data);
     })();
     return () => {
       cancelled = true;

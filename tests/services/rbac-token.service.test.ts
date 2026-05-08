@@ -82,15 +82,6 @@ describe('RbacTokenService', () => {
 
   beforeAll(async () => {
     await setupTestDatabase();
-
-    // Insert user once -- the clearTestDatabase helper does not clear the users table
-    const db = getTestDb();
-    await db.insert(users).values({
-      id: USER_ID,
-      githubId: 12345,
-      githubLogin: 'testuser',
-      name: 'Test User',
-    });
   });
 
   beforeEach(async () => {
@@ -102,6 +93,13 @@ describe('RbacTokenService', () => {
     patchTransaction(db);
 
     service = new RbacTokenService(db as any);
+
+    await db.insert(users).values({
+      id: USER_ID,
+      githubId: 12345,
+      githubLogin: 'testuser',
+      name: 'Test User',
+    });
 
     // Re-insert team each run (cleared by clearTestDatabase)
     await db.insert(teams).values({

@@ -16,6 +16,8 @@ vi.mock('@tanstack/db', () => ({
     id: opts.id,
     size: 0,
     isReady: () => true,
+    toArray: [],
+    delete: vi.fn(),
   })),
   localOnlyCollectionOptions: vi.fn((opts: unknown) => opts),
 }));

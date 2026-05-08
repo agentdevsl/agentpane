@@ -78,6 +78,27 @@
       "severity": "high",
       "reason": "Pre-existing — dev-time server. Not in production bundle.",
       "expiresAt": "2026-07-21"
+    },
+    {
+      "ghsaId": "GHSA-q3j6-qgpj-74h6",
+      "package": "fast-uri",
+      "severity": "high",
+      "reason": "Pre-existing — transitive path traversal advisory. Awaiting upstream dependency upgrade.",
+      "expiresAt": "2026-08-09"
+    },
+    {
+      "ghsaId": "GHSA-v39h-62p7-jpjc",
+      "package": "fast-uri",
+      "severity": "high",
+      "reason": "Pre-existing — transitive host confusion advisory. Awaiting upstream dependency upgrade.",
+      "expiresAt": "2026-08-09"
+    },
+    {
+      "ghsaId": "GHSA-5wm8-gmm8-39j9",
+      "package": "fast-xml-builder",
+      "severity": "high",
+      "reason": "Pre-existing — transitive XML builder advisory. No direct untrusted XML construction path.",
+      "expiresAt": "2026-08-09"
     }
   ]
 }
