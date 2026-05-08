@@ -7,7 +7,7 @@
  * @module lib/sessions/collections
  */
 
-import { createCollection, localOnlyCollectionOptions } from '@tanstack/db';
+import { type Collection, createCollection, localOnlyCollectionOptions } from '@tanstack/db';
 import {
   agentStateSchema,
   chunkSchema,
@@ -117,6 +117,51 @@ export const messagesCollection = createCollection(
   })
 );
 
+type SessionScopedRecord = {
+  sessionId: string;
+};
+
+type SessionCollection<T extends SessionScopedRecord, TKey extends string> = Pick<
+  Collection<T, TKey>,
+  'toArray' | 'delete'
+>;
+
+function clearSessionCollectionBySession<T extends SessionScopedRecord, TKey extends string>(
+  collection: SessionCollection<T, TKey>,
+  sessionId: string | undefined,
+  getSessionKey: (item: T) => TKey
+): void {
+  for (const item of collection.toArray) {
+    if (sessionId && item.sessionId !== sessionId) {
+      continue;
+    }
+
+    collection.delete(getSessionKey(item));
+  }
+}
+
+/**
+ * Clear one session's collections, or all sessions when sessionId is omitted.
+ * Clears local TanStack DB state that otherwise persists across navigations.
+ */
+export function clearSessionCollections(sessionId?: string): void {
+  clearSessionCollectionBySession(chunksCollection, sessionId, (chunk) => chunk.id);
+  clearSessionCollectionBySession(toolCallsCollection, sessionId, (toolCall) => toolCall.id);
+  clearSessionCollectionBySession(
+    presenceCollection,
+    sessionId,
+    (presence) => `${presence.sessionId}:${presence.userId}` as `${string}:${string}`
+  );
+  clearSessionCollectionBySession(terminalCollection, sessionId, (terminal) => terminal.id);
+  clearSessionCollectionBySession(workflowCollection, sessionId, (workflow) => workflow.id);
+  clearSessionCollectionBySession(
+    agentStateCollection,
+    sessionId,
+    (agentState) => `${agentState.sessionId}:${agentState.agentId}` as `${string}:${string}`
+  );
+  clearSessionCollectionBySession(messagesCollection, sessionId, (message) => message.id);
+}
+
 /**
  * Collection registry for easy iteration
  */
@@ -129,14 +174,6 @@ export const sessionCollections = {
   agentState: agentStateCollection,
   messages: messagesCollection,
 } as const;
-
-/**
- * Clear all data from all session collections
- * Useful for cleanup when leaving a session
- */
-export function clearSessionCollections(): void {
-  // TODO: implement collection clearing — currently a no-op placeholder
-}
 
 /**
  * Get collection statistics for debugging

@@ -12,6 +12,7 @@ import { type Subscription, subscribeToSession } from '../streams/client.js';
 import {
   agentStateCollection,
   chunksCollection,
+  clearSessionCollections,
   messagesCollection,
   presenceCollection,
   terminalCollection,
@@ -208,6 +209,8 @@ export function stopSessionSync(sessionId: string): void {
       messageAccumulators.delete(key);
     }
   }
+
+  clearSessionCollections(sessionId);
 }
 
 /**
