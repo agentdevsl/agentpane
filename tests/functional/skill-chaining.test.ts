@@ -1,73 +1,52 @@
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { tasks } from '../../src/db/schema';
-import { PlanApprovalService } from '../../src/services/container-agent/plan-approval.service';
-import { SandboxStateManager } from '../../src/services/container-agent/sandbox-state';
 import type { StartAgentInput } from '../../src/services/container-agent/types';
-import type { DurableStreamsService } from '../../src/services/durable-streams.service';
 import { createTestProject } from '../factories/project.factory';
-import { createTestTask } from '../factories/task.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
-import { createInMemoryStreams, createMockWorktreeInit } from '../helpers/mocks';
-
-function createPlanService(
-  db: ReturnType<typeof getTestDb>,
-  streams: DurableStreamsService,
-  stateManager: SandboxStateManager,
-  startAgentFn = vi.fn().mockResolvedValue({ ok: true, value: undefined })
-): { planService: PlanApprovalService; startAgentFn: typeof startAgentFn } {
-  return {
-    planService: new PlanApprovalService(
-      { db, streams, provider: { get: vi.fn() } as any },
-      stateManager,
-      createMockWorktreeInit() as any,
-      startAgentFn,
-      () => false
-    ),
-    startAgentFn,
-  };
-}
+import { createLifecycleHarness, type LifecycleHarness } from '../helpers/lifecycle-harness';
 
 describe('Skill chaining', () => {
   let db: ReturnType<typeof getTestDb>;
-  let streams: DurableStreamsService;
-  let stateManager: SandboxStateManager;
+  let harness: LifecycleHarness;
 
   beforeEach(async () => {
     await setupTestDatabase();
     db = getTestDb();
-    streams = createInMemoryStreams() as unknown as DurableStreamsService;
-    stateManager = new SandboxStateManager();
+    harness = createLifecycleHarness({ db });
+    await harness.enableSandboxDefaults();
   });
 
   afterEach(async () => {
-    stateManager.dispose();
+    harness.teardown();
     await clearTestDatabase();
   });
 
   it('approvePlan swaps task.skillId from planning skill to executionSkillId atomically', async () => {
     const codespace = await createTestProject({ name: 'Skill Chaining Success' });
-    const task = await createTestTask(codespace.id, {
-      column: 'in_progress',
+    const task = await harness.createTask({
+      codespaceId: codespace.id,
       title: 'Task with execution skill',
       skillId: 'planning-skill',
       skillName: 'Planning Skill',
       executionSkillId: 'execution-skill',
       executionSkillName: 'Execution Skill',
     });
-    const { planService, startAgentFn } = createPlanService(db, streams, stateManager);
+    await harness.moveTaskToInProgress(task.id);
 
-    await planService.handlePlanReady(task.id, 'session-skill-chain', codespace.id, {
+    await harness.handlePlanReady(task.id, 'session-skill-chain', codespace.id, {
       plan: 'Approved skill-chain plan',
       turnCount: 3,
       sdkSessionId: 'sdk-skill-chain',
     });
 
-    const result = await planService.approvePlan(task.id);
+    const result = await harness.approvePlan(task.id);
     expect(result.ok).toBe(true);
-    expect(startAgentFn).toHaveBeenCalledOnce();
+    expect(harness.executionStartAgent).toHaveBeenCalledOnce();
 
-    const startInput = startAgentFn.mock.calls[0]?.[0] as StartAgentInput | undefined;
+    const startInput = harness.executionStartAgent.mock.calls[0]?.[0] as
+      | StartAgentInput
+      | undefined;
     expect(startInput?.prompt).toContain('.claude/skills/execution-skill/SKILL.md');
     expect(startInput?.prompt).toContain('Approved skill-chain plan');
 
@@ -75,32 +54,32 @@ describe('Skill chaining', () => {
     expect(taskAfter?.column).toBe('in_progress');
     expect(taskAfter?.skillId).toBe('execution-skill');
     expect(taskAfter?.skillName).toBe('Execution Skill');
-    expect(stateManager.hasPendingPlan(task.id)).toBe(false);
+    expect(harness.stateManager.hasPendingPlan(task.id)).toBe(false);
   });
 
   it('approvePlan restores planning skill when execution start fails', async () => {
     const codespace = await createTestProject({ name: 'Skill Chaining Rollback' });
-    const task = await createTestTask(codespace.id, {
-      column: 'in_progress',
+    const task = await harness.createTask({
+      codespaceId: codespace.id,
       title: 'Task with rollback skill',
       skillId: 'planning-skill',
       skillName: 'Planning Skill',
       executionSkillId: 'execution-skill',
       executionSkillName: 'Execution Skill',
     });
-    const startAgentFn = vi.fn().mockResolvedValue({
+    await harness.moveTaskToInProgress(task.id);
+    harness.executionStartAgent.mockResolvedValueOnce({
       ok: false,
       error: { code: 'AGENT_START_FAILED', message: 'start failed', status: 500 },
     });
-    const { planService } = createPlanService(db, streams, stateManager, startAgentFn);
 
-    await planService.handlePlanReady(task.id, 'session-skill-rollback', codespace.id, {
+    await harness.handlePlanReady(task.id, 'session-skill-rollback', codespace.id, {
       plan: 'Rollback skill-chain plan',
       turnCount: 3,
       sdkSessionId: 'sdk-skill-rollback',
     });
 
-    const result = await planService.approvePlan(task.id);
+    const result = await harness.approvePlan(task.id);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe('AGENT_START_FAILED');
@@ -111,6 +90,6 @@ describe('Skill chaining', () => {
     expect(taskAfter?.lastAgentStatus).toBe('planning');
     expect(taskAfter?.skillId).toBe('planning-skill');
     expect(taskAfter?.skillName).toBe('Planning Skill');
-    expect(stateManager.hasPendingPlan(task.id)).toBe(true);
+    expect(harness.stateManager.hasPendingPlan(task.id)).toBe(true);
   });
 });

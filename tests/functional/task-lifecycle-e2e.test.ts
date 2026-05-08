@@ -26,6 +26,7 @@ import { createTestProject } from '../factories/project.factory';
 import { createTestTask } from '../factories/task.factory';
 import { createTestWorktree } from '../factories/worktree.factory';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
+import { createLifecycleHarness } from '../helpers/lifecycle-harness';
 import { createInMemoryStreams } from '../helpers/mocks';
 import { agentRunnerStream } from '../helpers/streams';
 
@@ -396,74 +397,47 @@ describe('Functional E2E: Real Service Transitions', () => {
   });
 
   it('bridge double plan_ready preserves the first plan through PlanApprovalService idempotency', async () => {
-    const codespace = await createTestProject({ id: CODESPACE_ID });
-    const createResult = await taskService.create({
-      codespaceId: codespace.id,
-      title: 'Handle duplicate bridge plans',
-      skillId: 'planning-toolkit',
-    });
-    expect(createResult.ok).toBe(true);
-    if (!createResult.ok) {
-      return;
-    }
-
-    const move = await taskService.moveColumn(createResult.value.id, 'in_progress');
-    expect(move.ok).toBe(true);
-    if (!move.ok) {
-      return;
-    }
-
-    const mockWorktreeInit = {
-      cleanupWorktree: vi.fn().mockResolvedValue(undefined),
-      resolveWorktree: vi.fn(),
-      initializeWorkspace: vi.fn(),
-    };
-    const planService = new PlanApprovalService(
-      { db, streams, provider: { get: vi.fn() } as any },
-      stateManager,
-      mockWorktreeInit as any,
-      vi.fn().mockResolvedValue({ ok: true, value: undefined }),
-      () => false
-    );
-
-    const taskId = createResult.value.id;
-    const sessionId = move.value.task.sessionId;
-    expect(sessionId).toBeTruthy();
-    if (!sessionId) {
-      return;
-    }
-
-    const planPromises: Promise<void>[] = [];
-    const bridge = createContainerBridge({
-      taskId,
-      sessionId,
-      codespaceId: codespace.id,
-      streams,
-      onComplete: vi.fn(),
-      onError: vi.fn(),
-      onPlanReady: (data) => {
-        planPromises.push(
-          planService.handlePlanReady(taskId, sessionId, codespace.id, data as any)
-        );
-      },
+    const harness = createLifecycleHarness({
+      db,
+      streams: streams as never,
+      worktreeService: mockWorktreeService,
     });
 
-    await bridge.processStream(
-      agentRunnerStream(taskId, sessionId, codespace.id)
-        .planReady('Plan A: keep this plan', 'sdk-plan-a', 2)
-        .planReady('Plan B: duplicate should be ignored', 'sdk-plan-b', 3)
-        .build()
-    );
-    await Promise.all(planPromises);
+    try {
+      const codespace = await harness.createCodespace({ id: CODESPACE_ID });
+      const { createdTask, runningTask } = await harness.startTask({
+        codespaceId: codespace.id,
+        title: 'Handle duplicate bridge plans',
+        skillId: 'planning-toolkit',
+      });
 
-    expect(planPromises).toHaveLength(2);
-    const planned = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
-    expect(planned?.column).toBe('waiting_approval');
-    expect(planned?.plan).toBe('Plan A: keep this plan');
-    expect((planned?.planOptions as { sdkSessionId?: string } | null)?.sdkSessionId).toBe(
-      'sdk-plan-a'
-    );
-    expect(stateManager.getPendingPlan(taskId)?.plan).toBe('Plan A: keep this plan');
+      const sessionId = runningTask.sessionId;
+      expect(sessionId).toBeTruthy();
+      if (!sessionId) {
+        return;
+      }
+
+      await harness.processAgentRunnerStream(
+        createdTask.id,
+        sessionId,
+        codespace.id,
+        agentRunnerStream(createdTask.id, sessionId, codespace.id)
+          .planReady('Plan A: keep this plan', 'sdk-plan-a', 2)
+          .planReady('Plan B: duplicate should be ignored', 'sdk-plan-b', 3)
+      );
+
+      const planned = await db.query.tasks.findFirst({ where: eq(tasks.id, createdTask.id) });
+      expect(planned?.column).toBe('waiting_approval');
+      expect(planned?.plan).toBe('Plan A: keep this plan');
+      expect((planned?.planOptions as { sdkSessionId?: string } | null)?.sdkSessionId).toBe(
+        'sdk-plan-a'
+      );
+      expect(harness.stateManager.getPendingPlan(createdTask.id)?.plan).toBe(
+        'Plan A: keep this plan'
+      );
+    } finally {
+      harness.teardown();
+    }
   });
 
   it('agent error through real shared-helpers cleans up correctly', async () => {

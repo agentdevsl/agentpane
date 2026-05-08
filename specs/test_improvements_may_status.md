@@ -26,6 +26,8 @@ Updated: 2026-05-08
 | Phase 2.6 — pure DB-shape functional case deleted | `tests/functional/prove-session-worktree-bugs.test.ts` now keeps the real `WorktreeService.merge()` failure-status test and drops the direct DB shape probe. |
 | Phase 2.4 — reduce direct task-state simulations | Merge-approval setup in `prove-task-service-bugs.test.ts` and `task-lifecycle-advanced.test.ts` now drives `lastAgentStatus='completed'` through `updateTaskOnAgentComplete()`; remaining direct updates are documented guard/race preconditions with no narrow service setup path. |
 | Phase 3.1 — stream simulation v2 | `tests/helpers/streams/` exports `sdkStream()` and `agentRunnerStream()`; bridge proof tests now use the agent-runner builder instead of local JSON-line helpers. |
+| Phase 3.2 — lifecycle harness | `tests/helpers/lifecycle-harness.ts` creates a real `TaskService` + `PlanApprovalService` object graph with in-memory streams and external-boundary mocks for container start/worktree operations. |
+| Phase 3.3 — lifecycle harness proof points | `tests/functional/task-lifecycle-e2e.test.ts`, `tests/functional/plan-revision-loop.test.ts`, and `tests/functional/skill-chaining.test.ts` now use `createLifecycleHarness()` for representative real-service lifecycle paths. |
 | Phase 3.4 — missing factories | Added settings, sandbox-instance, plan-session/pending-plan, user, team/RBAC, and session-event factories; the factory barrel exports them. |
 | Phase 3.5 — factory smells | `project.factory.ts` uses parameterized SQL for legacy `projects`; event source/subscription factories require real FK IDs; agent factory status/type derives from schema; task approval/rejection helpers are explicit. |
 | Phase 3.6 and 3.7 — clock/wait helpers | `tests/helpers/clock.ts` and `tests/helpers/wait.ts` provide reusable frozen-clock and polling/event helpers. |
@@ -55,20 +57,34 @@ Updated: 2026-05-08
 | P1 — reject cleanup failure | `tests/integration/agent-execution-service.test.ts` now proves host-mode `rejectPlanForTask()` treats worktree removal failure as best-effort while still clearing task plan/worktree state. |
 | P2 — verified reopen guard | `tests/integration/task-state-transitions.test.ts` now explicitly covers `verified -> backlog` reopen and rejects direct `verified -> in_progress` with `allowedTransitions=['backlog']`. |
 | Phase 5.4 — legacy sandbox table workaround audit | `tests/integration/sandbox-service.test.ts` and `tests/integration/sandbox-service-crud.test.ts` no longer create/drop shadow sandbox tables; both seed real codespaces/tasks and run against the production migration output with SQLite FK enforcement on. |
-| Coverage-guided integration expansion | Fresh integration coverage identified low service coverage; targeted tests raised `agent-review.service.ts` from 7.8% to 82.9% lines, `github-token.service.ts` from 26.0% to 67.7% lines, `container-agent.service.ts` from 22.0% to 40.4% lines, `template.service.ts` from 29.5% to 65.9% lines, `task-creation.service.ts` from 40.0% to 47.39% lines, `skill-tracking.service.ts` from 47.6% to 86.66% lines, `shared-helpers.ts` from 46.1% to 55.76% lines, `plan-mode.service.ts` from 50.8% to 71.72% lines, and `durable-streams.service.ts` from 46.6% to 65.6% lines, moving total integration-only line coverage from 44.74% to 46.8%. |
+| Coverage-guided integration expansion | Fresh integration coverage identified low service coverage; targeted tests raised `agent-review.service.ts` from 7.8% to 82.9% lines, `github-token.service.ts` from 26.0% to 67.7% lines, `container-agent.service.ts` from 22.0% to 53.21% lines, `template.service.ts` from 29.5% to 65.9% lines, `task-creation.service.ts` from 40.0% to 52.87% lines, `skill-tracking.service.ts` from 47.6% to 86.66% lines, `shared-helpers.ts` from 46.1% to 55.76% lines, `plan-mode.service.ts` from 50.8% to 71.72% lines, and `durable-streams.service.ts` from 46.6% to 65.6% lines, moving total integration-only line coverage from 44.74% to 47.04%. |
 | AgentReviewService integration gap | `tests/integration/agent-review-service.test.ts` covers approval-mode resolution, review-model settings, auto-approval through real `PlanApprovalService`, flag-for-human-review, usage persistence, and malformed model-output fallback. |
 | GitHubTokenService Octokit integration gap | `tests/integration/github-token-octokit.test.ts` exercises repository/branch/org/template APIs with real DB/encryption and a mocked Octokit boundary, including duplicate-template validation and token invalidation on 401. |
 | ContainerAgentService reconcile gap | `tests/integration/container-agent-service.test.ts` now drives the real `ContainerAgentService.reconcile()` path and verifies orphaned tool starts emit one synthetic `container-agent:tool:result` while already-finished tools are not duplicated. |
+| ContainerAgentService facade/start gap | `tests/integration/container-agent-service.test.ts` now drives real `ContainerAgentService.startAgent()` through session/agent persistence, stream status publication, and the missing-OAuth boundary, plus `approvePlan()` DB recovery and rollback when execution start cannot proceed. |
 | TemplateService real-service gap | `tests/integration/template-service.test.ts` now exercises `TemplateService.create/list/update/delete/findByRepo/getMergedConfig()` against the real schema instead of only direct template-table shape checks. |
-| TaskCreationService persistence gap | `tests/integration/task-creation-service.test.ts` now runs `TaskCreationService` through real `SessionService` and in-memory durable streams to verify persisted user/assistant chunks, streamed tool lifecycle events, AskUserQuestion result persistence, and skip-question continuation. |
+| TaskCreationService persistence gap | `tests/integration/task-creation-service.test.ts` now runs `TaskCreationService` through real `SessionService` and in-memory durable streams to verify persisted user/assistant chunks, streamed tool lifecycle events, AskUserQuestion result persistence, skip-question continuation, and fallback `tool_result` streaming when the SDK permission resolver is unavailable. |
 | SkillTrackingService insight gap | `tests/integration/memory-service.integration.test.ts` now covers metric upsert/global reads, insight correlation, and effectiveness-score materialization from real execution rows. |
 | Container shared-helper metrics gap | `tests/integration/container-agent-services.test.ts` now proves `updateTaskOnAgentComplete()` records and rolls up skill metrics through the real `SkillTrackingService` when a skilled task completes. |
 | PlanModeService tool-use gap | `tests/integration/plan-mode-service.test.ts` now drives AskUserQuestion and CreateGitHubIssue tool-use branches, including waiting-user persistence, missing-GitHub-config completion, and successful issue URL/number persistence. |
 | DurableStreamsService integration gap | `tests/integration/durable-streams-service-behavior.test.ts` now covers createStream validation/error wrapping, `publishSessionEvent()` metadata validation/persistence, typed event metadata derivation, and direct-publish backpressure metadata. |
 
-## Still Roadmap Work
+## Completion Audit
 
-- Phase 3.2 and 3.3: lifecycle harness/proof-point migration is intentionally superseded by the newer direction to prefer fewer mock abstractions and more integration coverage.
+Objective audited: complete all phases in `specs/test_improvements_may.md` thoroughly, while following the later direction to prefer integration/functional coverage with fewer mocks.
+
+| Requirement group | Evidence checked | Audit result |
+| --- | --- | --- |
+| Phase 1 foundation fixes | Rows 1.1-1.7 above; `tests/helpers/database.ts`, `tests/functional/AGENTS.md`, `tests/helpers/mocks.ts`, `tests/setup.ts`, factory barrel, env cleanup tests, and false-pass fixes exist and are covered by listed validations. | Complete |
+| Phase 2 false-pass and high-severity cleanup | Rows 2.1-2.9 above; host-mode tests use real services, module mocks reset implementations, PG concurrency harness exists, FK/cascade tests moved, direct-state simulations reduced, relay/agent teardown and global sandbox-state cleanup are in place. | Complete |
+| Phase 3 infrastructure | Rows 3.1-3.7 above; stream builders, lifecycle harness, harness proof points, factories, factory-smell fixes, clock helper, and wait helper exist and have focused validation. | Complete |
+| Phase 4 P0 scenarios | Rows P0-1 through P0-11 above; functional tests cover cancel paths, agent review, skill chaining, host-mode happy path, bridge double-fire, planning-state error guard, plan revision, double approve, and stream-prefix routing. | Complete |
+| Phase 4 P1 scenarios | Rows P1 and integration-gap rows above; targeted integration/functional tests cover malformed plans, sandbox/provider IDs, host-mode reject/cancel, multi-codespace isolation, sandbox provisioning failure cascade, host/container parity, queue dequeue, orphan sweep, resume-after-restart, cancel during review, reject cleanup failure, and verified reopen. | Complete |
+| Phase 5 long-term items | Rows 5.1-5.4 above; DB helper split, production migration runner adoption, PG concurrency harness, property tests, and SQLite FK enforcement are present and validated. | Complete |
+| Later coverage-expansion direction | Coverage-guided rows above; integration-only coverage moved from 44.74% to 47.04% lines, with focused real-service additions for AgentReview, GitHubToken, ContainerAgent, Template, TaskCreation, SkillTracking, PlanMode, DurableStreams, and container shared helpers. | Complete |
+
+## Residual Follow-Up Notes
+
 - Phase 4: remaining long-tail defensive scenarios are now covered by targeted integration assertions; future work should come from fresh coverage/mutation data rather than the original static review list.
 - Integration-first follow-up: move suitable plan approval/concurrency assertions into integration or PG-backed suites rather than adding more functional mocks.
 - Residual raw-SQL rewrites are now limited to intentional legacy-schema/migration tests or non-integration service-unit fixtures; future cleanup should be driven by fresh coverage/mutation data and by moving service-unit fixtures toward real factories when they graduate to integration coverage.
@@ -96,17 +112,17 @@ Updated: 2026-05-08
 - `bunx vitest run --project integration tests/integration/task-state-transitions.test.ts` passed: 1 file, 30 tests.
 - `bunx biome check tests/integration/sandbox-service.test.ts tests/integration/sandbox-service-crud.test.ts` passed: 2 files.
 - `bunx vitest run --project integration tests/integration/sandbox-service.test.ts tests/integration/sandbox-service-crud.test.ts` passed: 2 files, 45 tests.
-- `bunx vitest run --project integration --coverage --coverage.reporter=json-summary --coverage.reporter=json --coverage.reportsDirectory=coverage/integration` completed: 190 files passed, 3 skipped; 2399 tests passed, 11 skipped; integration-only coverage rose to 46.8% lines / 40.67% functions / 37.99% branches; command exits nonzero because repo global thresholds are higher than integration-only coverage.
+- `bunx vitest run --project integration --coverage --coverage.reporter=json-summary --coverage.reporter=json --coverage.reportsDirectory=coverage/integration` completed: 190 files passed, 3 skipped; 2402 tests passed, 11 skipped; integration-only coverage rose to 47.04% lines / 40.94% functions / 38.23% branches; command exits nonzero because repo global thresholds are higher than integration-only coverage.
 - `bunx biome check tests/integration/agent-review-service.test.ts` passed: 1 file.
 - `bunx vitest run --project integration tests/integration/agent-review-service.test.ts` passed: 1 file, 4 tests.
 - `bunx biome check tests/integration/github-token-octokit.test.ts` passed: 1 file.
 - `bunx vitest run --project integration tests/integration/github-token-octokit.test.ts tests/integration/github-token-service.test.ts` passed: 2 files, 22 tests.
 - `bunx biome check tests/integration/container-agent-service.test.ts` passed: 1 file.
-- `bunx vitest run --project integration tests/integration/container-agent-service.test.ts` passed: 1 file, 13 tests.
+- `bunx vitest run --project integration tests/integration/container-agent-service.test.ts` passed: 1 file, 15 tests.
 - `bunx biome check tests/integration/template-service.test.ts` passed: 1 file.
 - `bunx vitest run --project integration tests/integration/template-service.test.ts` passed: 1 file, 13 tests.
 - `bunx biome check tests/integration/task-creation-service.test.ts` passed: 1 file.
-- `bunx vitest run --project integration tests/integration/task-creation-service.test.ts` passed: 1 file, 34 tests.
+- `bunx vitest run --project integration tests/integration/task-creation-service.test.ts` passed: 1 file, 35 tests.
 - `bunx biome check tests/integration/memory-service.integration.test.ts` passed: 1 file.
 - `bunx vitest run --project integration tests/integration/memory-service.integration.test.ts` passed: 1 file, 22 tests.
 - `bunx biome check tests/integration/container-agent-services.test.ts tests/integration/memory-service.integration.test.ts tests/integration/task-creation-service.test.ts` passed: 3 files.
@@ -116,6 +132,8 @@ Updated: 2026-05-08
 - `bunx biome check tests/integration/durable-streams-service-behavior.test.ts` passed: 1 file.
 - `bunx vitest run --project integration tests/integration/durable-streams-service-behavior.test.ts` passed: 1 file, 4 tests.
 - `bunx vitest run --project functional tests/functional/prove-session-worktree-bugs.test.ts` passed: 1 file, 18 tests.
+- `bunx biome check tests/helpers/lifecycle-harness.ts tests/functional/task-lifecycle-e2e.test.ts tests/functional/plan-revision-loop.test.ts tests/functional/skill-chaining.test.ts` passed: 4 files.
+- `bunx vitest run --project functional tests/functional/task-lifecycle-e2e.test.ts tests/functional/plan-revision-loop.test.ts tests/functional/skill-chaining.test.ts` passed: 3 files, 12 tests.
 - `bunx biome check src/services/container-agent/container-exec.service.ts src/services/container-agent/agentcore-bridge.service.ts tests/integration/container-agent-services.test.ts tests/integration/container-exec-service.test.ts tests/functional/prove-session-worktree-bugs.test.ts specs/test_improvements_may_status.md tests/helpers/database.ts src/lib/bootstrap/migrations/index.ts src/lib/bootstrap/__tests__/migration-ordering.test.ts` passed: 8 files.
 - `bunx vitest run --project integration tests/integration/concurrency-pg/plan-approval-pg.test.ts` passed in default local mode: 1 file skipped, 2 tests skipped.
 - `bunx vitest run --project integration tests/integration/codespace-cascade.test.ts` passed: 1 file, 3 tests.

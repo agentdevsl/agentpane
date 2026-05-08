@@ -953,6 +953,87 @@ describe('TaskCreationService (IT-250 to IT-275)', () => {
         sessionService.destroy();
       }
     });
+
+    it('IT-280: answerQuestions() falls back to tool_result streaming when the permission resolver is unavailable', async () => {
+      const streams = createTaskCreationStreams();
+      const sessionService = new SessionService(db as never, streams as never, {
+        baseUrl: 'http://localhost:3000',
+      });
+      const realService = new TaskCreationService(
+        db as never,
+        streams as never,
+        sessionService,
+        undefined
+      );
+      const sdkSession = createSdkSession([
+        createAssistantMessage(
+          '```json\n{"type":"task_suggestion","title":"Fallback Tool Result Task","description":"Generated after tool_result fallback","labels":["feature"],"priority":"high"}\n```'
+        ),
+        { type: 'result', usage: { input_tokens: 5, output_tokens: 3 } },
+      ]);
+      sdkMocks.createSession.mockReturnValueOnce(sdkSession);
+
+      try {
+        const codespace = await createTestProject();
+        const startResult = await realService.startConversation(codespace.id);
+        expect(startResult.ok).toBe(true);
+        if (!startResult.ok) return;
+
+        const session = realService.getSession(startResult.value.id);
+        expect(session).not.toBeNull();
+        if (!session) return;
+
+        const questionsId = 'fallback-questions';
+        session.pendingQuestions = {
+          id: questionsId,
+          questions: [
+            {
+              header: 'Area',
+              question: 'Which area should this cover?',
+              options: [{ label: 'API' }, { label: 'UI' }],
+            },
+          ],
+          round: 1,
+          totalAsked: 1,
+          maxQuestions: 4,
+        };
+        session.pendingToolUseId = 'ask-user-fallback';
+        session.sdkSessionId = 'sdk-fallback';
+        session.status = 'waiting_user';
+
+        const result = await realService.answerQuestions(startResult.value.id, questionsId, {
+          '0': 'API',
+        });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+
+        expect(sdkSession.send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'user',
+            session_id: 'sdk-fallback',
+            message: expect.objectContaining({
+              content: [
+                expect.objectContaining({
+                  type: 'tool_result',
+                  tool_use_id: 'ask-user-fallback',
+                  content: expect.stringContaining('"Area":"API"'),
+                }),
+              ],
+            }),
+          })
+        );
+        expect(result.value.suggestion).toMatchObject({
+          title: 'Fallback Tool Result Task',
+          priority: 'high',
+        });
+        expect(streams.getEvents(startResult.value.id).map((event) => event.type)).toContain(
+          'task-creation:suggestion'
+        );
+      } finally {
+        realService.destroy();
+        sessionService.destroy();
+      }
+    });
   });
 
   // ===== Multiple sessions =====
