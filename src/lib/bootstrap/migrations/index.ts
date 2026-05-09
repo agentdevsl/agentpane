@@ -1282,7 +1282,18 @@ WHERE task_id IN (SELECT id FROM tasks)
 DROP TABLE task_tags;
 ALTER TABLE task_tags_new_v47 RENAME TO task_tags;
 
--- session_summaries: session_id was REFERENCES sessions_backup → fix to sessions
+-- session_summaries: session_id was REFERENCES sessions_backup → fix to sessions.
+-- The new table mirrors the bootstrap baseline schema, including the optional
+-- usage/cost columns added later (cost_usd, duration_api_ms, cache_read_tokens,
+-- cache_creation_tokens, stop_reason). Earlier drafts of this migration omitted
+-- them and Drizzle insert paths (sessionService.publish writes session_summaries
+-- via onConflictDoUpdate) blew up with "no column named cost_usd".
+--
+-- We only SELECT the column set guaranteed to exist on the source table — the
+-- regression fixture in tests/integration/migration-v47-orphan-fk-repair.test.ts
+-- corrupts the table with just the legacy columns, and dev DBs that never ran
+-- the catchup may also be missing the newer columns. The new columns default
+-- to NULL on rebuild, which is correct.
 DROP TABLE IF EXISTS session_summaries_new_v47;
 CREATE TABLE session_summaries_new_v47 (
   id TEXT PRIMARY KEY NOT NULL,
@@ -1294,6 +1305,11 @@ CREATE TABLE session_summaries_new_v47 (
   lines_added INTEGER DEFAULT 0,
   lines_removed INTEGER DEFAULT 0,
   final_status TEXT,
+  cost_usd REAL,
+  duration_api_ms INTEGER,
+  cache_read_tokens INTEGER,
+  cache_creation_tokens INTEGER,
+  stop_reason TEXT,
   updated_at TEXT DEFAULT (datetime('now')) NOT NULL
 );
 INSERT OR IGNORE INTO session_summaries_new_v47 (
