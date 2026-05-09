@@ -82,9 +82,13 @@ export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps)
       ],
     };
 
-    // Set the state cookie directly on the Response we return — `c.header()`
-    // does not propagate to a Response built outside of Hono's `c.json()`.
-    return new Response(
+    // Use `c.body(...)` so the Response flows through Hono's `newResponse`
+    // and merges middleware-set headers (e.g. X-Request-Id from
+    // requestIdMiddleware). The `Set-Cookie` header is part of the headers
+    // map passed in here, so it is set directly on the returned Response —
+    // unlike the broken pattern of `c.header('Set-Cookie', ...)` followed
+    // by the shared `json()` helper, which silently drops the cookie.
+    return c.body(
       JSON.stringify({
         ok: true,
         data: {
@@ -93,12 +97,10 @@ export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps)
           githubUrl: `https://github.com/settings/apps/new?state=${state}`,
         },
       }),
+      200,
       {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Set-Cookie': `github_app_state=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600; Secure`,
-        },
+        'Content-Type': 'application/json',
+        'Set-Cookie': `github_app_state=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600; Secure`,
       }
     );
   });

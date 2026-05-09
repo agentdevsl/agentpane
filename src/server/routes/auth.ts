@@ -140,20 +140,18 @@ export function createAuthRoutes({ db }: AuthDeps) {
 
       if (!tokenData.access_token) {
         log.error('GitHub OAuth token exchange failed', { data: { error: tokenData.error } });
-        // Clear the state cookie on failure — the surrounding comment intends
-        // every OAuth failure to invalidate the state cookie. Set it directly
-        // on the Response since `c.header()` is dropped by the `json()` helper.
-        return new Response(
+        // Clear the state cookie on failure. Use `c.body(...)` so the
+        // Response goes through Hono's `newResponse` and middleware-set
+        // headers (e.g. X-Request-Id) survive.
+        return c.body(
           JSON.stringify({
             ok: false,
             error: { code: 'OAUTH_FAILED', message: 'Failed to exchange code for token' },
           }),
+          400,
           {
-            status: 400,
-            headers: {
-              'Content-Type': 'application/json',
-              'Set-Cookie': 'oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0',
-            },
+            'Content-Type': 'application/json',
+            'Set-Cookie': 'oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0',
           }
         );
       }
@@ -176,17 +174,15 @@ export function createAuthRoutes({ db }: AuthDeps) {
 
       if (!githubUser.id) {
         // Clear the state cookie on failure — see comment above on token-exchange branch.
-        return new Response(
+        return c.body(
           JSON.stringify({
             ok: false,
             error: { code: 'OAUTH_FAILED', message: 'Failed to fetch GitHub user info' },
           }),
+          400,
           {
-            status: 400,
-            headers: {
-              'Content-Type': 'application/json',
-              'Set-Cookie': 'oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0',
-            },
+            'Content-Type': 'application/json',
+            'Set-Cookie': 'oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0',
           }
         );
       }
@@ -261,19 +257,17 @@ export function createAuthRoutes({ db }: AuthDeps) {
       return c.redirect(redirectUrl);
     } catch (error) {
       log.error('OAuth callback failed during user/session creation', { error });
-      // Clear OAuth state cookie directly on the Response — `c.header()` does
-      // not propagate to a Response built outside of Hono's `c.json()`.
-      return new Response(
+      // Clear OAuth state cookie via `c.body(...)` so the Response flows
+      // through Hono's `newResponse` and middleware-set headers survive.
+      return c.body(
         JSON.stringify({
           ok: false,
           error: { code: 'OAUTH_FAILED', message: 'Authentication failed' },
         }),
+        400,
         {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-            'Set-Cookie': 'oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0',
-          },
+          'Content-Type': 'application/json',
+          'Set-Cookie': 'oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0',
         }
       );
     }
@@ -290,9 +284,9 @@ export function createAuthRoutes({ db }: AuthDeps) {
         await db.delete(userSessions).where(eq(userSessions.token, hashToken(sessionMatch[1])));
       } catch (error) {
         log.error('Failed to delete session from database', { error });
-        // Set the cookie directly on the Response — `c.header()` does not
-        // propagate to a Response built outside of Hono's `c.json()`.
-        return new Response(
+        // Use `c.body(...)` so middleware-set headers (X-Request-Id, security
+        // headers) survive while still attaching the Set-Cookie clear.
+        return c.body(
           JSON.stringify({
             ok: false,
             error: {
@@ -300,25 +294,20 @@ export function createAuthRoutes({ db }: AuthDeps) {
               message: 'Session may not be fully invalidated. Please try again.',
             },
           }),
+          500,
           {
-            status: 500,
-            headers: {
-              'Content-Type': 'application/json',
-              'Set-Cookie': `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
-            },
+            'Content-Type': 'application/json',
+            'Set-Cookie': `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
           }
         );
       }
     }
 
-    // Clear session cookie directly on the Response — `c.header()` does not
-    // propagate to a Response built outside of Hono's `c.json()`.
-    return new Response(JSON.stringify({ ok: true, data: null }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Set-Cookie': `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
-      },
+    // Clear session cookie via `c.body(...)` so middleware-set headers
+    // (X-Request-Id, security headers) survive on the response.
+    return c.body(JSON.stringify({ ok: true, data: null }), 200, {
+      'Content-Type': 'application/json',
+      'Set-Cookie': `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
     });
   });
 
@@ -341,19 +330,16 @@ export function createAuthRoutes({ db }: AuthDeps) {
     });
 
     if (!session) {
-      // Set the cookie directly on the Response — `c.header()` does not
-      // propagate to a Response built outside of Hono's `c.json()`.
-      return new Response(
+      // Use `c.body(...)` so middleware-set headers survive on the response.
+      return c.body(
         JSON.stringify({
           ok: false,
           error: { code: 'UNAUTHORIZED', message: 'Session not found' },
         }),
+        401,
         {
-          status: 401,
-          headers: {
-            'Content-Type': 'application/json',
-            'Set-Cookie': `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
-          },
+          'Content-Type': 'application/json',
+          'Set-Cookie': `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
         }
       );
     }
@@ -369,14 +355,11 @@ export function createAuthRoutes({ db }: AuthDeps) {
         data: { userId: session.userId, count: result.length },
       });
 
-      // Clear current session cookie directly on the Response — `c.header()`
-      // does not propagate to a Response built outside of Hono's `c.json()`.
-      return new Response(JSON.stringify({ ok: true, data: { revokedCount: result.length } }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Set-Cookie': `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
-        },
+      // Clear current session cookie via `c.body(...)` so middleware-set
+      // headers survive on the response.
+      return c.body(JSON.stringify({ ok: true, data: { revokedCount: result.length } }), 200, {
+        'Content-Type': 'application/json',
+        'Set-Cookie': `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
       });
     } catch (error) {
       log.error('Failed to revoke all sessions', { error });
