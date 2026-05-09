@@ -404,26 +404,6 @@ describe('SQLite Bootstrap Phase', () => {
   });
 
   // =============================================================================
-  // Backwards Compatibility Aliases (Lines 65-67)
-  // =============================================================================
-
-  describe('Backwards Compatibility Aliases', () => {
-    it('exports initializePGlite as alias for initializeSQLite', async () => {
-      const { initializeSQLite, initializePGlite } = await import('@/lib/bootstrap/phases/sqlite');
-
-      expect(initializePGlite).toBe(initializeSQLite);
-    });
-
-    it('exports applyPGliteToContext as alias for applySQLiteToContext', async () => {
-      const { applySQLiteToContext, applyPGliteToContext } = await import(
-        '@/lib/bootstrap/phases/sqlite'
-      );
-
-      expect(applyPGliteToContext).toBe(applySQLiteToContext);
-    });
-  });
-
-  // =============================================================================
   // Type Exports
   // =============================================================================
 

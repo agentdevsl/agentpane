@@ -62,7 +62,3 @@ export const initializeSQLite = async (): Promise<Result<SQLiteDatabase, AppErro
 export const applySQLiteToContext = (ctx: BootstrapContext, sqlite: SQLiteDatabase): void => {
   ctx.db = sqlite;
 };
-
-// Backwards compatibility aliases
-export const initializePGlite = initializeSQLite;
-export const applyPGliteToContext = applySQLiteToContext;
