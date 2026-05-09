@@ -462,12 +462,7 @@ export function SessionDetailView({
           aria-labelledby="tab-topology"
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
         >
-          <AgentTopology
-            sessionId={
-              session.status !== 'closed' && session.status !== 'error' ? session.id : undefined
-            }
-            initialData={rootTopologyGraph ?? undefined}
-          />
+          <AgentTopology sessionId={undefined} initialData={rootTopologyGraph ?? undefined} />
         </div>
       )}
 

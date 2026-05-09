@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { type RawSession, SessionHistory } from '@/app/components/features/session-history';
+import { apiClient } from '@/lib/api/client';
 
 // Mock the API client
 vi.mock('@/lib/api/client', () => ({
@@ -13,6 +14,20 @@ vi.mock('@/lib/api/client', () => ({
       export: vi.fn(),
     },
   },
+}));
+
+vi.mock('@/app/components/features/agent-topology', () => ({
+  AgentTopology: ({
+    sessionId,
+    initialData,
+  }: {
+    sessionId?: string;
+    initialData?: { nodes: unknown[] };
+  }) => (
+    <div data-testid="mock-topology">
+      {sessionId ?? 'no-live-session'}:{initialData?.nodes.length ?? 0}
+    </div>
+  ),
 }));
 
 describe('SessionHistory', () => {
@@ -96,5 +111,43 @@ describe('SessionHistory', () => {
 
     // Should show project filter input
     expect(screen.getByPlaceholderText('All codespaces')).toBeInTheDocument();
+  });
+
+  it('renders the topology tab from replay data without opening a live session stream', async () => {
+    const user = userEvent.setup();
+    const activeSession = mockSessions[0]!;
+
+    vi.mocked(apiClient.sessions.get).mockResolvedValueOnce({
+      ok: true,
+      data: activeSession,
+    } as Awaited<ReturnType<typeof apiClient.sessions.get>>);
+    vi.mocked(apiClient.sessions.getEvents).mockResolvedValueOnce({
+      ok: true,
+      data: [
+        {
+          id: 'event-started',
+          type: 'container-agent:started',
+          timestamp: Date.now(),
+          data: {
+            taskId: 'task-1',
+            sessionId: activeSession.id,
+            model: 'claude-sonnet-4-5',
+            maxTurns: 50,
+          },
+        },
+      ],
+    } as Awaited<ReturnType<typeof apiClient.sessions.getEvents>>);
+    vi.mocked(apiClient.sessions.getSummary).mockResolvedValueOnce({
+      ok: true,
+      data: null,
+    });
+
+    render(<SessionHistory sessions={[activeSession]} />);
+
+    await user.click(screen.getByTestId('session-card'));
+    await screen.findByTestId('session-detail');
+    await user.click(screen.getByTestId('tab-topology'));
+
+    expect(screen.getByTestId('mock-topology')).toHaveTextContent('no-live-session:1');
   });
 });
