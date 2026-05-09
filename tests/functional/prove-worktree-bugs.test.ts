@@ -484,7 +484,6 @@ describe('Bug-Proving Tests: WorktreeService', () => {
       const codespace = await createTestProject({
         name: 'empty-init',
         path: '/tmp/empty-init',
-        // biome-ignore lint/suspicious/noControlCharactersInRegex: testing sanitization of NUL/control bytes
         config: { initScript: ' ' },
       });
       const wt = await createTestWorktree(codespace.id);
@@ -744,7 +743,7 @@ describe('Bug-Proving Tests: WorktreeService', () => {
       expect(() => validateShellCommand('ls; rm -rf /')).toThrow();
       expect(() => validateShellCommand('echo `whoami`')).toThrow();
       expect(() => validateShellCommand('echo $(whoami)')).toThrow();
-      expect(() => validateShellCommand('echo ${HOME}')).toThrow();
+      expect(() => validateShellCommand('echo $' + '{HOME}')).toThrow();
       expect(() => validateShellCommand('cmd && other')).toThrow();
       expect(() => validateShellCommand('cmd || other')).toThrow();
       expect(() => validateShellCommand('echo > /etc/passwd')).toThrow();

@@ -70,7 +70,6 @@ const { createdBuilderInstances } = vi.hoisted(() => ({
 vi.mock('@agentpane/nomad-sandbox-sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@agentpane/nomad-sandbox-sdk')>();
   class MockNomadJobBuilder {
-    private _name: string;
     private _spec: {
       ID: string;
       Name: string;
@@ -80,7 +79,6 @@ vi.mock('@agentpane/nomad-sandbox-sdk', async (importOriginal) => {
       TaskGroups: Array<{ Networks?: Array<{ Mode: string }> }>;
     };
     constructor(name: string) {
-      this._name = name;
       this._spec = {
         ID: name,
         Name: name,
