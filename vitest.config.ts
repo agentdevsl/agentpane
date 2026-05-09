@@ -5,6 +5,8 @@ const sharedExclude = [
   '**/node_modules/**',
   'node_modules',
   'dist',
+  '.stryker-tmp',
+  '**/.stryker-tmp/**',
   '.claude',
   '.worktrees',
   'submodule',

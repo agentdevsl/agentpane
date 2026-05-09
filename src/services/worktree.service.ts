@@ -281,20 +281,27 @@ export class WorktreeService {
       return err(WorktreeErrors.CREATION_FAILED(branch, String(error), error));
     }
 
-    const [insertedWorktree] = await this.db
-      .insert(worktrees)
-      .values({
-        codespaceId,
-        agentId,
-        taskId,
-        branch,
-        path: worktreePath,
-        baseBranch,
-        status: 'creating',
-      })
-      .returning();
+    let insertedWorktree: Worktree | undefined;
+    try {
+      [insertedWorktree] = await this.db
+        .insert(worktrees)
+        .values({
+          codespaceId,
+          agentId,
+          taskId,
+          branch,
+          path: worktreePath,
+          baseBranch,
+          status: 'creating',
+        })
+        .returning();
+    } catch (error) {
+      await this.cleanupFailedWorktreeAdd(codespace.path, worktreePath);
+      return err(WorktreeErrors.CREATION_FAILED(branch, String(error), error));
+    }
 
     if (!insertedWorktree) {
+      await this.cleanupFailedWorktreeAdd(codespace.path, worktreePath);
       return err(WorktreeErrors.CREATION_FAILED(branch, 'Failed to insert worktree record'));
     }
 
@@ -357,6 +364,21 @@ export class WorktreeService {
     }
 
     return ok(updatedWorktree);
+  }
+
+  private async cleanupFailedWorktreeAdd(
+    codespacePath: string,
+    worktreePath: string
+  ): Promise<void> {
+    try {
+      const execArgs = requireExecArgs(this.runner);
+      await execArgs(['git', 'worktree', 'remove', worktreePath, '--force'], codespacePath);
+    } catch (cleanupError) {
+      softInvariant(false, 'Failed to clean up worktree after create failure', {
+        worktreePath,
+        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+      });
+    }
   }
 
   async remove(worktreeId: string, force = false): WorktreeServiceResult<void> {

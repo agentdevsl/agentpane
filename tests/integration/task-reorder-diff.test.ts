@@ -45,7 +45,7 @@ describe('IT-036–040: Task Reorder, Diff, Sandbox Config, and Prompt', () => {
 
   // IT-036: task-reorder-position (P0)
   describe('IT-036: task-reorder-position', () => {
-    it('reorders a task position without affecting other tasks', async () => {
+    it('clamps reorder target beyond the column bounds and preserves dense positions', async () => {
       const codespace = await createTestProject();
       const task0 = await createTestTask(codespace.id, { title: 'Task 0', position: 0 });
       const task1 = await createTestTask(codespace.id, { title: 'Task 1', position: 1 });
@@ -59,9 +59,9 @@ describe('IT-036–040: Task Reorder, Diff, Sandbox Config, and Prompt', () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
 
-      expect(result.value.position).toBe(5);
+      expect(result.value.position).toBe(2);
 
-      // Verify other tasks are unchanged
+      // Verify the column still has unique dense positions.
       const t0Result = await taskService.getById(task0.id);
       const t1Result = await taskService.getById(task1.id);
       expect(t0Result.ok).toBe(true);

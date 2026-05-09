@@ -497,9 +497,17 @@ describe('TaskService Container Agent Trigger', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        // Position should be 2 (after existing tasks at 0, 1)
-        expect(result.value.task.position).toBe(2);
+        // Agent start failure reverts the task to backlog and keeps positions normalized.
+        expect(result.value.task.column).toBe('backlog');
+        expect(result.value.task.position).toBe(0);
       }
+
+      const db = getTestDb();
+      const inProgressTasks = await db.query.tasks.findMany({
+        where: (tasks, { and, eq }) =>
+          and(eq(tasks.codespaceId, project.id), eq(tasks.column, 'in_progress')),
+      });
+      expect(inProgressTasks.map((item) => item.position).sort((a, b) => a - b)).toEqual([0, 1]);
     });
   });
 

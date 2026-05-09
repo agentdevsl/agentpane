@@ -55,8 +55,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 
 interface StreamEventInput {
   type: string;
-  // biome-ignore lint/suspicious/noExplicitAny: test fixture - stream events have varied shapes
-  [k: string]: any;
+  [k: string]: unknown;
 }
 
 function makeSession(events: StreamEventInput[], opts: { sendError?: Error } = {}) {
@@ -779,8 +778,7 @@ describe('Bug-Proving Tests: TerraformComposeService', () => {
 
   it('PROVE: settings-aware prompt builder uses override when present', async () => {
     const fakeSettings = {
-      // biome-ignore lint/suspicious/noExplicitAny: minimal settings stub for this branch
-      getValue: vi.fn().mockImplementation(async (key: string, _default: any) => {
+      getValue: vi.fn().mockImplementation(async (key: string, _default: string) => {
         if (key === 'prompt.terraform-compose') {
           return 'CUSTOM-OVERRIDE: {{moduleContext}}';
         }

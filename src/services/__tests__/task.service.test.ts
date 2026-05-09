@@ -9,7 +9,7 @@ const createDbMock = () => {
   const mock = {
     query: {
       codespaces: { findFirst: vi.fn() },
-      tasks: { findFirst: vi.fn(), findMany: vi.fn() },
+      tasks: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
       settings: { findFirst: vi.fn() },
     },
     insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn() })) })),
@@ -458,6 +458,11 @@ describe('TaskService', () => {
   it('reorder updates task position', async () => {
     const db = createDbMock();
     const worktrees = createWorktreeServiceMock();
+    db.query.tasks.findFirst.mockResolvedValue({
+      id: 't1',
+      column: 'backlog',
+      codespaceId: 'p1',
+    });
 
     const updateReturning = vi.fn().mockResolvedValue([{ id: 't1', position: 3 }]);
     db.update.mockReturnValue({

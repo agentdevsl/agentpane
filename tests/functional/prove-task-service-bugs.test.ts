@@ -207,10 +207,10 @@ describe('Bug-Proving Tests: TaskService', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Test 3: Concurrent reorders cause position conflict
+  // Test 3: Reorders preserve unique positions
   // ═══════════════════════════════════════════════════════════════════════
 
-  it('BUG PROBE: concurrent reorders can produce conflicting positions', async () => {
+  it('BUG PROBE: reorder should shift neighboring tasks instead of creating duplicate positions', async () => {
     const codespace = await createTestProject({
       name: 'Reorder Conflict Test',
       path: '/tmp/reorder-conflict-test',
@@ -227,20 +227,14 @@ describe('Bug-Proving Tests: TaskService', () => {
       position: 1,
       column: 'backlog',
     });
-    const t2 = await createTestTask(codespace.id, {
+    await createTestTask(codespace.id, {
       title: 'Task 2',
       position: 2,
       column: 'backlog',
     });
 
-    // Act: reorder task[0] to position 2 AND task[2] to position 0 simultaneously
-    const [reorder1, reorder2] = await Promise.all([
-      taskService.reorder(t0.id, 2),
-      taskService.reorder(t2.id, 0),
-    ]);
-
-    expect(reorder1.ok).toBe(true);
-    expect(reorder2.ok).toBe(true);
+    const reorderResult = await taskService.reorder(t0.id, 2);
+    expect(reorderResult.ok).toBe(true);
 
     // Query final positions
     const finalTasks = await db.query.tasks.findMany({
@@ -249,31 +243,185 @@ describe('Bug-Proving Tests: TaskService', () => {
 
     const positionMap = new Map(finalTasks.map((t) => [t.title, t.position]));
 
-    // VERDICT: BUG EXISTS (no conflict detection).
-    // The reorder() method does a simple UPDATE SET position=X WHERE id=Y.
-    // It does NOT shift other tasks' positions. After the concurrent reorders:
-    //   Task 0 → position 2
-    //   Task 1 → position 1 (unchanged)
-    //   Task 2 → position 0
-    // This happens to be correct for a swap. But if both went to position 2,
-    // they'd collide with no error.
-    //
-    // Impact: MEDIUM — the reorder() method has no position conflict detection.
-    // It blindly sets the position without checking for duplicates or shifting
-    // adjacent tasks. The frontend must send the correct final positions for
-    // ALL affected tasks, not just the moved one.
+    // Desired behavior: moving Task 0 to the end shifts Task 1 and Task 2 up.
     expect(positionMap.get('Task 0')).toBe(2);
-    expect(positionMap.get('Task 1')).toBe(1);
-    expect(positionMap.get('Task 2')).toBe(0);
+    expect(positionMap.get('Task 1')).toBe(0);
+    expect(positionMap.get('Task 2')).toBe(1);
 
-    // Prove no conflict detection: set two tasks to the same position
-    await taskService.reorder(t0.id, 1);
-    const afterConflict = await db.query.tasks.findMany({
+    const positions = finalTasks.map((t) => t.position);
+    expect(new Set(positions).size).toBe(positions.length);
+    expect([...positions].sort((a, b) => a - b)).toEqual([0, 1, 2]);
+  });
+
+  it('BUG PROBE: same-column moveColumn should reorder instead of returning a no-op', async () => {
+    const codespace = await createTestProject({
+      name: 'Same Column Move Test',
+      path: '/tmp/same-column-move-test',
+    });
+
+    const t0 = await createTestTask(codespace.id, {
+      title: 'Move Task 0',
+      position: 0,
+      column: 'backlog',
+    });
+    await createTestTask(codespace.id, {
+      title: 'Move Task 1',
+      position: 1,
+      column: 'backlog',
+    });
+    await createTestTask(codespace.id, {
+      title: 'Move Task 2',
+      position: 2,
+      column: 'backlog',
+    });
+
+    const moveResult = await taskService.moveColumn(t0.id, 'backlog', 2);
+    expect(moveResult.ok).toBe(true);
+
+    const movedTasks = await db.query.tasks.findMany({
       where: eq(tasks.codespaceId, codespace.id),
     });
-    // Task 0 and Task 1 both have position 1 — no error was thrown
-    const atPosition1 = afterConflict.filter((t) => t.position === 1);
-    expect(atPosition1).toHaveLength(2); // confirms no unique constraint
+    const positionMap = new Map(movedTasks.map((t) => [t.title, t.position]));
+
+    expect(positionMap.get('Move Task 0')).toBe(2);
+    expect(positionMap.get('Move Task 1')).toBe(0);
+    expect(positionMap.get('Move Task 2')).toBe(1);
+
+    const positions = movedTasks.map((t) => t.position);
+    expect(new Set(positions).size).toBe(positions.length);
+    expect([...positions].sort((a, b) => a - b)).toEqual([0, 1, 2]);
+  });
+
+  it('BUG PROBE: delete should compact positions in the source column', async () => {
+    const codespace = await createTestProject({
+      name: 'Delete Compact Test',
+      path: '/tmp/delete-compact-test',
+    });
+    await createTestTask(codespace.id, { title: 'Delete Task 0', position: 0, column: 'backlog' });
+    const deleted = await createTestTask(codespace.id, {
+      title: 'Delete Task 1',
+      position: 1,
+      column: 'backlog',
+    });
+    await createTestTask(codespace.id, { title: 'Delete Task 2', position: 2, column: 'backlog' });
+
+    const result = await taskService.delete(deleted.id);
+    expect(result.ok).toBe(true);
+
+    const remaining = await db.query.tasks.findMany({
+      where: eq(tasks.codespaceId, codespace.id),
+    });
+    const positions = remaining.map((task) => task.position);
+    expect([...positions].sort((a, b) => a - b)).toEqual([0, 1]);
+  });
+
+  it('BUG PROBE: cancelTask should append to backlog without duplicate positions', async () => {
+    const codespace = await createTestProject({
+      name: 'Cancel Compact Test',
+      path: '/tmp/cancel-compact-test',
+    });
+    await createTestTask(codespace.id, {
+      title: 'Cancel Backlog 0',
+      position: 0,
+      column: 'backlog',
+    });
+    await createTestTask(codespace.id, {
+      title: 'Cancel Backlog 1',
+      position: 1,
+      column: 'backlog',
+    });
+    const cancelled = await createTestTask(codespace.id, {
+      title: 'Cancel Waiting',
+      position: 0,
+      column: 'waiting_approval',
+    });
+
+    const result = await taskService.cancelTask(cancelled.id);
+    expect(result.ok).toBe(true);
+
+    const backlog = await db.query.tasks.findMany({
+      where: eq(tasks.codespaceId, codespace.id),
+    });
+    const backlogPositions = backlog
+      .filter((task) => task.column === 'backlog')
+      .map((task) => task.position);
+    expect([...backlogPositions].sort((a, b) => a - b)).toEqual([0, 1, 2]);
+  });
+
+  it('BUG PROBE: reject should append to backlog without duplicate positions', async () => {
+    const codespace = await createTestProject({
+      name: 'Reject Compact Test',
+      path: '/tmp/reject-compact-test',
+    });
+    await createTestTask(codespace.id, {
+      title: 'Reject Backlog 0',
+      position: 0,
+      column: 'backlog',
+    });
+    await createTestTask(codespace.id, {
+      title: 'Reject Backlog 1',
+      position: 1,
+      column: 'backlog',
+    });
+    const rejectedTask = await createTestTask(codespace.id, {
+      title: 'Reject Waiting',
+      position: 0,
+      column: 'waiting_approval',
+    });
+
+    const result = await taskService.reject(rejectedTask.id, { reason: 'needs changes' });
+    expect(result.ok).toBe(true);
+
+    const rows = await db.query.tasks.findMany({
+      where: eq(tasks.codespaceId, codespace.id),
+    });
+    const backlogPositions = rows
+      .filter((task) => task.column === 'backlog')
+      .map((task) => task.position);
+    expect([...backlogPositions].sort((a, b) => a - b)).toEqual([0, 1, 2]);
+  });
+
+  it('BUG PROBE: approve should compact waiting_approval and append to verified', async () => {
+    const codespace = await createTestProject({
+      name: 'Approve Compact Test',
+      path: '/tmp/approve-compact-test',
+    });
+    const worktree = await createTestWorktree(codespace.id, { status: 'active' });
+    const approvedTask = await createTestTask(codespace.id, {
+      title: 'Approve Waiting 0',
+      position: 0,
+      column: 'waiting_approval',
+      worktreeId: worktree.id,
+      branch: worktree.branch,
+    });
+    await createTestTask(codespace.id, {
+      title: 'Approve Waiting 1',
+      position: 1,
+      column: 'waiting_approval',
+    });
+    await createTestTask(codespace.id, {
+      title: 'Existing Verified',
+      position: 0,
+      column: 'verified',
+    });
+
+    const result = await taskService.approve(approvedTask.id, {
+      approvedBy: 'test-user',
+      createMergeCommit: true,
+    });
+    expect(result.ok).toBe(true);
+
+    const rows = await db.query.tasks.findMany({
+      where: eq(tasks.codespaceId, codespace.id),
+    });
+    const waitingPositions = rows
+      .filter((task) => task.column === 'waiting_approval')
+      .map((task) => task.position);
+    const verifiedPositions = rows
+      .filter((task) => task.column === 'verified')
+      .map((task) => task.position);
+    expect([...waitingPositions].sort((a, b) => a - b)).toEqual([0]);
+    expect([...verifiedPositions].sort((a, b) => a - b)).toEqual([0, 1]);
   });
 
   // ═══════════════════════════════════════════════════════════════════════

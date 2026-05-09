@@ -88,6 +88,9 @@ export type DiffResult = {
   summary: GitDiff['stats'];
 };
 
+type TaskTransaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+type TaskUpdateSet = Partial<typeof tasks.$inferInsert>;
+
 /**
  * Result of moving a task to a new column.
  * Includes the updated task and any agent startup error (if applicable).
@@ -198,21 +201,15 @@ export class TaskService {
       return err(TaskErrors.INVALID_TRANSITION(task.column, 'backlog'));
     }
 
-    // Move to backlog, clear stale plan/agent state
-    const [updated] = await this.db
-      .update(tasks)
-      .set({
-        column: 'backlog' as TaskColumn,
-        agentId: null,
-        lastAgentStatus: 'cancelled',
-        plan: null,
-        planOptions: null,
-        agentReviewResult: null,
-        agentReviewedAt: null,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(and(eq(tasks.id, taskId), eq(tasks.column, task.column)))
-      .returning();
+    // Move to backlog, clear stale plan/agent state, and keep board positions dense.
+    const updated = await this.moveExistingTaskToColumn(task, 'backlog', undefined, {
+      agentId: null,
+      lastAgentStatus: 'cancelled',
+      plan: null,
+      planOptions: null,
+      agentReviewResult: null,
+      agentReviewedAt: null,
+    });
 
     if (!updated) {
       return err(TaskErrors.NOT_FOUND);
@@ -398,6 +395,99 @@ export class TaskService {
     this.worktreeService = service;
   }
 
+  private clampPosition(position: number | undefined, maxPosition: number): number {
+    const requested = position ?? maxPosition;
+    return Math.min(Math.max(requested, 0), maxPosition);
+  }
+
+  private async getOrderedColumnTasks(
+    tx: TaskTransaction,
+    codespaceId: string,
+    column: TaskColumn
+  ): Promise<Task[]> {
+    return tx.query.tasks.findMany({
+      where: and(eq(tasks.codespaceId, codespaceId), eq(tasks.column, column)),
+      orderBy: [tasks.position, tasks.id],
+    });
+  }
+
+  private async rewriteColumnPositions(
+    tx: TaskTransaction,
+    orderedTasks: Task[],
+    movedTaskId: string,
+    movedFields: TaskUpdateSet,
+    now: string
+  ): Promise<Task | undefined> {
+    let movedTask: Task | undefined;
+
+    for (const [position, task] of orderedTasks.entries()) {
+      const updateSet: TaskUpdateSet =
+        task.id === movedTaskId
+          ? { ...movedFields, position, updatedAt: now }
+          : { position, updatedAt: now };
+
+      const [updated] = await tx
+        .update(tasks)
+        .set(updateSet)
+        .where(eq(tasks.id, task.id))
+        .returning();
+
+      if (task.id === movedTaskId) {
+        movedTask = updated;
+      }
+    }
+
+    return movedTask;
+  }
+
+  private async repositionWithinCurrentColumn(
+    task: Task,
+    position: number
+  ): Promise<Task | undefined> {
+    return this.db.transaction(async (tx) => {
+      const now = new Date().toISOString();
+      const columnTasks = await this.getOrderedColumnTasks(tx, task.codespaceId, task.column);
+      const otherTasks = columnTasks.filter((item) => item.id !== task.id);
+      const targetPosition = this.clampPosition(position, otherTasks.length);
+      const orderedTasks = [...otherTasks];
+      orderedTasks.splice(targetPosition, 0, task);
+
+      return this.rewriteColumnPositions(tx, orderedTasks, task.id, {}, now);
+    });
+  }
+
+  private async moveExistingTaskToColumn(
+    task: Task,
+    column: TaskColumn,
+    position: number | undefined,
+    movedFields: TaskUpdateSet
+  ): Promise<Task | undefined> {
+    return this.db.transaction(async (tx) => {
+      const now = new Date().toISOString();
+      const sourceTasks = await this.getOrderedColumnTasks(tx, task.codespaceId, task.column);
+      const sourceWithoutMoved = sourceTasks.filter((item) => item.id !== task.id);
+      await this.rewriteColumnPositions(tx, sourceWithoutMoved, task.id, {}, now);
+
+      const targetTasks = await this.getOrderedColumnTasks(tx, task.codespaceId, column);
+      const targetWithoutMoved = targetTasks.filter((item) => item.id !== task.id);
+      const targetPosition = this.clampPosition(position, targetWithoutMoved.length);
+      const targetOrder = [...targetWithoutMoved];
+      targetOrder.splice(targetPosition, 0, task);
+
+      return this.rewriteColumnPositions(tx, targetOrder, task.id, { ...movedFields, column }, now);
+    });
+  }
+
+  private async deleteTaskAndCompact(task: Task): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const now = new Date().toISOString();
+      await tx.delete(tasks).where(eq(tasks.id, task.id));
+
+      const sourceTasks = await this.getOrderedColumnTasks(tx, task.codespaceId, task.column);
+      await this.rewriteColumnPositions(tx, sourceTasks, task.id, {}, now);
+    });
+  }
+
   async create(input: CreateTaskInput): Promise<Result<Task, TaskError>> {
     const {
       codespaceId,
@@ -579,7 +669,7 @@ export class TaskService {
       await this.agentExecutionService.stop(task.agentId);
     }
 
-    await this.db.delete(tasks).where(eq(tasks.id, id));
+    await this.deleteTaskAndCompact(task);
     return ok(undefined);
   }
 
@@ -596,9 +686,17 @@ export class TaskService {
       return err(TaskErrors.NOT_FOUND);
     }
 
-    // No-op if task is already in the target column
     if (task.column === column) {
-      return ok({ task });
+      if (position === undefined) {
+        return ok({ task });
+      }
+
+      const updated = await this.repositionWithinCurrentColumn(task, position);
+      if (!updated) {
+        return err(TaskErrors.NOT_FOUND);
+      }
+
+      return ok({ task: updated });
     }
 
     if (!canTransition(task.column, column)) {
@@ -623,15 +721,6 @@ export class TaskService {
       return err(TaskErrors.EXECUTION_NOT_READY);
     }
 
-    let newPosition = position;
-    if (newPosition === undefined) {
-      const lastInColumn = await this.db.query.tasks.findFirst({
-        where: and(eq(tasks.codespaceId, task.codespaceId), eq(tasks.column, column)),
-        orderBy: desc(tasks.position),
-      });
-      newPosition = (lastInColumn?.position ?? -1) + 1;
-    }
-
     // PRODUCTION-ROBUST: Generate sessionId upfront for in_progress moves
     // This ensures the sessionId is included in the returned task so the
     // frontend can immediately subscribe to the stream
@@ -640,10 +729,11 @@ export class TaskService {
       sessionId = task.sessionId ?? createId();
     }
 
-    // Wrap session-create + task-update in a transaction for atomicity.
-    // If either fails, both are rolled back — prevents orphaned sessions
-    // or tasks pointing to non-existent sessions.
+    // Wrap session-create + position rewrites + task-update in a transaction
+    // so drag/drop never leaves duplicate positions in either column.
     const updated = await this.db.transaction(async (tx) => {
+      const now = new Date().toISOString();
+
       // IMPORTANT: Create session record BEFORE updating task with sessionId
       // SQLite foreign keys are enforced, so the session must exist first
       if (sessionId && sessionId !== task.sessionId && this.containerAgentService) {
@@ -657,7 +747,7 @@ export class TaskService {
             url: `/codespaces/${task.codespaceId}/sessions/${sessionId}`,
             status: 'active',
             sandboxProvider: this.containerAgentService?.providerName ?? null,
-            createdAt: new Date().toISOString(),
+            createdAt: now,
           });
         } catch (insertErr) {
           const errorMsg = insertErr instanceof Error ? insertErr.message : String(insertErr);
@@ -669,26 +759,32 @@ export class TaskService {
         }
       }
 
-      const [result] = await tx
-        .update(tasks)
-        .set({
+      const sourceTasks = await this.getOrderedColumnTasks(tx, task.codespaceId, task.column);
+      const sourceWithoutMoved = sourceTasks.filter((item) => item.id !== task.id);
+      await this.rewriteColumnPositions(tx, sourceWithoutMoved, task.id, {}, now);
+
+      const targetTasks = await this.getOrderedColumnTasks(tx, task.codespaceId, column);
+      const targetWithoutMoved = targetTasks.filter((item) => item.id !== task.id);
+      const targetPosition = this.clampPosition(position, targetWithoutMoved.length);
+      const targetOrder = [...targetWithoutMoved];
+      targetOrder.splice(targetPosition, 0, task);
+
+      return this.rewriteColumnPositions(
+        tx,
+        targetOrder,
+        task.id,
+        {
           column,
-          position: newPosition,
-          updatedAt: new Date().toISOString(),
           // On move to in_progress, clear any stale lastAgentStatus from a prior run.
           // Without this, UI badge logic (getCardBadgeKind, isAgentRunning) mis-identifies
           // the task as terminal and hides the running indicator on re-run.
-          ...(column === 'in_progress'
-            ? { startedAt: new Date().toISOString(), lastAgentStatus: null }
-            : {}),
-          ...(column === 'verified' ? { completedAt: new Date().toISOString() } : {}),
+          ...(column === 'in_progress' ? { startedAt: now, lastAgentStatus: null } : {}),
+          ...(column === 'verified' ? { completedAt: now } : {}),
           // Include sessionId in the update so it's returned to frontend
           ...(sessionId ? { sessionId } : {}),
-        })
-        .where(eq(tasks.id, id))
-        .returning();
-
-      return result;
+        },
+        now
+      );
     });
 
     if (!updated) {
@@ -708,16 +804,29 @@ export class TaskService {
           data: { taskId: id, agentError },
         });
         const errorMsg = typeof agentError === 'string' ? agentError : String(agentError);
-        const [reverted] = await this.db
-          .update(tasks)
-          .set({
-            column: 'backlog' as TaskColumn,
-            position: updated.position,
-            sessionId: null,
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(tasks.id, id))
-          .returning();
+        const reverted = await this.db.transaction(async (tx) => {
+          const now = new Date().toISOString();
+          const sourceTasks = await this.getOrderedColumnTasks(tx, updated.codespaceId, column);
+          const sourceWithoutMoved = sourceTasks.filter((item) => item.id !== id);
+          await this.rewriteColumnPositions(tx, sourceWithoutMoved, id, {}, now);
+
+          const targetTasks = await this.getOrderedColumnTasks(tx, updated.codespaceId, 'backlog');
+          const targetWithoutMoved = targetTasks.filter((item) => item.id !== id);
+          const targetPosition = this.clampPosition(task.position, targetWithoutMoved.length);
+          const targetOrder = [...targetWithoutMoved];
+          targetOrder.splice(targetPosition, 0, updated);
+
+          return this.rewriteColumnPositions(
+            tx,
+            targetOrder,
+            id,
+            {
+              column: 'backlog' as TaskColumn,
+              sessionId: null,
+            },
+            now
+          );
+        });
         if (reverted) {
           return ok({ task: reverted, agentError: errorMsg });
         }
@@ -757,10 +866,9 @@ export class TaskService {
   /**
    * Trigger container agent execution for a task if sandbox is enabled.
    *
-   * Note: The session record persists even if agent start fails. This is intentional:
-   * the frontend uses the sessionId to subscribe to the SSE stream, and the agentError
-   * field on the MoveTaskResult signals that the agent didn't start. Session cleanup
-   * happens on codespace delete (CASCADE).
+   * Note: if agent start fails, the caller reverts the task and clears its
+   * sessionId reference. The session row itself remains for audit/history and
+   * is cleaned up with the codespace (CASCADE).
    *
    * @param task - The task to execute
    * @param sessionId - Pre-generated sessionId (required for frontend to subscribe immediately)
@@ -918,17 +1026,16 @@ export class TaskService {
     return parts.join('\n');
   }
 
-  // Note: Position conflicts are possible under concurrent reorders.
-  // The Kanban UI re-fetches after reorder, which resolves visual conflicts.
-  // A unique constraint on (codespaceId, column, position) is not practical
-  // because positions must shift when items are reordered.
   async reorder(id: string, position: number): Promise<Result<Task, TaskError>> {
-    const [updated] = await this.db
-      .update(tasks)
-      .set({ position, updatedAt: new Date().toISOString() })
-      .where(eq(tasks.id, id))
-      .returning();
+    const task = await this.db.query.tasks.findFirst({
+      where: eq(tasks.id, id),
+    });
 
+    if (!task) {
+      return err(TaskErrors.NOT_FOUND);
+    }
+
+    const updated = await this.repositionWithinCurrentColumn(task, position);
     if (!updated) {
       return err(TaskErrors.NOT_FOUND);
     }
@@ -1032,18 +1139,13 @@ export class TaskService {
       }
     }
 
-    const [updated] = await this.db
-      .update(tasks)
-      .set({
-        column: 'verified',
-        approvedAt: new Date().toISOString(),
-        approvedBy: input.approvedBy,
-        completedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        ...(diffStats ? { diffSummary: diffStats } : {}),
-      })
-      .where(eq(tasks.id, id))
-      .returning();
+    const now = new Date().toISOString();
+    const updated = await this.moveExistingTaskToColumn(task, 'verified', undefined, {
+      approvedAt: now,
+      approvedBy: input.approvedBy,
+      completedAt: now,
+      ...(diffStats ? { diffSummary: diffStats } : {}),
+    });
 
     if (task.worktreeId) {
       await this.worktreeService.remove(task.worktreeId);
@@ -1073,16 +1175,10 @@ export class TaskService {
       return err(ValidationErrors.INVALID_ENUM_VALUE('reason', input.reason, ['1-1000 chars']));
     }
 
-    const [updated] = await this.db
-      .update(tasks)
-      .set({
-        column: 'backlog',
-        rejectionCount: (task.rejectionCount ?? 0) + 1,
-        rejectionReason: input.reason,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(tasks.id, id))
-      .returning();
+    const updated = await this.moveExistingTaskToColumn(task, 'backlog', undefined, {
+      rejectionCount: (task.rejectionCount ?? 0) + 1,
+      rejectionReason: input.reason,
+    });
 
     if (!updated) {
       return err(TaskErrors.NOT_FOUND);

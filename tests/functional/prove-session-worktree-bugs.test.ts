@@ -302,43 +302,14 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
         text: 'after-delete',
       });
       const result2 = await streamService.persistEvent(session.id, event2);
-
-      /**
-       * FINDING: The test DB has foreign_keys OFF by default (see setupTestDatabase).
-       * In production with FK ON, the INSERT would fail with an FK violation because
-       * session_events.session_id references sessions.id.
-       *
-       * With FK OFF (test environment): The insert SUCCEEDS despite the session
-       * being deleted, creating an orphaned event. The cache masks the deletion.
-       *
-       * CONFIRMED BUG PATTERN: The knownSessionIds cache has no invalidation
-       * mechanism. If a session is deleted (e.g., via SessionCrudService.delete()),
-       * the cache retains the ID. The comment in the source says "The FK constraint
-       * on session_events still provides correctness" — but this relies on FK
-       * enforcement being ON.
-       *
-       * MITIGATION: In production SQLite with FK ON, the atomic INSERT...SELECT
-       * will fail and the error is caught, returning SYNC_FAILED. The cache
-       * staleness is harmless because the FK prevents data corruption.
-       *
-       * We verify the behavior under both conditions below.
-       */
-
-      if (result2.ok) {
-        // Under FK OFF (test default), the insert succeeds but creates an orphan
-        // This is the FK OFF behavior — event was inserted despite no parent session
-        const orphanEvent = await db.query.sessionEvents.findFirst({
-          where: eq(sessionEvents.id, event2.id),
-        });
-        expect(orphanEvent).toBeTruthy();
-        expect(orphanEvent!.sessionId).toBe(session.id);
-      } else {
+      expect(result2.ok).toBe(false);
+      if (!result2.ok) {
         expect(result2.error.code).toBe('SESSION_SYNC_FAILED');
-        const orphanEvent = await db.query.sessionEvents.findFirst({
-          where: eq(sessionEvents.id, event2.id),
-        });
-        expect(orphanEvent).toBeUndefined();
       }
+      const orphanEvent = await db.query.sessionEvents.findFirst({
+        where: eq(sessionEvents.id, event2.id),
+      });
+      expect(orphanEvent).toBeUndefined();
 
       // Now test with FK ON to verify the safety net
       execRawSql('PRAGMA foreign_keys = ON');
@@ -706,7 +677,7 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
   // ═══════════════════════════════════════════════════════════════════
 
   describe('Test 8: Worktree partial creation — orphaned git worktree on disk', () => {
-    it('if DB insert fails after git worktree add, the git worktree is NOT cleaned up', async () => {
+    it('if DB insert fails after git worktree add, the git worktree is cleaned up', async () => {
       const codespace = await createTestProject({
         name: 'Partial Create',
         path: '/tmp/partial-create-test',
@@ -786,6 +757,134 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
        * worktree (no DB record) would need manual cleanup or a filesystem
        * scan comparing `.worktrees/` directory entries against DB records.
        */
+    });
+
+    it('removes the git worktree when DB insert throws after git worktree add', async () => {
+      const codespace = await createTestProject({
+        name: 'Partial Create Failing Insert',
+        path: '/tmp/partial-create-failing-insert',
+      });
+      const agent = await createTestAgent(codespace.id, {
+        status: 'idle',
+      });
+      const task = await createTestTask(codespace.id, {
+        id: 'task-partial-failing-insert',
+        title: 'Partial failing insert',
+      });
+
+      const { WorktreeService } = await import('../../src/services/worktree.service');
+
+      const gitCommands: string[] = [];
+      const responder = async (cmd: string) => {
+        gitCommands.push(cmd);
+        if (cmd.includes('git branch --list')) {
+          return { stdout: '', stderr: '' };
+        }
+        if (cmd.includes('git worktree add')) {
+          return { stdout: 'Preparing worktree', stderr: '' };
+        }
+        if (cmd.includes('git worktree remove')) {
+          return { stdout: 'Removed worktree', stderr: '' };
+        }
+        return { stdout: '', stderr: '' };
+      };
+      const mockRunner = {
+        exec: vi.fn().mockImplementation(async (cmd: string) => responder(cmd)),
+        execArgs: vi.fn().mockImplementation(async (argv: string[]) => responder(argv.join(' '))),
+      };
+      const failingDb = {
+        ...db,
+        insert: (table: unknown) => {
+          if (table === worktrees) {
+            return {
+              values: () => ({
+                returning: async () => {
+                  throw new Error('disk full during worktree insert');
+                },
+              }),
+            };
+          }
+          return db.insert(table as never);
+        },
+      };
+
+      const worktreeService = new WorktreeService(failingDb as never, mockRunner);
+      const createResult = await worktreeService.create(
+        {
+          codespaceId: codespace.id,
+          agentId: agent.id,
+          taskId: task.id,
+          taskTitle: task.title,
+        },
+        { skipEnvCopy: true, skipDepsInstall: true, skipInitScript: true }
+      );
+
+      expect(createResult.ok).toBe(false);
+      expect(gitCommands.some((cmd) => cmd.includes('git worktree add'))).toBe(true);
+      expect(gitCommands.some((cmd) => cmd.includes('git worktree remove'))).toBe(true);
+    });
+
+    it('removes the git worktree when DB insert returns no row after git worktree add', async () => {
+      const codespace = await createTestProject({
+        name: 'Partial Create Empty Insert',
+        path: '/tmp/partial-create-empty-insert',
+      });
+      const agent = await createTestAgent(codespace.id, {
+        status: 'idle',
+      });
+      const task = await createTestTask(codespace.id, {
+        id: 'task-partial-empty-insert',
+        title: 'Partial empty insert',
+      });
+
+      const { WorktreeService } = await import('../../src/services/worktree.service');
+
+      const gitCommands: string[] = [];
+      const responder = async (cmd: string) => {
+        gitCommands.push(cmd);
+        if (cmd.includes('git branch --list')) {
+          return { stdout: '', stderr: '' };
+        }
+        if (cmd.includes('git worktree add')) {
+          return { stdout: 'Preparing worktree', stderr: '' };
+        }
+        if (cmd.includes('git worktree remove')) {
+          return { stdout: 'Removed worktree', stderr: '' };
+        }
+        return { stdout: '', stderr: '' };
+      };
+      const mockRunner = {
+        exec: vi.fn().mockImplementation(async (cmd: string) => responder(cmd)),
+        execArgs: vi.fn().mockImplementation(async (argv: string[]) => responder(argv.join(' '))),
+      };
+      const emptyInsertDb = {
+        ...db,
+        insert: (table: unknown) => {
+          if (table === worktrees) {
+            return {
+              values: () => ({
+                returning: async () => [],
+              }),
+            };
+          }
+          return db.insert(table as never);
+        },
+      };
+
+      const worktreeService = new WorktreeService(emptyInsertDb as never, mockRunner);
+      const createResult = await worktreeService.create(
+        {
+          codespaceId: codespace.id,
+          agentId: agent.id,
+          taskId: task.id,
+          taskTitle: task.title,
+        },
+        { skipEnvCopy: true, skipDepsInstall: true, skipInitScript: true }
+      );
+
+      expect(createResult.ok).toBe(false);
+      expect(gitCommands.some((cmd) => cmd.includes('git worktree add'))).toBe(true);
+      expect(gitCommands.some((cmd) => cmd.includes('git worktree remove'))).toBe(true);
     });
 
     it('DB record does not exist when DB insert would fail (simulated via constraint violation)', async () => {
