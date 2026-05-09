@@ -218,15 +218,22 @@ export default defineConfig({
         'packages/**',
       ],
       reporter: ['text', 'lcov', 'html', 'json-summary'],
-      // Baseline measured 2026-04-21 on unit+jsdom+db projects:
-      // statements 68.19%, branches 59.44%, functions 62.96%, lines 68.70%.
-      // Thresholds are floor(actual - 5) to current floor; ratchet up once we
-      // have a week of post-merge data.
+      // Re-baselined 2026-05-09 after the test-coverage-may branch lifted
+      // combined integration + functional coverage from 47.78% → 77.65% lines
+      // (1,794 new tests, 17 production bugs caught — see
+      // coverage/combined/progress.md for the full log).
+      //
+      // Thresholds are floor(actual − 2) on the combined metric (--project
+      // unit --project jsdom --project db --project integration --project
+      // functional --coverage in CI). Tighter than the previous −5 slack
+      // since we have post-merge confirmation across 4,299 tests.
+      //
+      // Ratchet up further once a week of post-merge data confirms stability.
       thresholds: {
-        statements: 60,
-        branches: 50,
-        functions: 55,
-        lines: 60,
+        statements: 75,
+        branches: 63,
+        functions: 68,
+        lines: 75,
       },
     },
   },
