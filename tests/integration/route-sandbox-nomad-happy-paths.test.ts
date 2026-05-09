@@ -1,5 +1,5 @@
 /**
- * Integration tests for the Nomad routes inside src/server/routes/sandbox.ts.
+ * Integration tests for the Nomad routes inside src/server/routes/sandbox-nomad.ts.
  *
  * The existing route-sandbox.test.ts only exercises validateNomadAddress SSRF
  * branches and the validate endpoint with bad addresses. These tests cover the
@@ -29,7 +29,7 @@ vi.mock('@agentpane/nomad-sandbox-sdk', () => ({
   NomadSandboxClient: nomadClientMock.NomadSandboxClient,
 }));
 
-import { createNomadRoutes } from '../../src/server/routes/sandbox';
+import { createNomadRoutes } from '../../src/server/routes/sandbox-nomad';
 
 function mountNomadRoutes() {
   const app = new Hono();

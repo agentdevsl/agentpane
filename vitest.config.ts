@@ -218,22 +218,19 @@ export default defineConfig({
         'packages/**',
       ],
       reporter: ['text', 'lcov', 'html', 'json-summary'],
-      // Re-baselined 2026-05-09 after the test-coverage-may branch lifted
-      // combined integration + functional coverage from 47.78% → 77.65% lines
-      // (1,794 new tests, 17 production bugs caught — see
-      // coverage/combined/progress.md for the full log).
+      // Re-baselined 2026-05-09 after slice POLISH-2 deleted the legacy
+      // src/server/routes/sandbox.ts duplicate. CI command runs all five
+      // projects (unit + jsdom + db + integration + functional --coverage),
+      // measured: statements 87.45%, branches 77.51%, functions 81.59%,
+      // lines 88.06%.
       //
-      // Thresholds are floor(actual − 2) on the combined metric (--project
-      // unit --project jsdom --project db --project integration --project
-      // functional --coverage in CI). Tighter than the previous −5 slack
-      // since we have post-merge confirmation across 4,299 tests.
-      //
-      // Ratchet up further once a week of post-merge data confirms stability.
+      // Thresholds are floor(actual − 2) on each metric; ratchet up further
+      // once a week of post-merge data confirms stability.
       thresholds: {
-        statements: 75,
-        branches: 63,
-        functions: 68,
-        lines: 75,
+        statements: 85,
+        branches: 75,
+        functions: 79,
+        lines: 86,
       },
     },
   },

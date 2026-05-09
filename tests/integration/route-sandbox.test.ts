@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Result } from '../../src/lib/utils/result';
-import { createSandboxRoutes, validateNomadAddress } from '../../src/server/routes/sandbox';
+import { createSandboxConfigRoutes as createSandboxRoutes } from '../../src/server/routes/sandbox-configs';
+import { validateNomadAddress } from '../../src/server/routes/sandbox-nomad';
 import type { SandboxConfigService } from '../../src/services/sandbox-config.service';
 
 /**
@@ -318,7 +319,7 @@ describe('Sandbox Routes (IT-1000)', () => {
     it('IT-1024: rejects path with ../ traversal', async () => {
       // The K8s status route validates kubeconfigPath
       // We test via the K8s routes which call parseKubeconfigParam
-      const { createK8sRoutes } = await import('../../src/server/routes/sandbox');
+      const { createK8sRoutes } = await import('../../src/server/routes/sandbox-k8s');
       const k8sApp = new Hono();
       k8sApp.route('/api/sandbox/k8s', createK8sRoutes());
 
@@ -334,7 +335,7 @@ describe('Sandbox Routes (IT-1000)', () => {
     });
 
     it('IT-1025: rejects path outside allowed directories', async () => {
-      const { createK8sRoutes } = await import('../../src/server/routes/sandbox');
+      const { createK8sRoutes } = await import('../../src/server/routes/sandbox-k8s');
       const k8sApp = new Hono();
       k8sApp.route('/api/sandbox/k8s', createK8sRoutes());
 
@@ -349,7 +350,7 @@ describe('Sandbox Routes (IT-1000)', () => {
     });
 
     it('IT-1026: allows path under home directory', async () => {
-      const { createK8sRoutes } = await import('../../src/server/routes/sandbox');
+      const { createK8sRoutes } = await import('../../src/server/routes/sandbox-k8s');
       const k8sApp = new Hono();
       k8sApp.route('/api/sandbox/k8s', createK8sRoutes());
 
@@ -367,7 +368,7 @@ describe('Sandbox Routes (IT-1000)', () => {
     });
 
     it('IT-1027: allows /etc/kubernetes paths', async () => {
-      const { createK8sRoutes } = await import('../../src/server/routes/sandbox');
+      const { createK8sRoutes } = await import('../../src/server/routes/sandbox-k8s');
       const k8sApp = new Hono();
       k8sApp.route('/api/sandbox/k8s', createK8sRoutes());
 
@@ -555,7 +556,7 @@ describe('Sandbox Routes (IT-1000)', () => {
 
   describe('Nomad validate endpoint SSRF', () => {
     it('IT-1038: POST /nomad/validate blocks cloud metadata address', async () => {
-      const { createNomadRoutes } = await import('../../src/server/routes/sandbox');
+      const { createNomadRoutes } = await import('../../src/server/routes/sandbox-nomad');
       const nomadApp = new Hono();
       nomadApp.route('/api/sandbox/nomad', createNomadRoutes());
 
@@ -572,7 +573,7 @@ describe('Sandbox Routes (IT-1000)', () => {
     });
 
     it('IT-1039: POST /nomad/validate blocks private 10.x address', async () => {
-      const { createNomadRoutes } = await import('../../src/server/routes/sandbox');
+      const { createNomadRoutes } = await import('../../src/server/routes/sandbox-nomad');
       const nomadApp = new Hono();
       nomadApp.route('/api/sandbox/nomad', createNomadRoutes());
 
@@ -589,7 +590,7 @@ describe('Sandbox Routes (IT-1000)', () => {
     });
 
     it('IT-1040: POST /nomad/validate requires address field', async () => {
-      const { createNomadRoutes } = await import('../../src/server/routes/sandbox');
+      const { createNomadRoutes } = await import('../../src/server/routes/sandbox-nomad');
       const nomadApp = new Hono();
       nomadApp.route('/api/sandbox/nomad', createNomadRoutes());
 

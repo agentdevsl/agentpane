@@ -28,7 +28,7 @@ vi.mock('../../src/lib/sandbox/providers/nomad-sandbox-provider.js', () => ({
 vi.mock('../../src/server/bootstrap/sandbox/sandbox-helpers.js', () => ({
   ensureDefaultSandbox: nomadMocks.ensureDefaultSandbox,
 }));
-vi.mock('../../src/server/routes/sandbox.js', () => ({
+vi.mock('../../src/server/routes/sandbox-nomad.js', () => ({
   validateNomadAddress: nomadMocks.validateNomadAddress,
 }));
 vi.mock('../../src/lib/crypto/server-encryption.js', () => ({
