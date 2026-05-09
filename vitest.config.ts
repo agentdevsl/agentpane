@@ -218,15 +218,19 @@ export default defineConfig({
         'packages/**',
       ],
       reporter: ['text', 'lcov', 'html', 'json-summary'],
-      // Baseline measured 2026-04-21 on unit+jsdom+db projects:
-      // statements 68.19%, branches 59.44%, functions 62.96%, lines 68.70%.
-      // Thresholds are floor(actual - 5) to current floor; ratchet up once we
-      // have a week of post-merge data.
+      // Re-baselined 2026-05-09 after slice POLISH-2 deleted the legacy
+      // src/server/routes/sandbox.ts duplicate. CI command runs all five
+      // projects (unit + jsdom + db + integration + functional --coverage),
+      // measured: statements 87.45%, branches 77.51%, functions 81.59%,
+      // lines 88.06%.
+      //
+      // Thresholds are floor(actual − 2) on each metric; ratchet up further
+      // once a week of post-merge data confirms stability.
       thresholds: {
-        statements: 60,
-        branches: 50,
-        functions: 55,
-        lines: 60,
+        statements: 85,
+        branches: 75,
+        functions: 79,
+        lines: 86,
       },
     },
   },
