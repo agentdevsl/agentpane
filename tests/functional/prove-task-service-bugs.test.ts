@@ -430,62 +430,88 @@ describe('Bug-Proving Tests: TaskService', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Test 7: reject() — does it check lastAgentStatus?
+  // Test 7: reject()/approve() lastAgentStatus contract — asymmetric by design
   // ═══════════════════════════════════════════════════════════════════════
 
-  it('BUG PROBE: reject() allows rejection during planning phase without checking lastAgentStatus', async () => {
+  it('REGRESSION GUARD: reject() permits planning state, approve() blocks it (asymmetric contract)', async () => {
     const codespace = await createTestProject({
-      name: 'Reject Planning Test',
-      path: '/tmp/reject-planning-test',
+      name: 'Reject vs Approve Planning Test',
+      path: '/tmp/reject-vs-approve-planning-test',
     });
 
-    // Create task in waiting_approval with lastAgentStatus=planning
-    // This simulates a task where a plan was submitted but not yet executed
-    const task = await createTestTask(codespace.id, {
+    // Create two waiting_approval tasks with lastAgentStatus=planning, one
+    // for each call site under test. Direct write of the FK-precondition
+    // state is intentional (TEST-SETUP) — driving handlePlanReady() requires
+    // a full agent + sandbox harness orthogonal to this contract test.
+    const taskForReject = await createTestTask(codespace.id, {
       column: 'waiting_approval',
     });
-    // TEST-SETUP: targets reject() behaviour for a task in waiting_approval
-    // with `lastAgentStatus='planning'`. Driving this combo through
-    // PlanApprovalService.handlePlanReady() requires a full agent + sandbox
-    // harness; direct write is the minimal-surface precondition for the
-    // reject() assertion (the bug claim under test).
+    const taskForApprove = await createTestTask(codespace.id, {
+      column: 'waiting_approval',
+    });
     await db
       .update(tasks)
       .set({ lastAgentStatus: 'planning', plan: 'Some plan text' })
-      .where(eq(tasks.id, task.id));
+      .where(eq(tasks.id, taskForReject.id));
+    await db
+      .update(tasks)
+      .set({ lastAgentStatus: 'planning', plan: 'Some plan text' })
+      .where(eq(tasks.id, taskForApprove.id));
 
-    // Act: call reject() — it should move task to backlog
-    const result = await taskService.reject(task.id, {
+    // ── reject() branch — must succeed and NOT clear plan/lastAgentStatus ──
+    const rejectResult = await taskService.reject(taskForReject.id, {
       reason: 'Plan is incomplete',
     });
-
-    // VERDICT: NOT A BUG (acceptable behavior).
-    // reject() does NOT check lastAgentStatus — it only checks:
-    //   1. task.column === 'waiting_approval'
-    //   2. input.reason is valid (1-1000 chars)
-    //
-    // reject() moves a task from waiting_approval back to backlog.
-    // Plan rejection is handled by a separate path:
-    //   PlanApprovalService.rejectPlan() — also moves to backlog and clears plan.
-    expect(result.ok).toBe(true);
-
-    if (result.ok) {
-      const rejected = result.value;
-      expect(rejected.column).toBe('backlog');
-      expect(rejected.rejectionCount).toBe(1);
-      expect(rejected.rejectionReason).toBe('Plan is incomplete');
+    expect(rejectResult.ok).toBe(true);
+    if (rejectResult.ok) {
+      expect(rejectResult.value.column).toBe('backlog');
+      expect(rejectResult.value.rejectionCount).toBe(1);
+      expect(rejectResult.value.rejectionReason).toBe('Plan is incomplete');
     }
-
-    // Verify DB state — plan and lastAgentStatus are NOT cleared by reject()
-    const taskRow = await db.query.tasks.findFirst({
-      where: eq(tasks.id, task.id),
+    const rejectedRow = await db.query.tasks.findFirst({
+      where: eq(tasks.id, taskForReject.id),
     });
-    expect(taskRow!.column).toBe('backlog');
-    expect(taskRow!.lastAgentStatus).toBe('planning'); // NOT cleared
-    expect(taskRow!.plan).toBe('Some plan text'); // NOT cleared
+    expect(rejectedRow!.column).toBe('backlog');
+    expect(rejectedRow!.lastAgentStatus).toBe('planning'); // NOT cleared
+    expect(rejectedRow!.plan).toBe('Some plan text'); // NOT cleared
 
-    // Compare with approve(): approve() DOES check lastAgentStatus=planning
-    // and returns PLAN_NOT_EXECUTED. reject() does NOT have this guard.
-    // This asymmetry is a potential design concern but not a crash bug.
+    // ── approve() branch — must REFUSE with PLAN_NOT_EXECUTED ──
+    // This is the load-bearing half of the asymmetric contract: approve()
+    // would skip the execution phase if it accepted a still-planning task,
+    // so it MUST block. A regression that drops this guard would let users
+    // approve a plan and immediately ship un-executed changes.
+    const approveResult = await taskService.approve(taskForApprove.id, {
+      approvedBy: 'test-user',
+      createMergeCommit: false,
+    });
+    expect(approveResult.ok).toBe(false);
+    if (!approveResult.ok) {
+      expect(approveResult.error.code).toBe('TASK_PLAN_NOT_EXECUTED');
+    }
+    const approveAttemptedRow = await db.query.tasks.findFirst({
+      where: eq(tasks.id, taskForApprove.id),
+    });
+    expect(approveAttemptedRow!.column).toBe('waiting_approval'); // unchanged
+    expect(approveAttemptedRow!.approvedAt).toBeNull(); // unchanged
+
+    // ── Symmetric guard for approve(): lastAgentStatus='agent_reviewing' ──
+    // approve() rejects this state too (per the existing guard); we lock it
+    // in alongside 'planning' so a future refactor that narrows the guard
+    // to only 'planning' fails this assertion.
+    const taskForReviewing = await createTestTask(codespace.id, {
+      column: 'waiting_approval',
+    });
+    await db
+      .update(tasks)
+      .set({ lastAgentStatus: 'agent_reviewing' })
+      .where(eq(tasks.id, taskForReviewing.id));
+    const approveDuringReview = await taskService.approve(taskForReviewing.id, {
+      approvedBy: 'test-user',
+      createMergeCommit: false,
+    });
+    expect(approveDuringReview.ok).toBe(false);
+    if (!approveDuringReview.ok) {
+      expect(approveDuringReview.error.code).toBe('TASK_PLAN_NOT_EXECUTED');
+    }
   });
 });
