@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
-import { createSandboxRoutes, validateNomadAddress } from '../sandbox.js';
+import { createSandboxConfigRoutes as createSandboxRoutes } from '../sandbox-configs.js';
+import { validateNomadAddress } from '../sandbox-nomad.js';
 
 // ── Mock Sandbox Config Service ──
 

@@ -105,7 +105,7 @@ export async function initNomadProvider(
     }
 
     // Defense-in-depth: validate stored address at startup
-    const { validateNomadAddress } = await import('../../routes/sandbox.js');
+    const { validateNomadAddress } = await import('../../routes/sandbox-nomad.js');
     const addrValidation = await validateNomadAddress(nomadSettings.address);
     if (!addrValidation.valid) {
       log.warn(

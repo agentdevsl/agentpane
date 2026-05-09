@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createNomadRoutes, validateNomadAddress } from '../sandbox.js';
+import { createNomadRoutes, validateNomadAddress } from '../sandbox-nomad.js';
 
 // Use vi.hoisted so the mock fn reference is available inside the vi.mock factory
 // (which is hoisted to the top of the file by Vitest before any imports run).
