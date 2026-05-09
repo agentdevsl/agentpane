@@ -78,11 +78,7 @@ describe('migration v41 — project_id drift (regression IT-1991)', () => {
     runMigrations(db, [v41]);
   }
 
-  // `it.fails` documents an unfixed bug: vitest expects this to throw and
-  // turns the assertion sense inverted. When v41 is fixed, the assertion
-  // will pass and `it.fails` will flag the file, prompting removal of the
-  // annotation. See PR follow-up note in the file header.
-  it.fails('IT-1991-1 v41 SHOULD survive when tasks.project_id has already been dropped (currently FAILS — bug)', () => {
+  it('IT-1991-1 v41 survives when tasks.project_id has already been dropped (regression — fixed by `prepare` field)', () => {
     // Set up the user-observed state: migrations through v40 applied, then
     // someone (or a future migration) dropped the legacy project_id column
     // from tasks. The data is intact under codespace_id.

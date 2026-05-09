@@ -34,6 +34,29 @@ function getMaxAppliedVersion(db: RawSQLiteDatabase): number {
  * ALTER TABLE idempotency (duplicate column errors are expected on re-runs).
  */
 function applyMigration(db: RawSQLiteDatabase, migration: Migration): void {
+  // Defensive prepare statements (idempotent ALTER TABLE / CREATE INDEX).
+  // Tolerates 'duplicate column' (column already added on a prior run) and
+  // 'no such table' (table absent on a fresh DB that won't reach this path
+  // anyway) so the same migration boots cleanly across both fresh and
+  // partially-drifted databases. See v41 for the canonical use case
+  // (COALESCE(codespace_id, project_id) needs project_id to exist).
+  if (migration.prepare) {
+    for (const stmt of migration.prepare) {
+      try {
+        db.prepare(stmt).run();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (
+          !msg.includes('duplicate column') &&
+          !msg.includes('no such table') &&
+          !msg.includes('no such column')
+        ) {
+          throw e;
+        }
+      }
+    }
+  }
+
   if (migration.statements) {
     for (const stmt of migration.statements) {
       try {
@@ -87,6 +110,15 @@ export function runMigrations(db: RawSQLiteDatabase, migrations: Migration[]): v
   const recordMigration = db.prepare('INSERT INTO schema_migrations (version, name) VALUES (?, ?)');
 
   for (const migration of pending) {
+    // PRAGMA foreign_keys cannot change inside a transaction, so toggle
+    // outside the BEGIN/COMMIT for migrations that opt into it.
+    const fkWasOn = migration.disableForeignKeys
+      ? (db.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys === 1
+      : false;
+    if (migration.disableForeignKeys) {
+      db.prepare('PRAGMA foreign_keys = OFF').run();
+    }
+
     db.prepare('BEGIN').run();
     try {
       applyMigration(db, migration);
@@ -99,6 +131,10 @@ export function runMigrations(db: RawSQLiteDatabase, migrations: Migration[]): v
         data: { error: e instanceof Error ? e.message : String(e) },
       });
       throw e;
+    } finally {
+      if (migration.disableForeignKeys && fkWasOn) {
+        db.prepare('PRAGMA foreign_keys = ON').run();
+      }
     }
   }
 }
