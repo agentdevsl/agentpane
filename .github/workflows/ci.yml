@@ -236,8 +236,8 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      - name: Test with coverage (unit + jsdom + db)
-        run: bun vitest run --project unit --project jsdom --project db --coverage
+      - name: "Test with coverage (all projects: unit + jsdom + db + integration + functional)"
+        run: bun vitest run --project unit --project jsdom --project db --project integration --project functional --coverage
 
       - name: Upload coverage report
         if: always()

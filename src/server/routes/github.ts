@@ -17,10 +17,22 @@ const cloneSchema = z.object({
   destination: z.string().min(1, 'Destination is required'),
 });
 
+// GitHub repository name rules: alphanumeric plus `-`, `_`, `.`; max 100
+// chars; cannot be `.` or `..`. Enforcing this here is defense-in-depth so
+// the local `git clone <dest>/<name>` cannot be coerced into a path
+// traversal even if an upstream creator (real GitHub, mock, self-hosted)
+// were to accept a hostile name.
+const GITHUB_REPO_NAME_RE = /^[A-Za-z0-9_.-]{1,100}$/;
+const isSafeRepoName = (n: string): boolean =>
+  GITHUB_REPO_NAME_RE.test(n) && n !== '.' && n !== '..';
+
 const createFromTemplateSchema = z.object({
   templateOwner: z.string().min(1, 'templateOwner is required'),
   templateRepo: z.string().min(1, 'templateRepo is required'),
-  name: z.string().min(1, 'name is required'),
+  name: z
+    .string()
+    .min(1, 'name is required')
+    .refine(isSafeRepoName, 'name must match GitHub repo name rules and not be "." or ".."'),
   owner: z.string().optional(),
   description: z.string().optional(),
   isPrivate: z.boolean().optional(),

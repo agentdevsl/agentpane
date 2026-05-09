@@ -353,4 +353,102 @@ describe('Team Members Routes (IT-480)', () => {
     const finalBody = await finalRes.json();
     expect(finalBody.data.items).toHaveLength(1); // only owner remains
   });
+
+  // ─── Session-mode RBAC paths (require non-dev auth) ────
+
+  function buildSessionApp(asUserId: string): Hono {
+    const memberRoutes = createTeamMembersRoutes({ db: db as never, rbacService });
+    const sessionApp = new Hono();
+    sessionApp.use('/*', async (c, next) => {
+      c.set('auth', { userId: asUserId, authMethod: 'session' } as never);
+      await next();
+    });
+    sessionApp.route('/:id/members', memberRoutes);
+    return sessionApp;
+  }
+
+  it('IT-498: PATCH /:uid blocks user from changing own role', async () => {
+    // Add the user as admin first via direct insert
+    await db.insert(teamMembers).values({ teamId, userId: memberUserId, role: 'admin' });
+    const sessionApp = buildSessionApp(memberUserId);
+    const res = await sessionApp.request(
+      jsonRequest(
+        `http://localhost/${teamId}/members/${memberUserId}`,
+        { role: 'viewer' },
+        { method: 'PATCH' }
+      )
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('CANNOT_CHANGE_OWN_ROLE');
+  });
+
+  it('IT-499: PATCH /:uid blocks admin from assigning admin role (only owners can)', async () => {
+    // Make memberUserId an admin
+    await db.insert(teamMembers).values({ teamId, userId: memberUserId, role: 'admin' });
+    // Add a target as viewer
+    await db.insert(teamMembers).values({ teamId, userId: targetUserId, role: 'viewer' });
+    const sessionApp = buildSessionApp(memberUserId);
+    const res = await sessionApp.request(
+      jsonRequest(
+        `http://localhost/${teamId}/members/${targetUserId}`,
+        { role: 'admin' },
+        { method: 'PATCH' }
+      )
+    );
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error.code).toBe('INSUFFICIENT_ROLE');
+  });
+
+  it('IT-500: DELETE /:uid blocks user from removing themselves', async () => {
+    await db.insert(teamMembers).values({ teamId, userId: memberUserId, role: 'admin' });
+    const sessionApp = buildSessionApp(memberUserId);
+    const res = await sessionApp.request(`http://localhost/${teamId}/members/${memberUserId}`, {
+      method: 'DELETE',
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('CANNOT_REMOVE_SELF');
+  });
+
+  it('IT-501: DELETE /:uid blocks admin from removing an owner', async () => {
+    // memberUserId is admin, ownerUserId is owner
+    await db.insert(teamMembers).values({ teamId, userId: memberUserId, role: 'admin' });
+    const sessionApp = buildSessionApp(memberUserId);
+    const res = await sessionApp.request(`http://localhost/${teamId}/members/${ownerUserId}`, {
+      method: 'DELETE',
+    });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error.code).toBe('INSUFFICIENT_ROLE');
+  });
+
+  it('IT-502: DELETE /:uid blocks removing the last owner', async () => {
+    // Add another owner so the auth check passes, then leave just one owner
+    // Actually owner is calling, ownerUserId is the only owner - try to remove
+    // a different user that is also owner. Setup another owner user, then
+    // remove it as the original owner: should succeed. Then remove ourselves
+    // should fail "remove self". But "last owner" requires removing owner
+    // when only one owner — already tested via the insert below.
+    // Add a second owner
+    await db.insert(teamMembers).values({ teamId, userId: memberUserId, role: 'owner' });
+    // Remove memberUserId (one of two owners): should succeed
+    const removeOk = await outerApp.request(`http://localhost/${teamId}/members/${memberUserId}`, {
+      method: 'DELETE',
+    });
+    expect(removeOk.status).toBe(200);
+
+    // Now ownerUserId is the only owner left; try to remove ownerUserId via
+    // session as a (non-existent) admin — but caller must be admin, so use
+    // dev-mode bypass via outerApp. The route in dev mode skips the
+    // remove-self check but still runs CANNOT_REMOVE_LAST_OWNER inside the
+    // transaction.
+    const res = await outerApp.request(`http://localhost/${teamId}/members/${ownerUserId}`, {
+      method: 'DELETE',
+    });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error.code).toBe('CANNOT_REMOVE_LAST_OWNER');
+  });
 });

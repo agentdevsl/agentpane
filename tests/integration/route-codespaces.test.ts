@@ -589,4 +589,110 @@ describe('Codespaces Routes (IT-1150)', () => {
     const body = await res.json();
     expect(body.error.code).toBe('SKILL_NOT_FOUND');
   });
+
+  // ─── DELETE /:id?deleteFiles=true ─────────────────────
+
+  it('IT-1176: DELETE /:id?deleteFiles=true blocks unsafe path with reason', async () => {
+    mockCodespaceService.getById.mockResolvedValue({
+      ok: true,
+      value: { id: 'cs-1', path: '/etc/passwd' },
+    });
+    mockCodespaceService.delete.mockResolvedValue({ ok: true, value: null });
+
+    const res = await app.request('http://localhost/cs-1?deleteFiles=true', {
+      method: 'DELETE',
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.deleted).toBe(true);
+    expect(body.data.filesDeleted).toBe(false);
+    expect(body.data.reason).toBeTruthy();
+  });
+
+  it('IT-1177: DELETE /:id?deleteFiles=true reports fs error when path missing', async () => {
+    // Use a 4-deep path under a non-system dir so validatePathForDeletion
+    // returns safe:true and we exercise the fs.stat ENOENT branch.
+    const missingPath = `/tmp/route-codespaces-test/missing/${createId()}/sub`;
+    mockCodespaceService.getById.mockResolvedValue({
+      ok: true,
+      value: { id: 'cs-1', path: missingPath },
+    });
+    mockCodespaceService.delete.mockResolvedValue({ ok: true, value: null });
+
+    const res = await app.request('http://localhost/cs-1?deleteFiles=true', {
+      method: 'DELETE',
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.deleted).toBe(true);
+    expect(body.data.filesDeleted).toBe(false);
+    // Either the validation rejected it (reason set) or fs.stat threw ENOENT
+    // (fileDeletionError set). Both are valid edge-cases of the file-deletion
+    // path; the route exits with the same shape either way.
+    expect(body.data.fileDeletionError ?? body.data.reason).toBeTruthy();
+  });
+
+  it('IT-1178: DELETE /:id surfaces service error from delete', async () => {
+    mockCodespaceService.getById.mockResolvedValue({
+      ok: true,
+      value: { id: 'cs-1', path: '/tmp/whatever' },
+    });
+    mockCodespaceService.delete.mockResolvedValue({
+      ok: false,
+      error: { code: 'CODESPACE_DELETE_FAILED', message: 'fail', status: 500 },
+    });
+
+    const res = await app.request('http://localhost/cs-1', { method: 'DELETE' });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error.code).toBe('CODESPACE_DELETE_FAILED');
+  });
+
+  // ─── GET /:id/agents ──────────────────────────────────
+
+  it('IT-1179: GET /:id/agents returns mapped agents from merged config', async () => {
+    mockTemplateService.getMergedConfig.mockResolvedValue({
+      ok: true,
+      value: {
+        agents: [
+          {
+            name: 'Builder',
+            description: 'Builds stuff',
+            model: 'opus',
+            color: '#abc123',
+            skills: ['build'],
+            tools: ['Read', 'Write'],
+          },
+        ],
+        skills: [],
+      },
+    });
+
+    const res = await app.request('http://localhost/cs-1/agents');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].name).toBe('Builder');
+    expect(body.data[0].skills).toEqual(['build']);
+  });
+
+  it('IT-1180: GET /:id/agents propagates upstream failure', async () => {
+    mockTemplateService.getMergedConfig.mockResolvedValue({
+      ok: false,
+      error: { code: 'TEMPLATE_SYNC_FAILED', message: 'sync broken', status: 503 },
+    });
+
+    const res = await app.request('http://localhost/cs-1/agents');
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe('TEMPLATE_SYNC_FAILED');
+  });
+
+  it('IT-1181: GET /:id/agents returns 400 for invalid ID', async () => {
+    const res = await app.request('http://localhost/bad!id/agents');
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('INVALID_ID');
+  });
 });

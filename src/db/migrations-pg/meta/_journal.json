@@ -141,6 +141,13 @@
       "when": 1778198400000,
       "tag": "0019_api_tokens_cascade_fix",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1778284800000,
+      "tag": "0020_sandbox_configs_agentcore_columns",
+      "breakpoints": true
     }
   ]
 }

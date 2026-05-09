@@ -56,11 +56,6 @@ export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps)
     const name = appName ?? 'AgentPane';
     const state = crypto.randomBytes(16).toString('hex');
 
-    c.header(
-      'Set-Cookie',
-      `github_app_state=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600; Secure`
-    );
-
     const manifest = {
       name,
       url: externalUrl,
@@ -87,14 +82,27 @@ export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps)
       ],
     };
 
-    return json({
-      ok: true,
-      data: {
-        manifest: JSON.stringify(manifest),
-        state,
-        githubUrl: `https://github.com/settings/apps/new?state=${state}`,
-      },
-    });
+    // Use `c.body(...)` so the Response flows through Hono's `newResponse`
+    // and merges middleware-set headers (e.g. X-Request-Id from
+    // requestIdMiddleware). The `Set-Cookie` header is part of the headers
+    // map passed in here, so it is set directly on the returned Response —
+    // unlike the broken pattern of `c.header('Set-Cookie', ...)` followed
+    // by the shared `json()` helper, which silently drops the cookie.
+    return c.body(
+      JSON.stringify({
+        ok: true,
+        data: {
+          manifest: JSON.stringify(manifest),
+          state,
+          githubUrl: `https://github.com/settings/apps/new?state=${state}`,
+        },
+      }),
+      200,
+      {
+        'Content-Type': 'application/json',
+        'Set-Cookie': `github_app_state=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600; Secure`,
+      }
+    );
   });
 
   app.post('/setup-callback', async (c) => {

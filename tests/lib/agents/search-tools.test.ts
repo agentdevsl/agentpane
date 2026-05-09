@@ -9,25 +9,25 @@ const defaultContext: ToolContext = { cwd: '/test/workspace' };
 
 // =============================================================================
 // Mock Setup
-// The search-tools module uses `promisify(exec)` which creates execAsync
-// We need to mock the entire module at the file level
+// search-tools now uses `promisify(execFile)` so the user-supplied pattern
+// and glob are passed as literal argv entries (no shell interpolation).
+// We mock the promisified execFile by intercepting `node:util.promisify`.
 // =============================================================================
 
-const mockExecAsync = vi.fn();
+const mockExecFileAsync = vi.fn();
 const mockFsAccess = vi.fn();
 
-// Use vi.mock at the top level (these are hoisted)
 vi.mock('node:child_process', () => ({
-  exec: vi.fn(),
+  execFile: vi.fn(),
   default: {
-    exec: vi.fn(),
+    execFile: vi.fn(),
   },
 }));
 
 vi.mock('node:util', () => ({
-  promisify: vi.fn(() => mockExecAsync),
+  promisify: vi.fn(() => mockExecFileAsync),
   default: {
-    promisify: vi.fn(() => mockExecAsync),
+    promisify: vi.fn(() => mockExecFileAsync),
   },
 }));
 
@@ -52,7 +52,7 @@ describe('Glob Tool', () => {
   });
 
   it('returns matching files for a glob pattern', async () => {
-    mockExecAsync.mockResolvedValue({
+    mockExecFileAsync.mockResolvedValue({
       stdout: './src/index.ts\n./src/utils.ts\n./src/types.ts',
       stderr: '',
     });
@@ -65,7 +65,7 @@ describe('Glob Tool', () => {
   });
 
   it('uses provided cwd over context cwd', async () => {
-    mockExecAsync.mockResolvedValue({
+    mockExecFileAsync.mockResolvedValue({
       stdout: './file.ts',
       stderr: '',
     });
@@ -73,14 +73,15 @@ describe('Glob Tool', () => {
     const { globTool } = await import('@/lib/agents/tools/search-tools');
     await globTool({ pattern: '*.ts', cwd: '/custom/path' }, defaultContext);
 
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.any(String),
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      'find',
+      expect.any(Array),
       expect.objectContaining({ cwd: '/custom/path' })
     );
   });
 
   it('uses context cwd when cwd not provided', async () => {
-    mockExecAsync.mockResolvedValue({
+    mockExecFileAsync.mockResolvedValue({
       stdout: './file.ts',
       stderr: '',
     });
@@ -88,44 +89,37 @@ describe('Glob Tool', () => {
     const { globTool } = await import('@/lib/agents/tools/search-tools');
     await globTool({ pattern: '*.ts' }, defaultContext);
 
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.any(String),
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      'find',
+      expect.any(Array),
       expect.objectContaining({ cwd: '/test/workspace' })
     );
   });
 
   it('respects the limit parameter', async () => {
-    mockExecAsync.mockResolvedValue({
-      stdout: './file1.ts\n./file2.ts',
-      stderr: '',
-    });
+    const lines = Array.from({ length: 60 }, (_, i) => `./file${i}.ts`).join('\n');
+    mockExecFileAsync.mockResolvedValue({ stdout: lines, stderr: '' });
 
     const { globTool } = await import('@/lib/agents/tools/search-tools');
-    await globTool({ pattern: '*.ts', limit: 25 }, defaultContext);
+    const result = await globTool({ pattern: '*.ts', limit: 25 }, defaultContext);
 
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.stringContaining('head -n 25'),
-      expect.any(Object)
-    );
+    const files = result.content[0].text?.split('\n') ?? [];
+    expect(files).toHaveLength(25);
   });
 
   it('uses default limit of 100 when not specified', async () => {
-    mockExecAsync.mockResolvedValue({
-      stdout: './file.ts',
-      stderr: '',
-    });
+    const lines = Array.from({ length: 150 }, (_, i) => `./file${i}.ts`).join('\n');
+    mockExecFileAsync.mockResolvedValue({ stdout: lines, stderr: '' });
 
     const { globTool } = await import('@/lib/agents/tools/search-tools');
-    await globTool({ pattern: '*.ts' }, defaultContext);
+    const result = await globTool({ pattern: '*.ts' }, defaultContext);
 
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.stringContaining('head -n 100'),
-      expect.any(Object)
-    );
+    const files = result.content[0].text?.split('\n') ?? [];
+    expect(files).toHaveLength(100);
   });
 
   it('returns "(no matches)" for empty results', async () => {
-    mockExecAsync.mockResolvedValue({
+    mockExecFileAsync.mockResolvedValue({
       stdout: '',
       stderr: '',
     });
@@ -138,7 +132,7 @@ describe('Glob Tool', () => {
   });
 
   it('filters out empty lines from results', async () => {
-    mockExecAsync.mockResolvedValue({
+    mockExecFileAsync.mockResolvedValue({
       stdout: './file1.ts\n\n./file2.ts\n\n',
       stderr: '',
     });
@@ -150,7 +144,7 @@ describe('Glob Tool', () => {
   });
 
   it('handles exec error gracefully', async () => {
-    mockExecAsync.mockRejectedValue(new Error('Command failed: find permission denied'));
+    mockExecFileAsync.mockRejectedValue(new Error('Command failed: find permission denied'));
 
     const { globTool } = await import('@/lib/agents/tools/search-tools');
     const result = await globTool({ pattern: '*.ts' }, defaultContext);
@@ -161,7 +155,7 @@ describe('Glob Tool', () => {
   });
 
   it('handles non-Error thrown values', async () => {
-    mockExecAsync.mockRejectedValue('string error');
+    mockExecFileAsync.mockRejectedValue('string error');
 
     const { globTool } = await import('@/lib/agents/tools/search-tools');
     const result = await globTool({ pattern: '*.ts' }, defaultContext);
@@ -171,14 +165,15 @@ describe('Glob Tool', () => {
     expect(result.content[0].text).toContain('string error');
   });
 
-  it('constructs correct find command with pattern', async () => {
-    mockExecAsync.mockResolvedValue({ stdout: '', stderr: '' });
+  it('passes pattern as a literal argv entry to find', async () => {
+    mockExecFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
 
     const { globTool } = await import('@/lib/agents/tools/search-tools');
     await globTool({ pattern: '*.ts' }, defaultContext);
 
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.stringMatching(/find \. -type f -name "\*\.ts" 2>\/dev\/null \| head -n \d+/),
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      'find',
+      ['.', '-type', 'f', '-name', '*.ts'],
       expect.any(Object)
     );
   });
@@ -199,7 +194,7 @@ describe('Grep Tool', () => {
 
   it('returns matching content for a search pattern', async () => {
     mockFsAccess.mockResolvedValue(undefined);
-    mockExecAsync.mockResolvedValue({
+    mockExecFileAsync.mockResolvedValue({
       stdout: 'src/index.ts:5:const foo = "bar";',
       stderr: '',
     });
@@ -213,83 +208,85 @@ describe('Grep Tool', () => {
 
   it('uses absolute path when provided', async () => {
     mockFsAccess.mockResolvedValue(undefined);
-    mockExecAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
     await grepTool({ pattern: 'test', path: '/absolute/path' }, defaultContext);
 
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.stringContaining('"/absolute/path"'),
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      'rg',
+      expect.arrayContaining(['/absolute/path']),
       expect.any(Object)
     );
   });
 
   it('joins relative path with context cwd', async () => {
     mockFsAccess.mockResolvedValue(undefined);
-    mockExecAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
     await grepTool({ pattern: 'test', path: 'relative/path' }, defaultContext);
 
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.stringContaining('"/test/workspace/relative/path"'),
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      'rg',
+      expect.arrayContaining(['/test/workspace/relative/path']),
       expect.any(Object)
     );
   });
 
   it('respects max_results parameter', async () => {
     mockFsAccess.mockResolvedValue(undefined);
-    mockExecAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
     await grepTool({ pattern: 'test', path: '/test', max_results: 25 }, defaultContext);
 
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.stringContaining('--max-count 25'),
-      expect.any(Object)
-    );
+    const argv = mockExecFileAsync.mock.calls[0][1] as string[];
+    const idx = argv.indexOf('--max-count');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(argv[idx + 1]).toBe('25');
   });
 
   it('uses default max_results of 50 when not specified', async () => {
     mockFsAccess.mockResolvedValue(undefined);
-    mockExecAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
     await grepTool({ pattern: 'test', path: '/test' }, defaultContext);
 
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.stringContaining('--max-count 50'),
-      expect.any(Object)
-    );
+    const argv = mockExecFileAsync.mock.calls[0][1] as string[];
+    const idx = argv.indexOf('--max-count');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(argv[idx + 1]).toBe('50');
   });
 
   it('includes glob filter when provided', async () => {
     mockFsAccess.mockResolvedValue(undefined);
-    mockExecAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
     await grepTool({ pattern: 'test', path: '/test', glob: '*.ts' }, defaultContext);
 
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.stringContaining('--glob "*.ts"'),
-      expect.any(Object)
-    );
+    const argv = mockExecFileAsync.mock.calls[0][1] as string[];
+    const idx = argv.indexOf('--glob');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(argv[idx + 1]).toBe('*.ts');
   });
 
   it('omits glob filter when not provided', async () => {
     mockFsAccess.mockResolvedValue(undefined);
-    mockExecAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
     await grepTool({ pattern: 'test', path: '/test' }, defaultContext);
 
-    const callArg = mockExecAsync.mock.calls[0][0];
-    expect(callArg).not.toContain('--glob');
+    const argv = mockExecFileAsync.mock.calls[0][1] as string[];
+    expect(argv).not.toContain('--glob');
   });
 
   it('returns "(no matches)" when stdout is empty', async () => {
     mockFsAccess.mockResolvedValue(undefined);
-    mockExecAsync.mockResolvedValue({ stdout: '', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
     const result = await grepTool({ pattern: 'nonexistent', path: '/test' }, defaultContext);
@@ -301,7 +298,7 @@ describe('Grep Tool', () => {
   it('returns "(no matches)" when ripgrep exits with code 1 (no matches)', async () => {
     mockFsAccess.mockResolvedValue(undefined);
     const error = Object.assign(new Error('Command failed'), { code: 1, stdout: '' });
-    mockExecAsync.mockRejectedValue(error);
+    mockExecFileAsync.mockRejectedValue(error);
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
     const result = await grepTool({ pattern: 'nonexistent', path: '/test' }, defaultContext);
@@ -324,7 +321,7 @@ describe('Grep Tool', () => {
   it('handles ripgrep execution error (code > 1)', async () => {
     mockFsAccess.mockResolvedValue(undefined);
     const error = Object.assign(new Error('ripgrep error: invalid regex'), { code: 2 });
-    mockExecAsync.mockRejectedValue(error);
+    mockExecFileAsync.mockRejectedValue(error);
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
     const result = await grepTool({ pattern: '[invalid', path: '/test' }, defaultContext);
@@ -346,28 +343,29 @@ describe('Grep Tool', () => {
 
   it('uses correct timeout for exec', async () => {
     mockFsAccess.mockResolvedValue(undefined);
-    mockExecAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
     await grepTool({ pattern: 'test', path: '/test' }, defaultContext);
 
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.any(String),
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      'rg',
+      expect.any(Array),
       expect.objectContaining({ timeout: 60000 })
     );
   });
 
-  it('constructs correct ripgrep command', async () => {
+  it('passes pattern after a `--` separator so it cannot be reinterpreted as a flag', async () => {
     mockFsAccess.mockResolvedValue(undefined);
-    mockExecAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
-    await grepTool({ pattern: 'test', path: '/test' }, defaultContext);
+    await grepTool({ pattern: '-x', path: '/test' }, defaultContext);
 
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.stringMatching(/^rg "test" --max-count \d+/),
-      expect.any(Object)
-    );
+    const argv = mockExecFileAsync.mock.calls[0][1] as string[];
+    const sepIdx = argv.indexOf('--');
+    expect(sepIdx).toBeGreaterThanOrEqual(0);
+    expect(argv[sepIdx + 1]).toBe('-x');
   });
 });
 
@@ -385,35 +383,37 @@ describe('Search Tools - Edge Cases', () => {
   });
 
   it('glob handles patterns with special characters', async () => {
-    mockExecAsync.mockResolvedValue({ stdout: './file.test.ts', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: './file.test.ts', stderr: '' });
 
     const { globTool } = await import('@/lib/agents/tools/search-tools');
     const result = await globTool({ pattern: '*.test.ts' }, defaultContext);
 
     expect(result.is_error).toBeUndefined();
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.stringContaining('-name "*.test.ts"'),
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      'find',
+      expect.arrayContaining(['*.test.ts']),
       expect.any(Object)
     );
   });
 
   it('grep handles regex patterns', async () => {
     mockFsAccess.mockResolvedValue(undefined);
-    mockExecAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
     const result = await grepTool({ pattern: 'function\\s+\\w+', path: '/test' }, defaultContext);
 
     expect(result.is_error).toBeUndefined();
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      expect.stringContaining('"function\\s+\\w+"'),
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      'rg',
+      expect.arrayContaining(['function\\s+\\w+']),
       expect.any(Object)
     );
   });
 
   it('glob handles large result sets correctly', async () => {
     const manyFiles = Array.from({ length: 100 }, (_, i) => `./file${i}.ts`).join('\n');
-    mockExecAsync.mockResolvedValue({ stdout: manyFiles, stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: manyFiles, stderr: '' });
 
     const { globTool } = await import('@/lib/agents/tools/search-tools');
     const result = await globTool({ pattern: '*.ts' }, defaultContext);
@@ -425,7 +425,7 @@ describe('Search Tools - Edge Cases', () => {
   it('grep handles multiline output', async () => {
     mockFsAccess.mockResolvedValue(undefined);
     const multilineOutput = 'file1.ts:1:line one\nfile1.ts:5:line two\nfile2.ts:10:another match';
-    mockExecAsync.mockResolvedValue({ stdout: multilineOutput, stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: multilineOutput, stderr: '' });
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
     const result = await grepTool({ pattern: 'test', path: '/test' }, defaultContext);
@@ -434,7 +434,7 @@ describe('Search Tools - Edge Cases', () => {
   });
 
   it('glob handles whitespace-only stdout', async () => {
-    mockExecAsync.mockResolvedValue({ stdout: '   \n\n   \n', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: '   \n\n   \n', stderr: '' });
 
     const { globTool } = await import('@/lib/agents/tools/search-tools');
     const result = await globTool({ pattern: '*.ts' }, defaultContext);
@@ -457,7 +457,7 @@ describe('Search Tools - Response Structure', () => {
   });
 
   it('glob success response has correct ToolResponse structure', async () => {
-    mockExecAsync.mockResolvedValue({ stdout: './file.ts', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: './file.ts', stderr: '' });
 
     const { globTool } = await import('@/lib/agents/tools/search-tools');
     const result = await globTool({ pattern: '*.ts' }, defaultContext);
@@ -471,7 +471,7 @@ describe('Search Tools - Response Structure', () => {
   });
 
   it('glob error response has correct ToolResponse structure', async () => {
-    mockExecAsync.mockRejectedValue(new Error('Command failed'));
+    mockExecFileAsync.mockRejectedValue(new Error('Command failed'));
 
     const { globTool } = await import('@/lib/agents/tools/search-tools');
     const result = await globTool({ pattern: '*.ts' }, defaultContext);
@@ -485,7 +485,7 @@ describe('Search Tools - Response Structure', () => {
 
   it('grep success response has correct ToolResponse structure', async () => {
     mockFsAccess.mockResolvedValue(undefined);
-    mockExecAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
+    mockExecFileAsync.mockResolvedValue({ stdout: 'match', stderr: '' });
 
     const { grepTool } = await import('@/lib/agents/tools/search-tools');
     const result = await grepTool({ pattern: 'test', path: '/test' }, defaultContext);

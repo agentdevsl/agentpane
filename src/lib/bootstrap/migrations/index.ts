@@ -31,6 +31,29 @@ import {
 interface MigrationBase {
   version: number;
   name: string;
+  /**
+   * Defensive setup statements applied BEFORE the main `sql` / `statements`
+   * block. Each is run with the same per-statement try/catch as the
+   * `statements:` form: errors matching `duplicate column`, `no such table`,
+   * or `no such column` are tolerated so prepare can be made idempotent on
+   * partially-migrated databases.
+   *
+   * Use sparingly — primary use case is "ensure a legacy column exists so
+   * the COALESCE in the main SELECT clause does not error" (see v41).
+   */
+  prepare?: string[];
+  /**
+   * When true, the runner toggles `PRAGMA foreign_keys = OFF` before the
+   * transaction begins and restores it after COMMIT/ROLLBACK. SQLite does
+   * not allow this PRAGMA to change inside a transaction, so wrapping it in
+   * the SQL body silently no-ops.
+   *
+   * Use ONLY when the migration rebuilds tables whose dependents have FK
+   * references that may be invalid (e.g. orphan refs to dropped backup
+   * tables — see v47). After the rebuild, FKs are restored and the
+   * migration is responsible for ensuring the new schema satisfies them.
+   */
+  disableForeignKeys?: boolean;
 }
 
 export type Migration =
@@ -773,6 +796,45 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_status ON api_tokens(status);
   {
     version: 41,
     name: 'codespace-era-table-rebuilds',
+    // Idempotent column re-add: on a database that drifted between v19 and
+    // v41 (manual cleanup, out-of-band schema sync, or earlier renames not
+    // captured by a migration), the COALESCE / direct column references in
+    // the SELECT below would fail with 'no such column: …'. Re-add every
+    // column v41 SELECTs from up-front so the SELECT resolves on any
+    // partially-migrated DB. v41's INSERT...SELECT then drops the rebuilt
+    // tables and the temporary columns disappear with them.
+    //
+    // The runner tolerates 'duplicate column' (column already present),
+    // 'no such table' (table absent on a fresh DB that won't reach this
+    // path), and 'no such column' (defensive — ALTER TABLE on a column
+    // that doesn't exist on the index path). See IT-1991 (regression test).
+    //
+    // CAVEAT: agent_runs columns turns_used/tokens_used/error_message will
+    // be NULL after migration on databases that had num_turns/input_tokens/
+    // output_tokens/error instead. The historical metric values are not
+    // back-filled into the canonical columns here; that is a separate
+    // data-promotion concern handled by a future migration if needed.
+    prepare: [
+      // Legacy project_id columns (the original v41 invariant)
+      `ALTER TABLE tasks ADD COLUMN project_id TEXT`,
+      `ALTER TABLE worktrees ADD COLUMN project_id TEXT`,
+      `ALTER TABLE agent_runs ADD COLUMN project_id TEXT`,
+      `ALTER TABLE event_subscriptions ADD COLUMN target_project_id TEXT`,
+      // worktrees columns the SELECT below reads
+      `ALTER TABLE worktrees ADD COLUMN merged_at TEXT`,
+      `ALTER TABLE worktrees ADD COLUMN removed_at TEXT`,
+      // agent_runs columns the SELECT below reads (legacy DBs may have
+      // num_turns / input_tokens / output_tokens / error instead)
+      `ALTER TABLE agent_runs ADD COLUMN turns_used INTEGER`,
+      `ALTER TABLE agent_runs ADD COLUMN tokens_used INTEGER`,
+      `ALTER TABLE agent_runs ADD COLUMN error_message TEXT`,
+      // tasks columns added by later migrations that v41's SELECT references
+      `ALTER TABLE tasks ADD COLUMN execution_skill_id TEXT`,
+      `ALTER TABLE tasks ADD COLUMN execution_skill_name TEXT`,
+      `ALTER TABLE tasks ADD COLUMN approval_mode TEXT`,
+      `ALTER TABLE tasks ADD COLUMN agent_review_result TEXT`,
+      `ALTER TABLE tasks ADD COLUMN agent_reviewed_at TEXT`,
+    ],
     sql: `
 DROP TABLE IF EXISTS tasks_new_v41;
 CREATE TABLE tasks_new_v41 (
@@ -972,5 +1034,424 @@ CREATE INDEX IF NOT EXISTS event_subscriptions_source_enabled_idx ON event_subsc
       `ALTER TABLE skill_executions ADD COLUMN duration_api_ms INTEGER`,
       `ALTER TABLE skill_metrics ADD COLUMN avg_duration_api_ms REAL`,
     ],
+  },
+  // 43. tags table schema-drift fix.
+  //
+  // The bootstrap (`phases/schema.ts:611`) creates `tags` with `team_id NOT
+  // NULL` and a unique index `tags_team_name_unique`. v19 added a nullable
+  // `project_folder_id` column without dropping `team_id`, leaving the table
+  // out of sync with the Drizzle schema (`src/db/schema/sqlite/tags.ts`).
+  //
+  // Result: the routes call `db.insert(tags).values({ projectFolderId, name })`
+  // via Drizzle, but SQLite rejects the insert with
+  // `NOT NULL constraint failed: tags.team_id`. POST /api/tags is dead in
+  // production for any deployment that still has the legacy `team_id` column.
+  //
+  // Fix: drop the obsolete unique index, drop the `team_id` column (SQLite
+  // 3.35+ supports `DROP COLUMN`), enforce `project_folder_id NOT NULL`
+  // (any rows still NULL are migrated to `default-folder`), and create the
+  // new unique index `tags_folder_name_unique` that matches the Drizzle
+  // schema.
+  {
+    version: 43,
+    name: 'tags-drop-legacy-team-id',
+    statements: [
+      // Backfill any tags with NULL project_folder_id to the default folder
+      // before we make the column NOT NULL via the rebuild step below.
+      `UPDATE tags SET project_folder_id = 'default-folder' WHERE project_folder_id IS NULL`,
+      // Drop the obsolete unique index keyed on team_id, name.
+      `DROP INDEX IF EXISTS tags_team_name_unique`,
+      // Drop any other indexes that reference team_id (added by older
+      // bootstrap snapshots).
+      `DROP INDEX IF EXISTS idx_tags_team`,
+      // SQLite 3.35+ supports DROP COLUMN. Older deployments without this
+      // version will need to upgrade better-sqlite3 (already pinned at 12.x).
+      `ALTER TABLE tags DROP COLUMN team_id`,
+      // Recreate the index on the new key. Wrap in IF NOT EXISTS for re-run
+      // safety.
+      `CREATE UNIQUE INDEX IF NOT EXISTS tags_folder_name_unique ON tags(project_folder_id, name)`,
+    ],
+  },
+
+  // 44. terraform_registries.status NOT NULL parity (schema-drift fix).
+  //
+  // Bootstrap (`phases/schema.ts:399`) creates terraform_registries with
+  // `status TEXT DEFAULT 'active'` (no NOT NULL constraint) but Drizzle
+  // declares the column `notNull().default('active')`
+  // (`src/db/schema/sqlite/terraform.ts:29`). On SQLite that means a SELECT
+  // could return NULL while Drizzle's TS type claims the value is a
+  // `TerraformRegistryStatus` string, leading to crashes like
+  // `Cannot read properties of null (reading 'toLowerCase')` in any caller
+  // that pattern-matches on status.
+  //
+  // SQLite cannot ALTER COLUMN to add NOT NULL in place. Use the established
+  // table-rebuild pattern (cf. v29/v30/v33/v36/v39) so existing rows are
+  // copied and the new shape enforces NOT NULL going forward. The migration
+  // is idempotent: a leftover staging table from a partial prior run is
+  // dropped first, and rows with NULL status are coerced to the default
+  // 'active' before the rebuild so the new constraint can be enforced.
+  {
+    version: 44,
+    name: 'terraform-registries-status-notnull',
+    sql: `
+DROP TABLE IF EXISTS terraform_registries_new_v44;
+
+CREATE TABLE terraform_registries_new_v44 (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  org_name TEXT NOT NULL,
+  token_setting_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  last_synced_at TEXT,
+  sync_error TEXT,
+  module_count INTEGER DEFAULT 0,
+  sync_interval_minutes INTEGER,
+  next_sync_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+INSERT INTO terraform_registries_new_v44 (
+  id, name, org_name, token_setting_key, status,
+  last_synced_at, sync_error, module_count, sync_interval_minutes,
+  next_sync_at, created_at, updated_at
+)
+SELECT
+  id, name, org_name, token_setting_key, COALESCE(status, 'active'),
+  last_synced_at, sync_error, module_count, sync_interval_minutes,
+  next_sync_at, created_at, updated_at
+FROM terraform_registries;
+
+DROP TABLE terraform_registries;
+ALTER TABLE terraform_registries_new_v44 RENAME TO terraform_registries;
+`,
+  },
+
+  // 45. tags.project_folder_id NOT NULL parity (schema-drift fix).
+  //
+  // The v19 migration ALTERed `tags` to ADD COLUMN project_folder_id without
+  // a NOT NULL constraint (SQLite ALTER TABLE ADD COLUMN cannot apply NOT
+  // NULL when there are pre-existing rows). v43 backfilled NULLs to
+  // 'default-folder' and dropped the legacy team_id column, but never
+  // promoted project_folder_id to NOT NULL. Drizzle's tags schema declares
+  // the column `notNull()`, so a SELECT could return null while the type
+  // claims string — sibling of the v43 team_id failure mode in the opposite
+  // direction.
+  //
+  // Same table-rebuild pattern as v44: backfill any straggler NULLs to the
+  // default folder before the rebuild so the new NOT NULL constraint can be
+  // enforced. Recreate the unique index that v43 installed.
+  {
+    version: 45,
+    name: 'tags-project-folder-id-notnull',
+    // SQLite's FK integrity check fires on every DROP TABLE, even unrelated
+    // tables. On databases with orphan FK refs to dropped *_backup tables
+    // (cleaned up by v47), the rebuild here would error with `no such
+    // table: ...`. Disable FKs for this rebuild only.
+    disableForeignKeys: true,
+    sql: `
+UPDATE tags SET project_folder_id = 'default-folder' WHERE project_folder_id IS NULL;
+
+DROP TABLE IF EXISTS tags_new_v45;
+
+CREATE TABLE tags_new_v45 (
+  id TEXT PRIMARY KEY NOT NULL,
+  project_folder_id TEXT NOT NULL REFERENCES project_folders(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '#6B7280',
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+INSERT INTO tags_new_v45 (id, project_folder_id, name, color, created_at, updated_at)
+SELECT id, project_folder_id, name, color, created_at, updated_at FROM tags;
+
+DROP TABLE tags;
+ALTER TABLE tags_new_v45 RENAME TO tags;
+
+CREATE UNIQUE INDEX IF NOT EXISTS tags_folder_name_unique ON tags(project_folder_id, name);
+CREATE INDEX IF NOT EXISTS idx_tags_team ON tags(project_folder_id);
+`,
+  },
+
+  // 46. plan_sessions schema-drift rebuild (NOT NULL parity + drop legacy
+  // project_id/session_id columns).
+  //
+  // The v19 stub (`v19-project-folders.ts:135`) and v40 catchup
+  // (`migrations/index.ts:744`) created plan_sessions with every column
+  // nullable so older databases could carry forward. Drizzle declares
+  // task_id, codespace_id, status, created_at, and updated_at all
+  // notNull(), so the runtime types lie about what SELECTs may return and
+  // raw-SQL writers can leave NULL where the type system forbids it.
+  //
+  // Rebuild the table with the full Drizzle shape (cf. v29/v30/v33/v36/v39
+  // pattern). Drop the legacy `project_id` and `session_id` columns at the
+  // same time — they were placeholders for the project→codespace rename
+  // and have no Drizzle representation, so the column-existence drift suite
+  // whitelists them while they linger. After this rebuild the whitelist
+  // entry can be removed.
+  //
+  // Per CLAUDE.md "Migration safety": filter rows whose codespace_id /
+  // task_id no longer point at live records before the rebuild so the new
+  // FKs and NOT NULLs hold. INSERT (no OR IGNORE) so a copy failure surfaces
+  // loudly rather than silently dropping rows.
+  {
+    version: 46,
+    name: 'plan-sessions-schema-rebuild',
+    // See v45 note — same FK-check problem during table rebuild.
+    disableForeignKeys: true,
+    sql: `
+DROP TABLE IF EXISTS plan_sessions_new_v46;
+
+CREATE TABLE plan_sessions_new_v46 (
+  id TEXT PRIMARY KEY NOT NULL,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'active',
+  turns TEXT DEFAULT '[]',
+  github_issue_url TEXT,
+  github_issue_number INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT INTO plan_sessions_new_v46 (
+  id, task_id, codespace_id, status, turns,
+  github_issue_url, github_issue_number, created_at, completed_at, updated_at
+)
+SELECT
+  id,
+  task_id,
+  COALESCE(codespace_id, project_id),
+  COALESCE(status, 'active'),
+  COALESCE(turns, '[]'),
+  github_issue_url,
+  github_issue_number,
+  COALESCE(created_at, datetime('now')),
+  completed_at,
+  COALESCE(updated_at, datetime('now'))
+FROM plan_sessions
+WHERE task_id IS NOT NULL
+  AND task_id IN (SELECT id FROM tasks)
+  AND COALESCE(codespace_id, project_id) IS NOT NULL
+  AND COALESCE(codespace_id, project_id) IN (SELECT id FROM codespaces);
+
+DROP TABLE plan_sessions;
+ALTER TABLE plan_sessions_new_v46 RENAME TO plan_sessions;
+`,
+  },
+
+  // 47. MAY-09 (2026): repair orphan FK references to dropped *_backup tables.
+  //
+  // Some long-lived development databases accumulated foreign-key references
+  // to `tasks_backup`, `agent_runs_backup`, and `sessions_backup` from a
+  // partially-completed earlier rebuild that did `RENAME TABLE x TO x_backup;
+  // CREATE TABLE x; DROP TABLE x_backup` but left dependent tables pointing
+  // at the dropped backups. Result: every subsequent migration that does a
+  // `DROP TABLE` (e.g. v45/v46 rebuilds) fails SQLite's FK integrity check
+  // with `no such table: main.tasks_backup` even though the migration
+  // itself touches an entirely unrelated table.
+  //
+  // This rebuilds each affected dependent table to point at the live target
+  // (`tasks`, `agent_runs`, `sessions`) and drops any leftover *_backup
+  // table. Idempotent: rebuilding a table that already points at the live
+  // target is a no-op (CREATE..._new_v47 → SELECT FROM table → swap back),
+  // and DROP TABLE IF EXISTS is safe.
+  //
+  // FKs are disabled for the duration; v47 does not introduce any new FK
+  // constraint that wasn't already implied by the dependent table's prior
+  // schema, so re-enabling at the end is safe.
+  {
+    version: 47,
+    name: 'repair-orphan-backup-fk-refs',
+    disableForeignKeys: true,
+    sql: `
+-- task_tags: task_id was REFERENCES tasks_backup → fix to tasks
+DROP TABLE IF EXISTS task_tags_new_v47;
+CREATE TABLE task_tags_new_v47 (
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  assigned_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  PRIMARY KEY (task_id, tag_id)
+);
+INSERT OR IGNORE INTO task_tags_new_v47 (task_id, tag_id, assigned_at)
+SELECT task_id, tag_id, assigned_at FROM task_tags
+WHERE task_id IN (SELECT id FROM tasks)
+  AND tag_id IN (SELECT id FROM tags);
+DROP TABLE task_tags;
+ALTER TABLE task_tags_new_v47 RENAME TO task_tags;
+
+-- session_summaries: session_id was REFERENCES sessions_backup → fix to sessions.
+-- The new table mirrors the bootstrap baseline schema, including the optional
+-- usage/cost columns added later (cost_usd, duration_api_ms, cache_read_tokens,
+-- cache_creation_tokens, stop_reason). Earlier drafts of this migration omitted
+-- them and Drizzle insert paths (sessionService.publish writes session_summaries
+-- via onConflictDoUpdate) blew up with "no column named cost_usd".
+--
+-- We only SELECT the column set guaranteed to exist on the source table — the
+-- regression fixture in tests/integration/migration-v47-orphan-fk-repair.test.ts
+-- corrupts the table with just the legacy columns, and dev DBs that never ran
+-- the catchup may also be missing the newer columns. The new columns default
+-- to NULL on rebuild, which is correct.
+DROP TABLE IF EXISTS session_summaries_new_v47;
+CREATE TABLE session_summaries_new_v47 (
+  id TEXT PRIMARY KEY NOT NULL,
+  session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
+  duration_ms INTEGER,
+  turns_count INTEGER DEFAULT 0,
+  tokens_used INTEGER DEFAULT 0,
+  files_modified INTEGER DEFAULT 0,
+  lines_added INTEGER DEFAULT 0,
+  lines_removed INTEGER DEFAULT 0,
+  final_status TEXT,
+  cost_usd REAL,
+  duration_api_ms INTEGER,
+  cache_read_tokens INTEGER,
+  cache_creation_tokens INTEGER,
+  stop_reason TEXT,
+  updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+INSERT OR IGNORE INTO session_summaries_new_v47 (
+  id, session_id, duration_ms, turns_count, tokens_used,
+  files_modified, lines_added, lines_removed, final_status, updated_at
+)
+SELECT id, session_id, duration_ms, turns_count, tokens_used,
+       files_modified, lines_added, lines_removed, final_status, updated_at
+FROM session_summaries
+WHERE session_id IN (SELECT id FROM sessions);
+DROP TABLE session_summaries;
+ALTER TABLE session_summaries_new_v47 RENAME TO session_summaries;
+
+-- schedule_executions: task_id was REFERENCES tasks_backup → fix to tasks
+DROP TABLE IF EXISTS schedule_executions_new_v47;
+CREATE TABLE schedule_executions_new_v47 (
+  id TEXT PRIMARY KEY,
+  event_source_id TEXT NOT NULL REFERENCES event_sources(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  scheduled_at TEXT NOT NULL,
+  executed_at TEXT NOT NULL,
+  task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  subscription_id TEXT REFERENCES event_subscriptions(id) ON DELETE SET NULL,
+  budget_window TEXT,
+  window_execution_count INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+INSERT OR IGNORE INTO schedule_executions_new_v47 (
+  id, event_source_id, status, scheduled_at, executed_at, task_id,
+  subscription_id, budget_window, window_execution_count, error, created_at
+)
+SELECT id, event_source_id, status, scheduled_at, executed_at,
+       CASE WHEN task_id IN (SELECT id FROM tasks) THEN task_id ELSE NULL END,
+       subscription_id, budget_window, window_execution_count, error, created_at
+FROM schedule_executions
+WHERE event_source_id IN (SELECT id FROM event_sources);
+DROP TABLE schedule_executions;
+ALTER TABLE schedule_executions_new_v47 RENAME TO schedule_executions;
+
+-- memory_insights: source_session_id was REFERENCES sessions_backup → fix to sessions
+DROP TABLE IF EXISTS memory_insights_new_v47;
+CREATE TABLE memory_insights_new_v47 (
+  id TEXT PRIMARY KEY NOT NULL,
+  codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  source TEXT NOT NULL,
+  source_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  skill_id TEXT,
+  tags TEXT DEFAULT '[]',
+  metadata TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  category TEXT,
+  updated_at TEXT,
+  effectiveness_score REAL
+);
+INSERT OR IGNORE INTO memory_insights_new_v47 (
+  id, codespace_id, content, source, source_session_id, skill_id, tags,
+  metadata, created_at, status, category, updated_at, effectiveness_score
+)
+SELECT id, codespace_id, content, source,
+       CASE WHEN source_session_id IN (SELECT id FROM sessions) THEN source_session_id ELSE NULL END,
+       skill_id, tags, metadata, created_at, status, category, updated_at, effectiveness_score
+FROM memory_insights
+WHERE codespace_id IN (SELECT id FROM codespaces);
+DROP TABLE memory_insights;
+ALTER TABLE memory_insights_new_v47 RENAME TO memory_insights;
+
+-- memory_messages: task_id was REFERENCES tasks_backup → fix to tasks
+DROP TABLE IF EXISTS memory_messages_new_v47;
+CREATE TABLE memory_messages_new_v47 (
+  id TEXT PRIMARY KEY NOT NULL,
+  codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  memory_session_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  turn_number INTEGER NOT NULL,
+  metadata TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL
+);
+INSERT OR IGNORE INTO memory_messages_new_v47 (
+  id, codespace_id, memory_session_id, agent_id, task_id, role,
+  content, turn_number, metadata, created_at
+)
+SELECT id, codespace_id, memory_session_id, agent_id,
+       CASE WHEN task_id IN (SELECT id FROM tasks) THEN task_id ELSE NULL END,
+       role, content, turn_number, metadata, created_at
+FROM memory_messages
+WHERE codespace_id IN (SELECT id FROM codespaces);
+DROP TABLE memory_messages;
+ALTER TABLE memory_messages_new_v47 RENAME TO memory_messages;
+
+-- skill_executions: task_id, agent_run_id, session_id all referenced *_backup
+DROP TABLE IF EXISTS skill_executions_new_v47;
+CREATE TABLE skill_executions_new_v47 (
+  id TEXT PRIMARY KEY NOT NULL,
+  codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  skill_id TEXT NOT NULL,
+  skill_name TEXT,
+  task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  agent_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+  session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  status TEXT NOT NULL,
+  turns_used INTEGER,
+  tokens_used INTEGER,
+  duration_ms INTEGER,
+  files_modified INTEGER,
+  lines_added INTEGER,
+  lines_removed INTEGER,
+  cost_usd REAL,
+  error_message TEXT,
+  started_at TEXT,
+  completed_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+  insight_ids_used TEXT,
+  duration_api_ms INTEGER
+);
+INSERT OR IGNORE INTO skill_executions_new_v47 (
+  id, codespace_id, skill_id, skill_name, task_id, agent_run_id, session_id,
+  status, turns_used, tokens_used, duration_ms, files_modified, lines_added,
+  lines_removed, cost_usd, error_message, started_at, completed_at,
+  created_at, insight_ids_used, duration_api_ms
+)
+SELECT id, codespace_id, skill_id, skill_name,
+       CASE WHEN task_id IN (SELECT id FROM tasks) THEN task_id ELSE NULL END,
+       CASE WHEN agent_run_id IN (SELECT id FROM agent_runs) THEN agent_run_id ELSE NULL END,
+       CASE WHEN session_id IN (SELECT id FROM sessions) THEN session_id ELSE NULL END,
+       status, turns_used, tokens_used, duration_ms, files_modified, lines_added,
+       lines_removed, cost_usd, error_message, started_at, completed_at,
+       created_at, insight_ids_used, duration_api_ms
+FROM skill_executions
+WHERE codespace_id IN (SELECT id FROM codespaces);
+DROP TABLE skill_executions;
+ALTER TABLE skill_executions_new_v47 RENAME TO skill_executions;
+
+-- Drop any leftover *_backup tables now that no FKs reference them.
+DROP TABLE IF EXISTS sessions_backup;
+DROP TABLE IF EXISTS tasks_backup;
+DROP TABLE IF EXISTS agent_runs_backup;
+`,
   },
 ];
