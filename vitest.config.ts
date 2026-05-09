@@ -178,14 +178,36 @@ export default defineConfig({
         'src/lib/task-creation/**',
         'src/lib/topology/**',
         'src/lib/hooks/**',
+        // CLI Monitor and Sandbox Status are TanStack DB collections + SSE
+        // sync routed into them. Same browser-only pattern as the modules
+        // above — only consumed from `src/app/**` (which is itself excluded).
+        // Server-side integration/functional tests cannot reach them.
+        'src/lib/cli-monitor/**',
+        'src/lib/sandbox-status/**',
         // Browser-side API client (file header literally states "Browser-side
         // API client"). Consumed by route loaders and components only; covered
         // by jsdom-project tests (see tests/lib/api/client-full.test.ts).
         'src/lib/api/client.ts',
+        // Browser-only token encryption built on Web Crypto API + localStorage.
+        // Mirrored by the server-side `src/lib/crypto/server-encryption.ts`
+        // for backend code. Covered by `tests/lib/crypto/crypto.test.ts` in
+        // the unit/jsdom projects; cannot run under integration/functional.
+        'src/lib/crypto/token-encryption.ts',
+        // Browser-side bootstrap orchestrator (file header: "Database runs on
+        // server - client uses API endpoints"). Pairs with `BootstrapProvider`
+        // in `src/app/**`. Cannot reach server-side test projects.
+        'src/lib/bootstrap/service.ts',
         // ELK-based workflow designer layout — UI-only. The workflow designer
         // route is tested via routes/__tests__ but the layout helpers run in
         // the browser only.
         'src/lib/workflow-dsl/**',
+        // Server entry point. `src/server/api.ts` is the binary that calls
+        // `Bun.serve()` and `src/server/bootstrap/server-bootstrap.ts` is the
+        // pipeline it delegates to. Importing either from a test would start
+        // an actual HTTP server; they are exercised in CI by the live-server
+        // smoke test, not by integration/functional projects.
+        'src/server/api.ts',
+        'src/server/bootstrap/server-bootstrap.ts',
         // Separate npm packages with their own published tests; not part of
         // the server runtime under measurement.
         'packages/**',
