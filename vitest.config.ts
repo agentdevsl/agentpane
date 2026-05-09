@@ -213,6 +213,16 @@ export default defineConfig({
         // smoke test, not by integration/functional projects.
         'src/server/api.ts',
         'src/server/bootstrap/server-bootstrap.ts',
+        // Production DB-client factory (better-sqlite3 + postgres-js). It opens
+        // real connections and runs migrations; tests use the in-memory test DB
+        // in `tests/helpers/database.ts` instead. Live-server smoke tests cover
+        // it in CI but no integration/functional project imports it directly.
+        'src/db/client.ts',
+        // Server-side AES-GCM encryption module backed by file-based key
+        // storage. Covered by `tests/lib/remaining.test.ts` in the unit/jsdom
+        // projects (server tests dynamically import it via routes that mock
+        // the import; the file itself never executes inside integration).
+        'src/server/crypto.ts',
         // Separate npm packages with their own published tests; not part of
         // the server runtime under measurement.
         'packages/**',
