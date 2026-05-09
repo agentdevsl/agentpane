@@ -43,3 +43,24 @@ export function assertCursorEnvelopeShape(body: unknown): void {
   expect(asObj.data).toHaveProperty('hasMore');
   expect(asObj.data).toHaveProperty('nextCursor');
 }
+
+/**
+ * Assert the "items + totalCount envelope" shape:
+ * `{ ok, data: { items: T[], totalCount: number } }` (and optionally
+ * `nextCursor`/`hasMore`).
+ * Used for codespaces, marketplaces, terraform, sandbox-configs, templates,
+ * codespace-folders, etc.
+ */
+export function assertItemsListShape(body: unknown): void {
+  expect(body).toMatchObject({ ok: true });
+  const asObj = body as {
+    ok: boolean;
+    data: { items?: unknown; totalCount?: unknown; data?: unknown; pagination?: unknown };
+  };
+  expect(asObj.data).toEqual(expect.any(Object));
+  expect(Array.isArray(asObj.data.items)).toBe(true);
+  expect(typeof asObj.data.totalCount).toBe('number');
+  // Regression guard: make sure the envelope is not double-wrapped.
+  expect(asObj.data).not.toHaveProperty('data');
+  expect(asObj.data).not.toHaveProperty('pagination');
+}
