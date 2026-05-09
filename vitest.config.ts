@@ -188,6 +188,11 @@ export default defineConfig({
         // API client"). Consumed by route loaders and components only; covered
         // by jsdom-project tests (see tests/lib/api/client-full.test.ts).
         'src/lib/api/client.ts',
+        // Browser-side DurableStreams client (file header: "Client-side wrapper
+        // for durable streams"). Uses EventSource + window globals. Covered by
+        // tests/integration/streams-client-parsing.test.ts at the parser level
+        // and by jsdom hooks tests; the live EventSource path is browser-only.
+        'src/lib/streams/client.ts',
         // Browser-only token encryption built on Web Crypto API + localStorage.
         // Mirrored by the server-side `src/lib/crypto/server-encryption.ts`
         // for backend code. Covered by `tests/lib/crypto/crypto.test.ts` in
