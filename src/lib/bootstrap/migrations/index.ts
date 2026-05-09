@@ -1106,4 +1106,70 @@ CREATE UNIQUE INDEX IF NOT EXISTS tags_folder_name_unique ON tags(project_folder
 CREATE INDEX IF NOT EXISTS idx_tags_team ON tags(project_folder_id);
 `,
   },
+
+  // 46. plan_sessions schema-drift rebuild (NOT NULL parity + drop legacy
+  // project_id/session_id columns).
+  //
+  // The v19 stub (`v19-project-folders.ts:135`) and v40 catchup
+  // (`migrations/index.ts:744`) created plan_sessions with every column
+  // nullable so older databases could carry forward. Drizzle declares
+  // task_id, codespace_id, status, created_at, and updated_at all
+  // notNull(), so the runtime types lie about what SELECTs may return and
+  // raw-SQL writers can leave NULL where the type system forbids it.
+  //
+  // Rebuild the table with the full Drizzle shape (cf. v29/v30/v33/v36/v39
+  // pattern). Drop the legacy `project_id` and `session_id` columns at the
+  // same time — they were placeholders for the project→codespace rename
+  // and have no Drizzle representation, so the column-existence drift suite
+  // whitelists them while they linger. After this rebuild the whitelist
+  // entry can be removed.
+  //
+  // Per CLAUDE.md "Migration safety": filter rows whose codespace_id /
+  // task_id no longer point at live records before the rebuild so the new
+  // FKs and NOT NULLs hold. INSERT (no OR IGNORE) so a copy failure surfaces
+  // loudly rather than silently dropping rows.
+  {
+    version: 46,
+    name: 'plan-sessions-schema-rebuild',
+    sql: `
+DROP TABLE IF EXISTS plan_sessions_new_v46;
+
+CREATE TABLE plan_sessions_new_v46 (
+  id TEXT PRIMARY KEY NOT NULL,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'active',
+  turns TEXT DEFAULT '[]',
+  github_issue_url TEXT,
+  github_issue_number INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT INTO plan_sessions_new_v46 (
+  id, task_id, codespace_id, status, turns,
+  github_issue_url, github_issue_number, created_at, completed_at, updated_at
+)
+SELECT
+  id,
+  task_id,
+  COALESCE(codespace_id, project_id),
+  COALESCE(status, 'active'),
+  COALESCE(turns, '[]'),
+  github_issue_url,
+  github_issue_number,
+  COALESCE(created_at, datetime('now')),
+  completed_at,
+  COALESCE(updated_at, datetime('now'))
+FROM plan_sessions
+WHERE task_id IS NOT NULL
+  AND task_id IN (SELECT id FROM tasks)
+  AND COALESCE(codespace_id, project_id) IS NOT NULL
+  AND COALESCE(codespace_id, project_id) IN (SELECT id FROM codespaces);
+
+DROP TABLE plan_sessions;
+ALTER TABLE plan_sessions_new_v46 RENAME TO plan_sessions;
+`,
+  },
 ];

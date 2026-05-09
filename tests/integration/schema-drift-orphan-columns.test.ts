@@ -68,7 +68,8 @@ const KNOWN_LEGACY_NULLABLE_COLUMNS: Record<string, Set<string>> = {
   audit_logs: new Set(['project_id']),
   templates: new Set(['project_id']),
   api_tokens: new Set(['scope_project_id']),
-  plan_sessions: new Set(['project_id', 'session_id']),
+  // v46 plan_sessions-schema-rebuild drops the legacy project_id and
+  // session_id columns; no whitelist entry needed any more.
 };
 
 describe('Schema drift: orphan column detection (siblings of v43 tags.team_id)', () => {

@@ -74,14 +74,13 @@ const CASES = collectTableCases();
  * Known DB-side NOT NULL drift that has not been migrated yet. Each entry
  * MUST be cross-linked to the migration that will fix it. Remove when the
  * migration lands and the column is enforced NOT NULL at the DB layer.
+ *
+ * v46 plan_sessions-schema-rebuild promotes task_id/codespace_id/status/
+ * created_at/updated_at to NOT NULL, so this map is currently empty. New
+ * drift findings should land here with a follow-up migration ticket so the
+ * suite stays green while the migration is being authored.
  */
-const EXPECTED_NULLABLE_DRIFT: Record<string, Set<string>> = {
-  // Legacy stub created by v40-plan-sessions-column-catchup keeps every
-  // column nullable for backward compatibility with pre-existing DBs that
-  // already had a stub. A future rebuild migration will rebuild plan_sessions
-  // with the correct NOT NULL shape.
-  plan_sessions: new Set(['task_id', 'codespace_id', 'status', 'created_at', 'updated_at']),
-};
+const EXPECTED_NULLABLE_DRIFT: Record<string, Set<string>> = {};
 
 describe('Schema drift: NOT NULL parity (auto-generated)', () => {
   let db: ReturnType<typeof getTestDb>;
