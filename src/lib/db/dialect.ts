@@ -141,8 +141,23 @@ export function jsonSet(
     return sql`jsonb_set(${col}::jsonb, ${pgPath}::text[], to_jsonb(${value}::text), true)`;
   }
 
-  // SQLite — `json_set` accepts scalar values directly.
+  // SQLite — `json_set` accepts scalar values directly. better-sqlite3
+  // refuses to bind a JS boolean as a parameter (TypeError: SQLite3 can
+  // only bind numbers, strings, bigints, buffers, and null), so we coerce
+  // booleans to the integer literals 1/0 here. Drizzle's typed query
+  // builder does the same coercion on `integer({ mode: 'boolean' })`
+  // columns; we mirror it for the raw `sql` template path. The PG branch
+  // already handles booleans explicitly via `to_jsonb(::boolean)`.
   const sqlitePath = `$.${path.join('.')}`;
+  if (typeof value === 'boolean') {
+    // F02-15: bind as `json(...)` so `json_set` writes a JSON true/false
+    // (preserved as a JSON boolean by SQLite's JSON1 functions) rather than
+    // a numeric 1/0. This matches the PG branch's `to_jsonb(::boolean)` so
+    // a config patched on SQLite reads back as the same JSON shape after a
+    // dual-mode replay.
+    const literal = value ? sql`json('true')` : sql`json('false')`;
+    return sql`json_set(${col}, ${sqlitePath}, ${literal})`;
+  }
   return sql`json_set(${col}, ${sqlitePath}, ${value})`;
 }
 
