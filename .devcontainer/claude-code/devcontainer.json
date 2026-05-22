@@ -8,7 +8,7 @@
   },
   "runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW", "--privileged"],
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2.16.1": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:3.0.1": {}
   },
 
   "initializeCommand": "(docker volume inspect claude-code-config >/dev/null 2>&1 && docker run --rm -v claude-code-config:/data alpine chown -R 1001:1001 /data || true) && (docker volume inspect claude-code-bashhistory >/dev/null 2>&1 && docker run --rm -v claude-code-bashhistory:/data alpine chown -R 1001:1001 /data || true)",
