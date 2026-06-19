@@ -54,7 +54,7 @@ jobs:
             # enforced after the Stryker run by `check-mutation-thresholds.mjs`.
             mutate: 'src/services/agent/agent-execution.service.ts,src/services/container-agent/plan-approval.service.ts,src/services/task.service.ts,src/lib/agents/stream-handler.ts'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

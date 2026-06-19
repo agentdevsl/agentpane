@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -51,7 +51,7 @@ jobs:
     timeout-minutes: 15
     needs: install
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup environment
         uses: ./.github/actions/setup-bun-env
         with:
@@ -93,7 +93,7 @@ jobs:
       matrix:
         shard: [1/3, 2/3, 3/3]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup environment
         uses: ./.github/actions/setup-bun-env
         with:
@@ -115,7 +115,7 @@ jobs:
     timeout-minutes: 20
     needs: install
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup environment
         uses: ./.github/actions/setup-bun-env
         with:
@@ -146,7 +146,7 @@ jobs:
     timeout-minutes: 5
     needs: install
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Semgrep
         run: pip install semgrep
@@ -213,7 +213,7 @@ jobs:
     timeout-minutes: 10
     needs: install
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup environment
         uses: ./.github/actions/setup-bun-env
         with:
@@ -230,7 +230,7 @@ jobs:
     # prove stable. See vitest.config.ts `thresholds` block.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup environment
         uses: ./.github/actions/setup-bun-env
         with:
@@ -256,7 +256,7 @@ jobs:
       matrix:
         shard: [1/2, 2/2]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup environment
         uses: ./.github/actions/setup-bun-env
         with:
